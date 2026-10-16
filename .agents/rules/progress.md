@@ -19,6 +19,13 @@ trigger: always_on
 4. Tôn trọng chủ sở hữu ghi trong ngoặc hoặc tiêu đề thành viên. Agent hỗ trợ không tự nhận thay người phụ trách; nếu người dùng yêu cầu hoán đổi, cập nhật tên và ghi lý do vào nhật ký.
 5. Với phần việc có liên quan cả Phần A và Phần B, xác định các dòng cần đối chiếu để không bỏ sót hoặc đánh dấu trùng thiếu căn cứ.
 
+## Ràng buộc thiết kế thực nghiệm
+
+- Tuân thủ mục “Lưu ý thiết kế cho benchmark tuần 8–9” trong architecture.md: tắt RAG, reset short-term memory sau mỗi run và chỉ resume dữ liệu thuộc cùng run.
+- Layer 1 quản lý vòng đời từng agent; state LangGraph collaboration quản lý luồng giữa các agent. Không dùng một state thay thế cho cả hai trách nhiệm; kiểm tra checkpoint/resume cho cả hai phạm vi.
+- Connectors chỉ cần interface; adapter MCP tối thiểu chỉ khi thật sự cần tool ngoài, A2A giữ stub. Không mở rộng thành triển khai giao thức đầy đủ trong hai tuần.
+- Mỗi bản ghi kết quả phải truy được registry VERSION và version/hash các config đã dùng, kèm snapshot cấu hình hiệu lực không chứa secret. Không nghiệm thu logging/resume nếu thiếu thông tin này.
+
 ## Trạng thái và bằng chứng
 
 - `[ ]`: chưa bắt đầu, hoặc chưa có bằng chứng cho thấy đã thực hiện.
@@ -26,7 +33,7 @@ trigger: always_on
 - `[x]`: đã hoàn thành toàn bộ nội dung dòng và được người khác kiểm tra **hoặc** có test chứng minh, đúng theo cách dùng checklist.
 - Nếu việc chưa bắt đầu bị chặn, giữ `[ ]` và ghi phụ thuộc cần giải quyết.
 - Với tài liệu, cấu trúc thư mục và quy ước nhóm, ghi bằng chứng kiểm tra phù hợp; không viết test hình thức chỉ để tích checkbox. Nếu chưa có người khác kiểm tra và chưa có test chứng minh, dùng `[~]` và ghi chờ review.
-- Không coi file rỗng, TODO hoặc stub là tính năng đã hiện thực. Riêng các dòng yêu cầu stub/interface (long-term memory, WASM, A2A) được nghiệm thu đúng phạm vi đó; MCP chỉ cần adapter tối thiểu nếu chưa cần tool ngoài.
+- Không coi file rỗng, TODO hoặc stub là tính năng đã hiện thực. Riêng các dòng yêu cầu stub/interface (long-term memory, WASM, A2A) được nghiệm thu đúng phạm vi đó; MCP chỉ thêm adapter tối thiểu khi thật sự cần tool ngoài.
 - Mock LLM được dùng làm bằng chứng cho unit test hoặc các mục yêu cầu mock; không thay thế yêu cầu API thật, Docker, task thật hay pilot.
 - Ghi bằng chứng ngay dưới checkbox khi cần: ngày YYYY-MM-DD, người/agent thực hiện, file liên quan, lệnh và kết quả test hoặc người review/kết quả review. Không ghi đã chạy/đã duyệt khi chưa có bằng chứng.
 - Nếu một thay đổi làm mất hiệu lực mục đã xong, chuyển về `[~]` hoặc `[ ]` theo tình trạng thực tế và ghi lý do.

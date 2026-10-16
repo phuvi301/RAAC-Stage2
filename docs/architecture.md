@@ -40,7 +40,7 @@ Context window của LLM có giới hạn và việc gửi nhiều ngữ cảnh 
 - `memory/long_term.py`: giao diện bộ nhớ dài hạn, có thể sử dụng Vector DB hoặc Graph DB.
 - `memory/retriever.py`: truy xuất thông tin liên quan để bổ sung ngữ cảnh theo cơ chế RAG.
 
-Trong phạm vi MVP, bộ nhớ dài hạn có thể tắt; backend RAG thực tế là phần mở rộng cần hiện thực riêng.
+Trong benchmark, bộ nhớ dài hạn (RAG) phải tắt và short-term memory phải reset sau mỗi run. Backend RAG thực tế là phần mở rộng ngoài phạm vi thực nghiệm hai tuần.
 
 ### Prompt Hydrator
 
@@ -85,6 +85,26 @@ Vị trí: `src/raac/harness/layer4_connectors/`.
 - `a2a_connector.py`: ủy quyền tác vụ cho agent khác trong mạng lưới qua giao thức A2A; hiện được xác định là stub.
 
 Không phải công cụ nào cũng cần Layer 4: công cụ cục bộ được Layer 3 thực thi trực tiếp, còn yêu cầu giao tiếp ngoại vi đi qua connector. Lời gọi connector vẫn phải tuân thủ quyền công cụ, timeout và ngân sách do harness đặt ra.
+
+### Cách ly bộ nhớ giữa các lần chạy
+
+Tắt long-term memory (RAG) trong benchmark để tránh agent giữ thông tin từ task trước, gây rò rỉ dữ liệu giữa các lần chạy và phá tính tái lập. Short-term memory được reset sau mỗi run; run mới không dùng lại lịch sử hoặc checkpoint của task khác. Resume chỉ khôi phục bộ nhớ và checkpoint thuộc chính run đang tiếp tục.
+
+### Giới hạn phạm vi connectors
+
+MCP Client và A2A Connector không cần thiết để trả lời câu hỏi nghiên cứu về mức độ thích ứng. Trong hai tuần, chỉ xây interface connector; thêm adapter MCP tối thiểu nếu thật sự cần công cụ bên ngoài, còn A2A giữ ở mức stub. Không triển khai đầy đủ các giao thức này nếu không phục vụ dữ liệu thực nghiệm.
+
+### Phân biệt state của agent và state điều phối
+
+State machine ở Layer 1 quản lý vòng đời của **từng agent**, gồm trạng thái thực thi, chờ phê duyệt, lỗi và hoàn thành. State của LangGraph trong `collaboration/state.py` quản lý **luồng giữa các agent**, gồm kế hoạch chung, message, patch, topology, đội hiện tại và số vòng.
+
+Hai loại state có trách nhiệm riêng, không dùng một loại thay cho loại còn lại. Khi checkpoint/resume, cần liên kết rõ `run_id`, `agent_id` và checkpoint/thread tương ứng để khôi phục đúng cả tiến trình từng agent lẫn vị trí điều phối. LangGraph có thể được dùng bên trong lifecycle nhưng state nội bộ đó vẫn phải tách biệt về schema và phạm vi với state collaboration.
+
+### Truy vết version cho từng bản ghi kết quả
+
+Mỗi bản ghi kết quả phải lưu version đọc từ `registry/VERSION` và version của các file trong `configs/` thực sự được dùng cho run, gồm cấu hình LLM, harness, level và benchmark. Dùng version định danh kèm hash nội dung từng file và lưu snapshot cấu hình hiệu lực để truy lại chính xác tham số đã chạy, kể cả khi file bị sửa mà chưa tăng version.
+
+Snapshot cần phản ánh giá trị override đã áp dụng nhưng không chứa API key hoặc secret. Khi resume, đối chiếu registry và cấu hình với bản ghi ban đầu; nếu khác phải báo rõ, không âm thầm trộn hai cấu hình vào cùng run.
 
 ## Luồng xử lý tổng quát
 

@@ -65,6 +65,7 @@ Thư mục `src/raac/harness/layer2_core/`.
 - [ ] `prompt_hydrator.py` ghép system prompt từ role, memory, state hiện tại và danh sách tool khả dụng (Vũ)
 - [ ] Prompt hydrator ghi lại version prompt đã dùng vào log (Vũ)
 - [ ] `memory/long_term.py` và `retriever.py` chỉ là stub có interface, long-term memory được tắt trong benchmark (Tuấn)
+- [ ] Test xác nhận task/run mới không kế thừa memory hoặc checkpoint của run trước; resume chỉ khôi phục đúng run đang tiếp tục (Vũ)
 - [ ] Bổ sung phần injection cho thông tin topology và vòng hiện tại phục vụ L3, L4 (Tuấn)
 - [ ] Unit test kiểm tra prompt sinh ra đúng và đủ các thành phần (Vũ)
 
@@ -99,7 +100,7 @@ Thư mục `src/raac/harness/layer3_execution/`.
 Thư mục `src/raac/harness/layer4_connectors/`.
 
 - [ ] `base.py` định nghĩa interface adapter chung (Vinh)
-- [ ] `mcp_client.py` có adapter tối thiểu, chỉ làm đầy đủ nếu cần tool ngoài (Vinh)
+- [ ] `mcp_client.py` có interface; chỉ thêm adapter MCP tối thiểu nếu thật sự cần tool ngoài, không triển khai đầy đủ trong phạm vi hai tuần (Vinh)
 - [ ] `a2a_connector.py` chỉ là stub có interface và docstring (Vinh)
 
 ## A5 - Tiêu chí hoàn thành harness (cả nhóm kiểm tra)
@@ -132,6 +133,7 @@ Ghi chú tiến độ phần A
 ### Engine dùng chung (`src/raac/collaboration/`)
 
 - [ ] `state.py` định nghĩa State dùng chung gồm requirement, plan, patch, kết quả test, message, số vòng và agent đang hoạt động
+- [ ] Tách state vòng đời từng agent ở Layer 1 khỏi state điều phối LangGraph; test checkpoint/resume liên kết đúng run, agent và vị trí điều phối
 - [ ] `graph_builder.py` dựng graph LangGraph từ cấu hình level
 - [ ] `engine.py` chạy graph và ghi log mỗi lần kích hoạt agent
 - [ ] `levels/base.py` chốt interface level nhận `task`, `registry`, `config` và trả về kết quả
@@ -228,6 +230,7 @@ Ghi chú tuần 9
 
 - [ ] Định nghĩa schema gồm trạng thái, patch, kết quả test, token, số lần gọi, latency, số message, số vòng, agent được kích hoạt, lỗi
 - [ ] Ghi commit hash, version registry, version prompt và cấu hình model vào mỗi bản ghi
+- [ ] Mỗi bản ghi lưu version từ `registry/VERSION`, version/hash từng file config đã dùng và snapshot cấu hình hiệu lực không chứa secret; kiểm tra không trộn cấu hình khi resume
 
 ### Cấu hình và kiểm tra
 
@@ -378,3 +381,5 @@ Ghi mỗi dòng theo dạng ngày, vấn đề hoặc quyết định, người 
 - 2026-10-16 | Tài liệu harness: ghi mô tả 4 layer vào docs/architecture.md, ánh xạ module và luồng xử lý, cập nhật mô tả trong README | Agent | Hoàn tất tài liệu 4 layer; kiểm tra đủ 4 mục Layer và liên kết checklist tồn tại; chưa đánh dấu hoàn tất phần code.
 
 - 2026-10-16 | Điều chỉnh .agents/rules/progress.md theo Phần A/B, phân công thành viên và lịch tuần 8–9; dùng [~] cho việc dở dang, bỏ quy tắc ID D01–D14 và tổng tiến độ 42 mục | Agent | Đã cập nhật rule; đối chiếu với cách dùng checklist, không thay đổi checkbox công việc.
+
+- 2026-10-16 | Chốt lưu ý thiết kế benchmark: cách ly memory, giới hạn connectors, tách state agent/collaboration và version hóa registry/config; đồng bộ architecture, checklist và rule | Agent | Đã ghi nhận thiết kế và bổ sung tiêu chí kiểm tra; các mục hiện thực vẫn chưa hoàn tất.
