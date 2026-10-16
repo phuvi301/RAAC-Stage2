@@ -1,0 +1,99 @@
+# Kiến trúc Harness
+
+Harness bao quanh mỗi agent, gồm bốn layer dưới đây. Đây là thiết kế mục tiêu; các module hiện vẫn là scaffold và chưa hiện thực đầy đủ chức năng.
+
+## Layer 1 – Interface & Lifecycle (Lớp Giao tiếp & Vòng đời)
+
+Vị trí: `src/raac/harness/layer1_lifecycle/`.
+
+### Agentic Event Loop (Reason – Act – Observe)
+
+Vòng lặp cốt lõi của agent: nhận yêu cầu → suy luận (Reason) → quyết định hành động (Act) → quan sát kết quả trả về (Observe) → lặp lại cho đến khi hoàn thành mục tiêu hoặc đạt điều kiện dừng.
+
+Module `event_loop.py` tổ chức vòng lặp bằng LangGraph, phối hợp với các layer còn lại để chuẩn bị ngữ cảnh, gọi LLM và thực thi công cụ.
+
+### State Machine (Máy trạng thái)
+
+Module `state_machine.py` quản lý các trạng thái:
+
+| Trạng thái | Ý nghĩa |
+| --- | --- |
+| `IDLE` | Chờ yêu cầu hoặc chưa bắt đầu xử lý. |
+| `PLANNING` | Suy luận và lựa chọn hành động tiếp theo. |
+| `EXECUTING_TOOL` | Đang thực thi công cụ. |
+| `WAITING_HUMAN_APPROVAL` | Tạm dừng để chờ người dùng phê duyệt. |
+| `FAILED` | Kết thúc do lỗi không thể tiếp tục trong lượt chạy hiện tại. |
+| `COMPLETED` | Hoàn thành mục tiêu. |
+
+Máy trạng thái kết hợp `checkpoint.py` để lưu và khôi phục tiến trình, và `approval.py` để xử lý phê duyệt. Thiết kế này cho phép tạm dừng, resume khi có thể phục hồi từ lỗi hoặc chờ phản hồi bất đồng bộ mà không mất dấu tiến trình. State machine cần checkpoint và chính sách phục hồi đi kèm để thực hiện được khả năng này.
+
+## Layer 2 – Intelligence Core (Lõi Trí tuệ & Ngữ cảnh)
+
+Vị trí: `src/raac/harness/layer2_core/`.
+
+### Context & Memory (Short/Long-term – RAG)
+
+Context window của LLM có giới hạn và việc gửi nhiều ngữ cảnh làm tăng chi phí. Layer này quyết định thông tin cần giữ lại trong phiên và thông tin cần truy xuất khi cần:
+
+- `context_manager.py`: chọn, cắt hoặc tóm tắt thông tin để phù hợp ngân sách context.
+- `memory/short_term.py`: giữ lịch sử và thông tin làm việc trong phiên.
+- `memory/long_term.py`: giao diện bộ nhớ dài hạn, có thể sử dụng Vector DB hoặc Graph DB.
+- `memory/retriever.py`: truy xuất thông tin liên quan để bổ sung ngữ cảnh theo cơ chế RAG.
+
+Trong phạm vi MVP, bộ nhớ dài hạn có thể tắt; backend RAG thực tế là phần mở rộng cần hiện thực riêng.
+
+### Prompt Hydrator
+
+Module `prompt_hydrator.py` lắp ghép động thông tin từ memory, trạng thái hiện tại và danh sách công cụ khả dụng vào system prompt hoàn chỉnh trước khi gửi cho LLM suy luận. Nội dung truy xuất và dữ liệu bên ngoài phải được phân biệt với chỉ dẫn hệ thống đáng tin cậy.
+
+## Layer 3 – Execution & Security (Thực thi & Bảo mật)
+
+Vị trí: `src/raac/harness/layer3_execution/`.
+
+### Tool Call Orchestration
+
+Module `tool_orchestrator.py` điều phối các hàm/công cụ mà LLM yêu cầu, bao gồm thực thi song song khi phù hợp, retry có giới hạn và timeout. Các công cụ nằm trong `tools/`, dự kiến gồm đọc file, sửa file, chạy test và tìm kiếm repository.
+
+### Sandbox (Docker/Wasm)
+
+Khi agent thực thi code tự sinh hoặc chạy lệnh shell, tác vụ bắt buộc chạy trong môi trường cô lập như Docker hoặc WebAssembly để giảm rủi ro xóa nhầm dữ liệu hệ thống thật hoặc thực thi mã từ xa (RCE).
+
+- `sandbox/docker_sandbox.py`: chuẩn bị checkout, áp patch, chạy test và dọn container.
+- `sandbox/policy.py`: áp chính sách mạng, quyền truy cập và giới hạn CPU/RAM/thời gian.
+- `sandbox/wasm_sandbox.py`: điểm mở rộng WebAssembly; hiện được xác định là stub.
+
+Docker là backend mục tiêu cho MVP. Sandbox cần giới hạn quyền, mount và tài nguyên phù hợp; chỉ chạy trong container chưa đủ để bảo đảm cách ly.
+
+### Guardrails & Cost Control
+
+Các module trong `guardrails/` kiểm tra đầu vào/đầu ra nhằm giảm nguy cơ prompt injection, rò rỉ dữ liệu nhạy cảm và quyết định không đúng schema:
+
+- `input_filter.py`: kiểm tra đầu vào và nội dung không đáng tin cậy.
+- `output_filter.py`: kiểm tra đầu ra, phát hiện hoặc che dữ liệu nhạy cảm.
+- `validators.py`: kiểm tra cấu trúc quyết định và tham số do LLM sinh ra.
+
+Module `cost_control.py` giới hạn ngân sách token và số vòng lặp tối đa, phối hợp với timeout để ngắt các lượt chạy kéo dài. Usage được thu thập tại LLM client chung trong `src/raac/llm/`, giúp kiểm soát tổng chi phí theo run và agent.
+
+## Layer 4 – Protocol Connectors (Cổng giao tiếp ngoại vi)
+
+Vị trí: `src/raac/harness/layer4_connectors/`.
+
+Đây là tầng adapter ở đáy kiến trúc, dịch yêu cầu thực thi từ Layer 3 thành thông điệp theo giao thức tương ứng và chuyển kết quả về định dạng nội bộ:
+
+- `base.py`: giao diện adapter chung.
+- `mcp_client.py`: MCP Client kết nối tới MCP Server bên ngoài để lấy dữ liệu hoặc chạy công cụ.
+- `a2a_connector.py`: ủy quyền tác vụ cho agent khác trong mạng lưới qua giao thức A2A; hiện được xác định là stub.
+
+Không phải công cụ nào cũng cần Layer 4: công cụ cục bộ được Layer 3 thực thi trực tiếp, còn yêu cầu giao tiếp ngoại vi đi qua connector. Lời gọi connector vẫn phải tuân thủ quyền công cụ, timeout và ngân sách do harness đặt ra.
+
+## Luồng xử lý tổng quát
+
+1. Layer 1 nhận task, tạo hoặc khôi phục state và bắt đầu vòng lặp.
+2. Layer 2 chuẩn bị context, memory và prompt; LLM client chung gửi yêu cầu suy luận.
+3. Layer 1 xử lý quyết định: hoàn thành, chờ phê duyệt hoặc chuyển sang thực thi công cụ.
+4. Layer 3 kiểm tra quyết định, quyền và ngân sách, rồi thực thi trong sandbox khi cần; lời gọi ngoại vi đi qua Layer 4.
+5. Kết quả trở thành observation, được ghi vào state/memory và checkpoint; vòng lặp tiếp tục hoặc kết thúc theo điều kiện dừng.
+
+`src/raac/harness/agent.py` lắp một agent từ role trong registry và các thành phần harness. Engine phối hợp nhiều agent ở `src/raac/collaboration/` dùng LangGraph để điều phối L1–L4; bốn level này là các cấp điều phối thực nghiệm, khác với bốn layer chức năng của harness.
+
+Tiến độ hiện thực được theo dõi trong [checklist](implementation_checklist.md).

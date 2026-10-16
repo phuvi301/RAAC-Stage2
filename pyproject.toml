@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "raac-agent"
+version = "0.1.0"
+description = "Python and LangGraph agent collaboration benchmark"
+requires-python = ">=3.11"
+# TODO D01: select tested versions and resolve requirements.lock.
+dependencies = ["langgraph", "pydantic>=2", "PyYAML", "docker"]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio", "ruff", "radon"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
