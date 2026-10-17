@@ -1,0 +1,55 @@
+version: 2
+repo: sympy/sympy
+base_image: python:3.8-slim-bookworm
+system_packages:
+- git
+- gcc
+- g++
+environment:
+  MPLBACKEND: Agg
+  OMP_NUM_THREADS: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+test_framework: pytest
+report_format: junit
+report_path: /workspace/pytest.xml
+install_commands:
+- - python
+  - -m
+  - pip
+  - install
+  - --no-build-isolation
+  - -e
+  - .
+test_command:
+- python
+- -m
+- pytest
+- -n
+- '2'
+- sympy
+- -q
+- --junitxml=/workspace/pytest.xml
+task_overrides: {}
+dependency_commands:
+- - python
+  - -m
+  - pip
+  - install
+  - pip==24.0
+  - setuptools==68.2.2
+  - wheel==0.41.3
+- - python
+  - -m
+  - pip
+  - install
+  - pytest==7.4.4
+  - pytest-cov==4.1.0
+  - pytest-xdist==3.5.0
+  - packaging==23.2
+  - mpmath==1.2.1
+  - numpy==1.21.6
+  - scipy==1.7.3
+  - hypothesis==6.31.6
+  - antlr4-python3-runtime==4.7.2
+  - gmpy2==2.1.5

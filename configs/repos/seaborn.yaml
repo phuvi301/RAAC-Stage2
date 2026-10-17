@@ -1,0 +1,54 @@
+version: 2
+repo: mwaskom/seaborn
+base_image: python:3.10-slim-bookworm
+system_packages:
+- git
+- gcc
+- g++
+environment:
+  MPLBACKEND: Agg
+  OMP_NUM_THREADS: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+test_framework: pytest
+report_format: junit
+report_path: /workspace/pytest.xml
+install_commands:
+- - python
+  - -m
+  - pip
+  - install
+  - --no-build-isolation
+  - -e
+  - .
+test_command:
+- python
+- -m
+- pytest
+- tests
+- -q
+- --junitxml=/workspace/pytest.xml
+task_overrides: {}
+dependency_commands:
+- - python
+  - -m
+  - pip
+  - install
+  - pip==24.0
+  - setuptools==68.2.2
+  - wheel==0.41.3
+- - python
+  - -m
+  - pip
+  - install
+  - pytest==7.4.4
+  - pytest-cov==4.1.0
+  - pytest-xdist==3.5.0
+  - packaging==23.2
+  - numpy==1.23.5
+  - scipy==1.10.1
+  - pandas==1.5.3
+  - Cython==0.29.36
+  - matplotlib==3.6.3
+  - statsmodels==0.13.5
+  - flit_core==3.9.0

@@ -1,2 +1,17 @@
-# TODO: Define and validate configuration; see docs/implementation_checklist.md.
-{}
+version: 2
+dataset: data/tasks/cleaned_benchmark.json
+repo_cache: data/repos
+results: results
+profiles:
+  psf/requests: configs/repos/requests.yaml
+  astropy/astropy: configs/repos/astropy.yaml
+  django/django: configs/repos/django.yaml
+  matplotlib/matplotlib: configs/repos/matplotlib.yaml
+  mwaskom/seaborn: configs/repos/seaborn.yaml
+  pallets/flask: configs/repos/flask.yaml
+  pydata/xarray: configs/repos/xarray.yaml
+  pylint-dev/pylint: configs/repos/pylint.yaml
+  pytest-dev/pytest: configs/repos/pytest.yaml
+  scikit-learn/scikit-learn: configs/repos/scikit-learn.yaml
+  sphinx-doc/sphinx: configs/repos/sphinx.yaml
+  sympy/sympy: configs/repos/sympy.yaml

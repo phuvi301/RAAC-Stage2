@@ -11,5 +11,8 @@ dist/
 !.env.example
 data/*
 !data/.gitkeep
+!data/tasks/
+data/tasks/*
+!data/tasks/cleaned_benchmark.json
 results/*
 !results/.gitkeep

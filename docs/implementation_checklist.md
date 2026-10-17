@@ -12,7 +12,7 @@ Cách dùng file này
 - Chữ trong ngoặc cuối dòng là người phụ trách, Vũ, Vinh hoặc Tuấn, đổi lại nếu hoán đổi việc.
 - Ghi ngày cập nhật cuối mỗi khi sửa file, và ghi vấn đề phát sinh vào mục nhật ký cuối file.
 
-Cập nhật gần nhất ngày 2026-10-16
+Cập nhật gần nhất ngày 2026-10-17
 
 ---
 
@@ -81,10 +81,10 @@ Thư mục `src/raac/harness/layer3_execution/`.
 
 ### Sandbox
 
-- [ ] `docker_sandbox.py` checkout repo ở base commit, áp patch, chạy pytest có timeout, thu kết quả và dọn container (Vinh)
-- [ ] `sandbox/policy.py` tắt network, giới hạn CPU, RAM và thời gian chạy (Vinh)
-- [ ] `docker/Dockerfile.sandbox` dựng image chạy code của agent (Vinh)
-- [ ] Kiểm thử sandbox bằng một patch cố tình độc hại và xác nhận không ảnh hưởng máy chủ (Vinh)
+- [x] `docker_sandbox.py` checkout repo ở base commit, áp patch, chạy pytest có timeout, thu kết quả và dọn container (Vinh)
+- [x] `sandbox/policy.py` tắt network, giới hạn CPU, RAM và thời gian chạy (Vinh)
+- [x] `docker/Dockerfile.sandbox` dựng image chạy code của agent (Vinh)
+- [x] Kiểm thử sandbox bằng một patch cố tình độc hại và xác nhận không ảnh hưởng máy chủ (Vinh)
 - [ ] `wasm_sandbox.py` chỉ là stub có interface (Vinh)
 
 ### Guardrails và kiểm soát chi phí
@@ -114,6 +114,7 @@ Thư mục `src/raac/harness/layer4_connectors/`.
 
 Ghi chú tiến độ phần A
 
+- 2026-10-17 | Agent triển khai sandbox độc lập: mirror cache có khóa, archive commit LF, Dockerfile theo profile, baseline/candidate riêng volume, timeout và cleanup. Kiểm chứng `RAAC_DOCKER_TESTS=1 python -m pytest -q`: 21 passed, gồm 4 integration Docker thật trên Linux Engine 29.1.2; patch thử ghi file host không đổi sentinel. Các agent/layer khác chưa được nghiệm thu.
 - ........
 
 ---
@@ -213,10 +214,10 @@ Ghi chú tuần 9
 
 ### Dataset và môi trường chạy
 
-- [ ] `benchmark/dataset.py` đọc task gồm nội dung issue, repo, base commit, file test
-- [ ] Chuẩn hóa task về một schema duy nhất
-- [ ] Dựng pipeline Docker, mỗi run checkout repo, áp patch, chạy pytest có timeout, thu kết quả rồi dọn container
-- [ ] Xác nhận mỗi run bắt đầu từ môi trường sạch
+- [~] `benchmark/dataset.py` đọc task gồm nội dung issue, repo, base commit, file test — đã đọc schema Stage1; dataset hiện không có file test, dùng lệnh suite trong profile, chưa có regression test theo issue.
+- [x] Chuẩn hóa task về một schema duy nhất
+- [x] Dựng pipeline Docker, mỗi run checkout repo, áp patch, chạy pytest có timeout, thu kết quả rồi dọn container
+- [x] Xác nhận mỗi run bắt đầu từ môi trường sạch
 
 ### Harness chạy hàng loạt (`benchmark/runner.py`)
 
@@ -236,7 +237,7 @@ Ghi chú tuần 9
 
 - [ ] Gom cấu hình LLM (model, temperature, seed nếu có, prompt version) vào `configs/llm.yaml` có version
 - [ ] Viết `dummy level` chỉ gọi LLM một lần để kiểm tra harness trước khi L1 xong
-- [ ] Viết `cli.py` với lệnh chạy một (task, level)
+- [~] Viết `cli.py` với lệnh chạy một (task, level) — đã có sandbox check/prepare/run theo task; chưa tích hợp level hoặc LLM.
 
 Tiêu chí thành công tuần 8
 
@@ -246,6 +247,7 @@ Tiêu chí thành công tuần 8
 
 Ghi chú tuần 8
 
+- 2026-10-17 | Agent: loader Stage1 (120 issue/12 repo), profile Requests và CLI sandbox đã có; 17 unit/Git tests và 4 Docker integration tests passed. Pilot psf__requests-6027 đã build image và chạy suite, lưu results/; xem docs/pilot_log.md. Thiếu test mục tiêu theo issue, chưa có batch/resume hoặc tích hợp level.
 - ........
 
 ## Tuần 9 - Evaluator, chi phí và chuẩn bị chạy full
@@ -383,3 +385,27 @@ Ghi mỗi dòng theo dạng ngày, vấn đề hoặc quyết định, người 
 - 2026-10-16 | Điều chỉnh .agents/rules/progress.md theo Phần A/B, phân công thành viên và lịch tuần 8–9; dùng [~] cho việc dở dang, bỏ quy tắc ID D01–D14 và tổng tiến độ 42 mục | Agent | Đã cập nhật rule; đối chiếu với cách dùng checklist, không thay đổi checkbox công việc.
 
 - 2026-10-16 | Chốt lưu ý thiết kế benchmark: cách ly memory, giới hạn connectors, tách state agent/collaboration và version hóa registry/config; đồng bộ architecture, checklist và rule | Agent | Đã ghi nhận thiết kế và bổ sung tiêu chí kiểm tra; các mục hiện thực vẫn chưa hoàn tất.
+
+- 2026-10-17 | Hiện thực pipeline sandbox Docker độc lập theo yêu cầu người dùng; cache data/repos, volume riêng từng phase, profile theo repo/task, provenance và CLI. 21 test passed gồm Docker thật; không đánh dấu runner/LLM/A5. Dataset thiếu file test nên loader giữ [~]. Sửa export LF trên Windows, profile Debian Bookworm và network none để giữ localhost. | Agent hỗ trợ hạ tầng của Vinh | Hoàn tất phạm vi pipeline; theo dõi baseline Requests và giới hạn dataset tại docs/pilot_log.md.
+
+- 2026-10-17 | Đưa bản sao dataset Stage1 vào data/tasks/cleaned_benchmark.json, chuyển cấu hình mặc định sang đường dẫn tương đối và cho phép Git theo dõi riêng file dataset; giữ nguyên nguồn Stage1, cache/results vẫn gitignore. | Agent | Đã so sánh SHA-256 nguồn/bản sao trùng nhau và nạp thành công 120 task thuộc 12 repo; không đổi trạng thái loader còn thiếu file test theo issue.
+
+- 2026-10-17 | Mở rộng sandbox baseline: 12 profile ánh xạ đủ 120 task; kiểm tra manifest đúng commit, thêm batch tuần tự, checkpoint atomic, resume có fingerprint, retry lỗi hạ tầng và JSON/CSV. 32 tests passed gồm 6 Docker integration (hủy build, batch ngắt/resume và cách ly); smoke 12 repo đang chạy, chưa nghiệm thu 120/120. Không thay runner L1–L4 hoặc đánh dấu A5/evaluator. | Agent hỗ trợ Vinh | Đang kiểm chứng Docker thực tế; xem results/batches và docs/sandbox_profiles.md.
+
+- 2026-10-17 | Kiểm chứng mở rộng sandbox: 41 test framework passed gồm 7 Docker integration (thêm rebuild extension native sau patch); 35 unit passed sau kiểm tra tổng deadline source + build. Profile check covered=120/120, errors=0. Chẩn đoán đại diện đã phát hiện/sửa thiếu pybind11, Git metadata Versioneer, Matplotlib lịch sử và Werkzeug; các profile đổi cần kiểm chứng lại bằng batch chuẩn. | Agent hỗ trợ Vinh | Đang chạy Docker thực tế, chưa nghiệm thu 120 môi trường; không đổi checkbox benchmark theo level, evaluator hoặc A5.
+
+- 2026-10-17 | Kiểm tra cuối sau bổ sung tổng deadline: `RAAC_DOCKER_TESTS=1 python -m pytest -q --tb=short` đạt **42 passed** trong 121,44 giây (35 unit + 7 integration Docker thật); Ruff, format và `git diff --check` qua.
+
+- 2026-10-17 | Khởi chạy batch chuẩn baseline-all-v1 đủ 120 task, tuần tự, ngân sách 1800/1800 giây; manifest, summary JSON/CSV và CSV theo repo đã tạo, fingerprint đóng băng. | Agent hỗ trợ Vinh | Đang chạy, chưa nghiệm thu hỗ trợ toàn dataset; theo dõi results/batches/baseline-all-v1 và docs/pilot_log.md. Không đánh dấu hoàn tất A5/evaluator/benchmark L1–L4.
+
+- 2026-10-17 | Tiếp tục baseline-all-v1: 8/120 task Requests đã chạy suite (test_failed, không collection/timeout). Requests-1051 có lỗi tương thích HTTPConnection strict trên Python 3.9; chuẩn bị configs/repos/requests-legacy.yaml dùng Python 2.7, chưa nghiệm thu profile này. Tiến trình cũ mất khi build Flask (BuildKit context canceled); lưu interrupted record và dọn builder tồn dư, resume giữ 8 kết quả cũ. Flask dựng lại thành công, đang chạy tiếp. | Agent hỗ trợ Vinh | Chưa nghiệm thu toàn dataset.
+
+- 2026-10-17 | Resume baseline-all-v1: Flask 5010 pass 481 test, 3 skip; tổng 9/120 suite đã chạy (8 test_failed Requests, 1 passed), Seaborn đang chạy. Đã khởi động driver nền PID 16080 để chờ khóa/resume batch nếu bị ngắt và chạy validation requests-1051-legacy-v1 sau batch chính. Profile legacy Python 2.7 và config riêng chưa được kiểm chứng Docker; không thay fingerprint batch đang chạy. Kết quả driver ở results/baseline-driver.json và *.log. | Agent hỗ trợ Vinh | Đang chạy, chưa nghiệm thu 120/120.
+
+- 2026-10-17 | Heartbeat: batch baseline-all-v1 đã chạy suite 26/120 task, 5 passed và 21 test_failed; không collection/preparation/timeout ở các task đã hoàn tất. Pytest có subprocess ModuleNotFoundError pytest, setuptools deprecation và attrs không tương thích; chuẩn bị profile pytest-compatible cùng config compatibility riêng, chưa kiểm chứng Docker. Không đổi fingerprint batch đang chạy, chưa push. | Agent hỗ trợ Vinh | Đang chạy, cần kiểm chứng lại môi trường pytest và Requests-1051.
+
+- 2026-10-17 | Pylint-4901 phát hiện collection_error do thiếu package py._path. Chuẩn bị pylint-compatible.yaml thêm py==1.11.0 và config compatibility; các profile sửa cần kiểm chứng bằng batch riêng sau batch chính/legacy. Tổng hiện tại 26 suite đã chạy, 1 collection_error, 93 chưa chạy. | Agent hỗ trợ Vinh | Đang xử lý, chưa nghiệm thu/push.
+
+- 2026-10-17 | Heartbeat 18:22: baseline-all-v1 đã chạy suite 40/120 (5 passed, 35 test_failed), 6 Pylint collection_error thiếu py, 1 Sphinx preparation_error thiếu flit_core, 73 chưa chạy. Đối chiếu pyproject.toml Sphinx-10678 yêu cầu flit_core>=3.7; thêm flit_core==3.9.0 vào sphinx-compatible.yaml/config compatibility. Queue kiểm chứng sau batch chính và legacy gồm pytest/Pylint/Sphinx; chưa coi profile sửa là đã nghiệm thu. | Agent hỗ trợ Vinh | Đang chạy, chưa push.
+
+- 2026-10-17 | Người dùng yêu cầu push ngay bản triển khai hiện có. Snapshot trước push: baseline-all-v1 đang chạy, 41 suite đã chạy (5 passed, 36 test_failed), 6 collection_error Pylint, 1 preparation_error Sphinx, 72 chưa chạy. Profile compatibility/legacy còn chờ Docker kiểm chứng; chưa nghiệm thu hỗ trợ 120/120. Chỉ commit source/config/test/tài liệu và dataset; cache/results/log không đưa lên Git. | Agent hỗ trợ Vinh | Push bản triển khai đang kiểm chứng theo yêu cầu; tiếp tục theo dõi batch.

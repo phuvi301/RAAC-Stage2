@@ -1,0 +1,216 @@
+version: 2
+repo: astropy/astropy
+base_image: python:3.10-slim-bookworm
+system_packages:
+- git
+- gcc
+- g++
+- gfortran
+- libexpat1-dev
+environment:
+  MPLBACKEND: Agg
+  OMP_NUM_THREADS: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+test_framework: pytest
+report_format: junit
+report_path: /workspace/pytest.xml
+install_commands:
+- - python
+  - -m
+  - pip
+  - install
+  - --no-build-isolation
+  - -e
+  - .
+test_command:
+- python
+- -m
+- pytest
+- astropy
+- docs
+- -q
+- --junitxml=/workspace/pytest.xml
+task_overrides:
+  astropy__astropy-7335:
+    base_image: python:3.8-slim-bookworm
+    install_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - --no-build-isolation
+      - -e
+      - .
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==57.5.0
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==6.2.5
+      - numpy==1.19.5
+      - scipy==1.5.4
+      - Cython==0.29.36
+      - Jinja2==3.0.3
+      - pytest-astropy==0.9.0
+      - h5py==3.8.0
+      - PyYAML==6.0.1
+      - pytest-mpl==0.16.1
+      - ipython==8.12.3
+      - objgraph==3.5.0
+      - matplotlib==3.3.4
+  astropy__astropy-8706:
+    base_image: python:3.8-slim-bookworm
+    install_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - --no-build-isolation
+      - -e
+      - .
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==57.5.0
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==6.2.5
+      - numpy==1.19.5
+      - scipy==1.5.4
+      - Cython==0.29.36
+      - Jinja2==3.0.3
+      - pytest-astropy==0.9.0
+      - h5py==3.8.0
+      - PyYAML==6.0.1
+      - pytest-mpl==0.16.1
+      - ipython==8.12.3
+      - objgraph==3.5.0
+      - matplotlib==3.3.4
+  astropy__astropy-12906:
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==68.2.2
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==7.4.4
+      - pytest-cov==4.1.0
+      - pytest-xdist==3.5.0
+      - packaging==23.2
+      - numpy==1.23.5
+      - scipy==1.10.1
+      - pandas==1.5.3
+      - Cython==0.29.22
+      - setuptools-scm==7.1.0
+      - extension-helpers==1.0.0
+      - pyerfa==2.0.0.3
+      - astropy-iers-data
+      - PyYAML==6.0.1
+      - pytest-astropy==0.10.0
+      - pytest-doctestplus==0.13.0
+      - hypothesis==6.88.1
+      - h5py==3.8.0
+      - pytest-mpl==0.16.1
+      - ipython==8.12.3
+      - objgraph==3.5.0
+      - matplotlib==3.6.3
+    base_image: python:3.9-slim-bookworm
+  astropy__astropy-13009:
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==68.2.2
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==7.4.4
+      - pytest-cov==4.1.0
+      - pytest-xdist==3.5.0
+      - packaging==23.2
+      - numpy==1.23.5
+      - scipy==1.10.1
+      - pandas==1.5.3
+      - Cython==0.29.22
+      - setuptools-scm==7.1.0
+      - extension-helpers==1.0.0
+      - pyerfa==2.0.0.3
+      - astropy-iers-data
+      - PyYAML==6.0.1
+      - pytest-astropy==0.10.0
+      - pytest-doctestplus==0.13.0
+      - hypothesis==6.88.1
+      - h5py==3.8.0
+      - pytest-mpl==0.16.1
+      - ipython==8.12.3
+      - objgraph==3.5.0
+      - matplotlib==3.6.3
+    base_image: python:3.9-slim-bookworm
+dependency_commands:
+- - python
+  - -m
+  - pip
+  - install
+  - pip==24.0
+  - setuptools==68.2.2
+  - wheel==0.41.3
+- - python
+  - -m
+  - pip
+  - install
+  - pytest==7.4.4
+  - pytest-cov==4.1.0
+  - pytest-xdist==3.5.0
+  - packaging==23.2
+  - numpy==1.23.5
+  - scipy==1.10.1
+  - pandas==1.5.3
+  - Cython==0.29.30
+  - setuptools-scm==7.1.0
+  - extension-helpers==1.0.0
+  - pyerfa==2.0.0.3
+  - astropy-iers-data
+  - PyYAML==6.0.1
+  - pytest-astropy==0.10.0
+  - pytest-doctestplus==0.13.0
+  - hypothesis==6.88.1
+  - h5py==3.8.0
+  - pytest-mpl==0.16.1
+  - ipython==8.12.3
+  - objgraph==3.5.0
+  - matplotlib==3.6.3
+source_history: versioned
+post_patch_commands:
+- - python
+  - -m
+  - pip
+  - install
+  - --no-index
+  - --no-deps
+  - --no-build-isolation
+  - -e
+  - .
