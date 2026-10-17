@@ -117,3 +117,11 @@ Snapshot cần phản ánh giá trị override đã áp dụng nhưng không ch�
 `src/raac/harness/agent.py` lắp một agent từ role trong registry và các thành phần harness. Engine phối hợp nhiều agent ở `src/raac/collaboration/` dùng LangGraph để điều phối L1–L4; bốn level này là các cấp điều phối thực nghiệm, khác với bốn layer chức năng của harness.
 
 Tiến độ hiện thực được theo dõi trong [checklist](implementation_checklist.md).
+
+## Pipeline sandbox đã hiện thực
+
+CLI raac sandbox gọi DockerSandbox độc lập với LLM/collaboration: dataset → profile → mirror cache → archive base commit → build/reuse image → baseline/candidate với volume riêng → log/XML/record → cleanup. Thiếu profile được báo profile_missing, không chạy test trên host. Xem [sandbox.md](sandbox.md).
+
+Dockerfile.sandbox hiện là template build theo repo. Kiểm thử Docker thật đã xác nhận patch fail→pass, timeout, cách ly mạng/workspace, patch thử ghi file host và cleanup; các layer/level khác vẫn còn scaffold.
+
+Sandbox baseline có runner batch riêng ở layer3_execution/sandbox/batch.py; benchmark/runner.py dành cho L1–L4 vẫn chưa hiện thực. Manifest/checkpoint của batch baseline tách biệt với checkpoint agent và collaboration; không dùng chúng thay cho nhau. Budget batch là 30 phút build + 30 phút test/task, một task tại một thời điểm. Profile hợp lệ và batch xử lý hết không đồng nghĩa toàn dataset đã chạy test thành công.

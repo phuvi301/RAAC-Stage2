@@ -1,0 +1,423 @@
+version: 2
+repo: scikit-learn/scikit-learn
+base_image: python:3.10-slim-bookworm
+system_packages:
+- git
+- gcc
+- g++
+- gfortran
+- libopenblas-dev
+- liblapack-dev
+environment:
+  MPLBACKEND: Agg
+  OMP_NUM_THREADS: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+test_framework: pytest
+report_format: junit
+report_path: /workspace/pytest.xml
+install_commands:
+- - python
+  - -m
+  - pip
+  - install
+  - --no-build-isolation
+  - -e
+  - .
+test_command:
+- python
+- -m
+- pytest
+- sklearn
+- -q
+- --junitxml=/workspace/pytest.xml
+task_overrides:
+  scikit-learn__scikit-learn-9287:
+    base_image: python:3.8-slim-bookworm
+    install_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - --no-build-isolation
+      - -e
+      - .
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==57.5.0
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==6.2.5
+      - numpy==1.17.5
+      - scipy==1.5.4
+      - Cython==0.29.36
+      - joblib==1.0.1
+      - threadpoolctl==3.1.0
+      - matplotlib==3.2.2
+      - Pillow==9.5.0
+      - pandas==1.1.5
+      - numpydoc==1.1.0
+  scikit-learn__scikit-learn-10284:
+    base_image: python:3.8-slim-bookworm
+    install_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - --no-build-isolation
+      - -e
+      - .
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==57.5.0
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==6.2.5
+      - numpy==1.17.5
+      - scipy==1.5.4
+      - Cython==0.29.36
+      - joblib==1.0.1
+      - threadpoolctl==3.1.0
+      - matplotlib==3.2.2
+      - Pillow==9.5.0
+      - pandas==1.1.5
+      - numpydoc==1.1.0
+  scikit-learn__scikit-learn-12650:
+    base_image: python:3.8-slim-bookworm
+    install_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - --no-build-isolation
+      - -e
+      - .
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==57.5.0
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==6.2.5
+      - numpy==1.17.5
+      - scipy==1.5.4
+      - Cython==0.29.36
+      - joblib==1.0.1
+      - threadpoolctl==3.1.0
+      - matplotlib==3.2.2
+      - Pillow==9.5.0
+      - pandas==1.1.5
+      - numpydoc==1.1.0
+  scikit-learn__scikit-learn-12972:
+    base_image: python:3.8-slim-bookworm
+    install_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - --no-build-isolation
+      - -e
+      - .
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==57.5.0
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==6.2.5
+      - numpy==1.17.5
+      - scipy==1.5.4
+      - Cython==0.29.36
+      - joblib==1.0.1
+      - threadpoolctl==3.1.0
+      - matplotlib==3.2.2
+      - Pillow==9.5.0
+      - pandas==1.1.5
+      - numpydoc==1.1.0
+  scikit-learn__scikit-learn-13110:
+    base_image: python:3.8-slim-bookworm
+    install_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - --no-build-isolation
+      - -e
+      - .
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==57.5.0
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==6.2.5
+      - numpy==1.17.5
+      - scipy==1.5.4
+      - Cython==0.29.36
+      - joblib==1.0.1
+      - threadpoolctl==3.1.0
+      - matplotlib==3.2.2
+      - Pillow==9.5.0
+      - pandas==1.1.5
+      - numpydoc==1.1.0
+  scikit-learn__scikit-learn-14059:
+    base_image: python:3.8-slim-bookworm
+    install_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - --no-build-isolation
+      - -e
+      - .
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==57.5.0
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==6.2.5
+      - numpy==1.17.5
+      - scipy==1.5.4
+      - Cython==0.29.36
+      - joblib==1.0.1
+      - threadpoolctl==3.1.0
+      - matplotlib==3.2.2
+      - Pillow==9.5.0
+      - pandas==1.1.5
+      - numpydoc==1.1.0
+  scikit-learn__scikit-learn-14709:
+    base_image: python:3.8-slim-bookworm
+    install_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - --no-build-isolation
+      - -e
+      - .
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==57.5.0
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==6.2.5
+      - numpy==1.17.5
+      - scipy==1.5.4
+      - Cython==0.29.36
+      - joblib==1.0.1
+      - threadpoolctl==3.1.0
+      - matplotlib==3.2.2
+      - Pillow==9.5.0
+      - pandas==1.1.5
+      - numpydoc==1.1.0
+  scikit-learn__scikit-learn-14893:
+    base_image: python:3.8-slim-bookworm
+    install_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - --no-build-isolation
+      - -e
+      - .
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==57.5.0
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==6.2.5
+      - numpy==1.17.5
+      - scipy==1.5.4
+      - Cython==0.29.36
+      - joblib==1.0.1
+      - threadpoolctl==3.1.0
+      - matplotlib==3.2.2
+      - Pillow==9.5.0
+      - pandas==1.1.5
+      - numpydoc==1.1.0
+  scikit-learn__scikit-learn-25844:
+    base_image: python:3.8-slim-bookworm
+    install_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - --no-build-isolation
+      - -e
+      - .
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==57.5.0
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==6.2.5
+      - numpy==1.17.5
+      - scipy==1.5.4
+      - Cython==0.29.36
+      - joblib==1.0.1
+      - threadpoolctl==3.1.0
+      - matplotlib==3.2.2
+      - Pillow==9.5.0
+      - pandas==1.1.5
+      - numpydoc==1.1.0
+  scikit-learn__scikit-learn-25957:
+    base_image: python:3.8-slim-bookworm
+    install_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - --no-build-isolation
+      - -e
+      - .
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==57.5.0
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==6.2.5
+      - numpy==1.17.5
+      - scipy==1.5.4
+      - Cython==0.29.36
+      - joblib==1.0.1
+      - threadpoolctl==3.1.0
+      - matplotlib==3.2.2
+      - Pillow==9.5.0
+      - pandas==1.1.5
+      - numpydoc==1.1.0
+  scikit-learn__scikit-learn-26306:
+    base_image: python:3.8-slim-bookworm
+    install_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - --no-build-isolation
+      - -e
+      - .
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==57.5.0
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==6.2.5
+      - numpy==1.17.5
+      - scipy==1.5.4
+      - Cython==0.29.36
+      - joblib==1.0.1
+      - threadpoolctl==3.1.0
+      - matplotlib==3.2.2
+      - Pillow==9.5.0
+      - pandas==1.1.5
+      - numpydoc==1.1.0
+dependency_commands:
+- - python
+  - -m
+  - pip
+  - install
+  - pip==24.0
+  - setuptools==59.8.0
+  - wheel==0.41.3
+- - python
+  - -m
+  - pip
+  - install
+  - pytest==7.4.4
+  - pytest-cov==4.1.0
+  - pytest-xdist==3.5.0
+  - packaging==23.2
+  - numpy==1.23.5
+  - scipy==1.10.1
+  - pandas==1.5.3
+  - Cython==0.29.36
+  - joblib==1.2.0
+  - threadpoolctl==3.1.0
+  - matplotlib==3.6.3
+  - Pillow==9.5.0
+  - numpydoc==1.5.0
+  - pandas==1.5.3
+  - numpydoc==1.1.0
+post_patch_commands:
+- - python
+  - -m
+  - pip
+  - install
+  - --no-index
+  - --no-deps
+  - --no-build-isolation
+  - -e
+  - .

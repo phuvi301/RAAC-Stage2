@@ -1,0 +1,105 @@
+version: 2
+repo: sphinx-doc/sphinx
+base_image: python:3.9-slim-bookworm
+system_packages:
+- git
+- gcc
+- g++
+- graphviz
+environment:
+  MPLBACKEND: Agg
+  OMP_NUM_THREADS: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+test_framework: pytest
+report_format: junit
+report_path: /workspace/pytest.xml
+install_commands:
+- - python
+  - -m
+  - pip
+  - install
+  - --no-build-isolation
+  - -e
+  - .
+test_command:
+- python
+- -m
+- pytest
+- tests
+- -q
+- --junitxml=/workspace/pytest.xml
+task_overrides:
+  sphinx-doc__sphinx-10678:
+    base_image: python:3.11-slim-bookworm
+    install_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - --no-build-isolation
+      - -e
+      - .[test]
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==68.2.2
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==7.4.4
+      - pytest-cov==4.1.0
+      - pytest-xdist==3.5.0
+      - packaging==23.2
+      - docutils==0.20.1
+      - Jinja2==3.1.2
+      - Pygments==2.16.1
+      - babel==2.12.1
+      - alabaster==0.7.13
+      - imagesize==1.4.1
+      - snowballstemmer==2.2.0
+      - requests==2.31.0
+      - html5lib==1.1
+      - beautifulsoup4==4.12.2
+      - Cython==3.0.5
+      - defusedxml==0.7.1
+      - flit_core==3.9.0
+dependency_commands:
+- - python
+  - -m
+  - pip
+  - install
+  - pip==24.0
+  - setuptools==68.2.2
+  - wheel==0.41.3
+- - python
+  - -m
+  - pip
+  - install
+  - pytest==7.4.4
+  - pytest-cov==4.1.0
+  - pytest-xdist==3.5.0
+  - packaging==23.2
+  - docutils==0.17.1
+  - Jinja2==2.11.3
+  - MarkupSafe==2.0.1
+  - Pygments==2.15.1
+  - babel==2.12.1
+  - alabaster==0.7.13
+  - imagesize==1.4.1
+  - snowballstemmer==2.2.0
+  - requests==2.31.0
+  - html5lib==1.1
+  - beautifulsoup4==4.12.2
+  - Cython==0.29.36
+  - defusedxml==0.7.1
+  - sphinxcontrib-applehelp==1.0.4
+  - sphinxcontrib-devhelp==1.0.2
+  - sphinxcontrib-htmlhelp==2.0.1
+  - sphinxcontrib-qthelp==1.0.3
+  - sphinxcontrib-serializinghtml==1.1.5

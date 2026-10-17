@@ -1,1 +1,16 @@
-# TODO: Implement; see docs/implementation_checklist.md.
+# Rendered from a validated repository profile; dependency layers precede source.
+FROM {base_image}
+{system_setup}
+RUN useradd --uid 1000 --create-home runner && mkdir -p /workspace && chown 1000:1000 /workspace
+WORKDIR /workspace
+USER 1000:1000
+ENV PATH=/home/runner/.local/bin:$PATH
+ENV PYTHONDONTWRITEBYTECODE=1
+{environment}
+{dependency_steps}
+USER root
+ADD source.tar /workspace/
+RUN if [ -d /workspace/.git ]; then git -c safe.directory=/workspace reset --mixed --quiet HEAD && git -c safe.directory=/workspace checkout-index --all --force; fi
+RUN chown -R 1000:1000 /workspace
+USER 1000:1000
+{install_steps}

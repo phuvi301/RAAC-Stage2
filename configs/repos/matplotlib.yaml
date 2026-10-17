@@ -1,0 +1,159 @@
+version: 2
+repo: matplotlib/matplotlib
+base_image: python:3.10-slim-bookworm
+system_packages:
+- git
+- gcc
+- g++
+- pkg-config
+- libfreetype6-dev
+- libpng-dev
+- libqhull-dev
+- fonts-dejavu-core
+- imagemagick
+- inkscape
+environment:
+  MPLBACKEND: Agg
+  OMP_NUM_THREADS: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+  MPLSETUPCFG: /tmp/mplsetup.cfg
+test_framework: pytest
+report_format: junit
+report_path: /workspace/pytest.xml
+install_commands:
+- - python
+  - -m
+  - pip
+  - install
+  - --no-build-isolation
+  - -e
+  - .
+test_command:
+- python
+- -m
+- pytest
+- lib
+- -q
+- --junitxml=/workspace/pytest.xml
+task_overrides:
+  matplotlib__matplotlib-13982:
+    base_image: python:3.8-slim-bookworm
+    install_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - --no-build-isolation
+      - -e
+      - .
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==57.5.0
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==6.2.5
+      - numpy==1.19.5
+      - scipy==1.5.4
+      - Cython==0.29.36
+      - Pillow==9.5.0
+      - pyparsing==2.4.7
+      - cycler==0.11.0
+      - kiwisolver==1.4.4
+      - python-dateutil==2.8.2
+      - pytest-mpl==0.16.1
+      - pybind11==2.10.4
+    - - python
+      - -c
+      - from pathlib import Path; Path('/tmp/mplsetup.cfg').write_text('[libs]\nsystem_freetype
+        = true\nsystem_qhull = true\n')
+  matplotlib__matplotlib-20665:
+    base_image: python:3.8-slim-bookworm
+    install_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - --no-build-isolation
+      - -e
+      - .
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==57.5.0
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==6.2.5
+      - numpy==1.19.5
+      - scipy==1.5.4
+      - Cython==0.29.36
+      - Pillow==9.5.0
+      - pyparsing==2.4.7
+      - cycler==0.11.0
+      - kiwisolver==1.4.4
+      - python-dateutil==2.8.2
+      - pytest-mpl==0.16.1
+      - pybind11==2.10.4
+    - - python
+      - -c
+      - from pathlib import Path; Path('/tmp/mplsetup.cfg').write_text('[libs]\nsystem_freetype
+        = true\nsystem_qhull = true\n')
+dependency_commands:
+- - python
+  - -m
+  - pip
+  - install
+  - pip==24.0
+  - setuptools==68.2.2
+  - wheel==0.41.3
+- - python
+  - -m
+  - pip
+  - install
+  - pytest==7.4.4
+  - pytest-cov==4.1.0
+  - pytest-xdist==3.5.0
+  - packaging==23.2
+  - numpy==1.23.5
+  - scipy==1.10.1
+  - pandas==1.5.3
+  - Cython==0.29.36
+  - Pillow==9.5.0
+  - pyparsing==2.4.7
+  - kiwisolver==1.4.4
+  - contourpy==1.0.7
+  - cycler==0.11.0
+  - fonttools==4.38.0
+  - setuptools-scm==7.1.0
+  - pytest-mpl==0.16.1
+  - python-dateutil==2.8.2
+  - certifi
+  - pybind11==2.10.4
+- - python
+  - -c
+  - from pathlib import Path; Path('/tmp/mplsetup.cfg').write_text('[libs]\nsystem_freetype
+    = true\nsystem_qhull = true\n')
+source_history: versioned
+post_patch_commands:
+- - python
+  - -m
+  - pip
+  - install
+  - --no-index
+  - --no-deps
+  - --no-build-isolation
+  - -e
+  - .

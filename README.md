@@ -5,7 +5,7 @@ Khung dự án Python >= 3.11 / LangGraph để xây dựng và so sánh bốn c
 - Kế hoạch và tiến độ: [checklist](docs/implementation_checklist.md).
 - Quy tắc agent: [.agents/rules/progress.md](.agents/rules/progress.md).
 - Kiến trúc: harness 4 layer bao quanh mỗi agent, collaboration engine dùng LangGraph.
-- Cấu trúc hiện là scaffold; các module Python chưa hiện thực, YAML và Dockerfile còn TODO.
+- CLI sandbox Docker đã hiện thực; agent/LLM/collaboration còn scaffold. Xem [hướng dẫn sandbox](docs/sandbox.md).
 - requirements.lock chưa chứa dependency đã khóa; cần resolve và kiểm tra ở D01.
 - WASM, A2A và long-term memory được đặc tả là stub/tuỳ chọn trong kế hoạch.
 
@@ -16,7 +16,7 @@ Khung dự án Python >= 3.11 / LangGraph để xây dựng và so sánh bốn c
     python -m pip install -e ".[dev]"
     python -m pytest
 
-Không commit API key hoặc dữ liệu nhạy cảm. Chưa có CLI chạy được ở giai đoạn scaffold.
+Không commit API key hoặc dữ liệu nhạy cảm. CLI sandbox đã có; CLI benchmark và các level chưa hiện thực.
 
 ## Cấu trúc thư mục
 
@@ -151,3 +151,27 @@ Cây dưới đây lược bỏ các file `__init__.py` và `.gitkeep` để d�
 ~~~
 
 README mô tả cách bắt đầu và vị trí các thành phần. [docs/architecture.md](docs/architecture.md) dành cho thiết kế kỹ thuật: trách nhiệm từng layer, luồng dữ liệu, LangGraph state/nodes/edges, checkpoint và cách các agent phối hợp. File kiến trúc đã mô tả thiết kế bốn layer; cây thư mục và tài liệu thiết kế không xác nhận các tính năng đã được hiện thực.
+
+## Pipeline repo và test
+
+```powershell
+.venv\Scripts\Activate.ps1
+raac sandbox check
+raac sandbox prepare --task-id psf__requests-6027
+raac sandbox run --task-id psf__requests-6027
+raac sandbox run --task-id psf__requests-6027 --patch candidate.patch
+```
+
+Cần Docker Desktop ở chế độ Linux containers. Cache Git nằm ở `data/repos/<owner>/<repo>.git`, kết quả ở `results/<run_id>/record.json`. Có profile cho 12 repo trong dataset; mức kiểm chứng thực tế được ghi trong báo cáo batch. Các kiểm thử cách ly đã chạy qua Docker thật. Xem [docs/sandbox.md](docs/sandbox.md) để cấu hình và kiểm thử.
+
+Dataset đi kèm project tại `data/tasks/cleaned_benchmark.json` (120 issue/12 repo); cấu hình mặc định không cần đường dẫn đến Stage1.
+
+Chạy baseline toàn dataset và tiếp tục sau khi ngắt:
+
+```powershell
+raac sandbox profiles check
+raac sandbox batch --batch-id baseline-all
+raac sandbox batch --batch-id baseline-all --resume
+```
+
+Xem `results/batches/<batch_id>/summary.json` và `summary.csv` để phân biệt test đã chạy với lỗi môi trường hoặc timeout. Profile hợp lệ cho 120 task chưa chứng minh 120 môi trường đã chạy thành công.

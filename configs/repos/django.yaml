@@ -1,0 +1,59 @@
+version: 2
+repo: django/django
+base_image: python:3.9-slim-bookworm
+system_packages:
+- git
+- gcc
+- g++
+- libsqlite3-dev
+- locales
+environment:
+  MPLBACKEND: Agg
+  OMP_NUM_THREADS: '1'
+  OPENBLAS_NUM_THREADS: '1'
+  MKL_NUM_THREADS: '1'
+test_framework: django
+report_format: none
+report_path: /workspace/pytest.xml
+install_commands:
+- - python
+  - -m
+  - pip
+  - install
+  - --no-build-isolation
+  - -e
+  - .
+test_command:
+- python
+- tests/runtests.py
+- --settings=test_sqlite
+- --parallel=1
+task_overrides:
+  django__django-34272:
+    base_image: python:3.10-slim-bookworm
+dependency_commands:
+- - python
+  - -m
+  - pip
+  - install
+  - pip==24.0
+  - setuptools==68.2.2
+  - wheel==0.41.3
+- - python
+  - -m
+  - pip
+  - install
+  - pytest==7.4.4
+  - pytest-cov==4.1.0
+  - pytest-xdist==3.5.0
+  - packaging==23.2
+  - asgiref==3.6.0
+  - sqlparse==0.4.4
+  - pytz==2023.3
+  - Pillow==9.5.0
+  - PyYAML==6.0.1
+  - Jinja2==3.1.2
+  - docutils==0.19
+  - argon2-cffi==21.3.0
+  - bcrypt==4.0.1
+  - tblib==1.7.0
