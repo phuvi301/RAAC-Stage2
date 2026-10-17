@@ -23,7 +23,7 @@ configs/repos/requests.yaml khai báo base_image, system_packages, install_comma
 
 Git bare cache ở data/repos/<owner>/<repo>.git có khóa liên tiến trình, khởi tạo tạm rồi rename; fetch commit khi cần. Source xuất đúng commit với LF. Context chứa Git metadata đã làm sạch: HEAD/tree/blob của base; profile source_history=versioned giữ ancestry và các tag tổ tiên để SCM tính version đúng, không đưa commit/tag tương lai, hook hoặc credential của host vào image. Chưa hỗ trợ submodule hoặc Git LFS.
 
-Dockerfile.sandbox là template được render từ profile. Context tạm chỉ có source.tar và Dockerfile. Cache image theo repo, commit, profile hiệu lực và Dockerfile, lưu image ID thực tế. Build có mạng; bước cài repo chạy UID 1000. Base image dùng tag và một số dependency trực tiếp/bắc cầu chưa khóa hoàn toàn nên rebuild khi mất cache chưa bảo đảm byte-identical.
+Dockerfile.sandbox là template được render từ profile. Context tạm chỉ có source.tar và Dockerfile. Cache image theo repo, commit, hash source và Dockerfile đã render, lưu image ID thực tế. Lệnh test/selector không làm mất image nếu công thức build không đổi. Build có mạng; bước cài repo chạy UID 1000. Base image dùng tag và một số dependency trực tiếp/bắc cầu chưa khóa hoàn toàn nên rebuild khi mất cache chưa bảo đảm byte-identical.
 
 Baseline và candidate dùng container/volume mới từ cùng image; Docker chép /workspace vào volume rỗng. Candidate chạy git apply --check rồi git apply. Patch lỗi không chạy test. Baseline không áp candidate patch. Container/volume được dọn trong finally; cache/image được giữ. Nếu host bị kill hoặc daemon mất kết nối trong cleanup, tài nguyên có thể còn lại, kiểm tra bằng label raac=<run_id>.
 
@@ -66,7 +66,7 @@ Mặc định batch chạy tuần tự, mỗi task tối đa 1800 giây build v�
 
 Manifest được ghi atomic trước khi chạy và sau mỗi task ở results/batches/<batch_id>/manifest.json. `summary.json` và `summary.csv` tổng hợp từng task, `repos.csv` tổng hợp từng repo. Báo cáo tách not_run, preparation_error, collection_error, test_failed, passed, build_timeout và timeout. `executed` chỉ đếm passed/test_failed; xử lý hết danh sách chưa chắc đã chạy được test trên toàn dataset. Fingerprint kiểm tra dataset, registry, config, profile, template và code sandbox; đổi bất kỳ thành phần nào phải tạo batch mới. Không dùng batch này thay runner L1–L4.
 
-Build dùng builder Docker riêng từng lượt, log ghi trực tiếp ra build.log, hủy CLI và xóa builder khi hết hạn hoặc bị ngắt. Cache build tại data/build-cache giúp dùng lại các layer dependency trước khi thêm source. Test log cập nhật trong lúc chạy. Git context có HEAD và object của đúng commit (profile versioned còn có ancestor commit và release tag), không có hook hoặc cấu hình host, để hỗ trợ các backend cần Git. Không tải submodule/Git LFS tự động. Cache Git mới fetch commit cần dùng; profile source_history=versioned còn lấy tag và lịch sử commit đầy đủ để giữ đúng version của setuptools-scm/versioneer. Cache mirror cũ vẫn được tái sử dụng.
+Build dùng builder riêng của sandbox `raac-sandbox-managed-v1`, được khóa độc quyền. Build thành công giữ cache nội bộ; timeout, lỗi hoặc ngắt sẽ hủy CLI và xóa đúng builder này để dừng công việc phía daemon. Không còn export/import toàn bộ OCI cache sau mỗi task. Bước `--load` vẫn cần thiết; log giữ số đo từng bước BuildKit. Cache cũ `data/build-cache` được đưa vào retention để thu hồi an toàn. Test log cập nhật trong lúc chạy. Git context có HEAD và object của đúng commit (profile versioned còn có ancestor commit và release tag), không có hook hoặc cấu hình host, để hỗ trợ các backend cần Git. Không tải submodule/Git LFS tự động. Cache Git mới fetch commit cần dùng; profile source_history=versioned còn lấy tag và lịch sử commit đầy đủ để giữ đúng version của setuptools-scm/versioneer. Cache mirror cũ vẫn được tái sử dụng.
 
 Profile hỗ trợ environment, dependency_commands (trước source), install_commands (sau source), test_framework (pytest/django/command), report_format (junit/none), report_path và timeout. Biến môi trường chứa secret bị từ chối. Pytest dùng JUnit; Django lấy số test/failure/error từ bản tổng kết Ran N tests của runner gốc. Khi không có báo cáo hay tổng kết hợp lệ, thống kê để null và statistics_available=false; không suy diễn số test từ exit code. Xem [sandbox_profiles.md](sandbox_profiles.md) để biết các manifest đã đối chiếu.
 
@@ -124,3 +124,36 @@ chuẩn bị/từng phase. Fingerprint bao gồm evaluator/selector/adapter và 
 Không resume batch suite cũ bằng issue mode. Batch cũ được giữ làm lịch sử, không
 coi kết quả suite là validation issue. Chỉ nghiệm thu 120 task sau Docker validation
 thực tế; cấu hình đủ profile không thay thế bằng chứng.
+
+
+## Chuẩn bị nhanh và retention (2026-10-17)
+
+```powershell
+raac sandbox preflight --task-id psf__requests-6027 --batch-id requests-preflight-v1
+raac sandbox validate --stage pilot --repo psf/requests --batch-id requests-pilot-v1
+raac sandbox validate --stage full --reuse-validated --batch-id issue-full-v2
+raac sandbox cache status
+raac sandbox cache prune --max-gib 30          # chỉ xem trước
+raac sandbox cache prune --max-gib 30 --apply
+raac sandbox stop --batch-id issue-full-v2
+# Resume tự xóa cờ STOP, vẫn kiểm tra fingerprint:
+raac sandbox validate --stage full --reuse-validated --batch-id issue-full-v2 --resume
+```
+
+Preflight chạy import/version và collect selector sau test patch trong Docker, không thực thi test, không có gold. `preflight_passed` chỉ xác nhận môi trường/collection tại base. Pilot chạy toàn bộ F2P baseline+gold, bỏ P2P khỏi lượt chẩn đoán này; `pilot_passed` không phải `validated`. Full là mặc định và giữ nguyên F2P/P2P. Các chế độ có fingerprint/checkpoint khác nhau; không resume batch cũ sau khi thay mã/config.
+
+`--reuse-validated` chỉ dùng bằng chứng full có fingerprint từng task khớp task/profile/evaluator/adapter/template/registry/policy và đúng image ID còn tồn tại. Hash cả hai log và hai report phải khớp. Record cũ chưa có bằng chứng này được chạy lại; image cũ vẫn có thể tái sử dụng nếu hash source và công thức build giống hệt. Record mới liên kết `reused_from`; thời gian baseline/gold trong record được tham chiếu là thời gian lượt gốc, không phải phase mới vừa chạy.
+
+Repo native khai báo `native_rebuild_paths` và `native_safe_paths`. Generator/build config/extension luôn rebuild; chỉ các đường dẫn Python đã cho phép mới được bỏ rebuild, đường dẫn chưa biết vẫn rebuild. Xét cả code patch và test patch. Image và checkout candidate không chứa gold.
+
+Batch tự dọn tại đầu mỗi task, bảo vệ image của task đó và mọi image còn được container tham chiếu. Ngân sách mềm 30 GiB gồm Git cache, image và cache build. Giữ Git cache; chỉ xóa tag image thuộc sandbox và cache do sandbox quản lý, không force image đang dùng. Size image có layer chia sẻ nên báo upper bound bảo thủ; phần không đo được ghi null, không coi là 0. Có thể vượt ngân sách khi tài nguyên được bảo vệ lớn hoặc không thể thu hồi. Docker Desktop có thể chưa giảm ngay kích thước VHDX trên host.
+
+Tiến độ stderr và `results/<run_id>/progress.json` ghi phase, thời gian, đường dẫn log; build/test cập nhật khoảng 10 giây. Build và test có hủy thật, source fetch vẫn chịu deadline chuẩn bị. `sandbox stop` dừng ở lần kiểm tra tiếp theo, cleanup và giữ checkpoint; không gửi taskkill thông thường.
+
+Để chạy hàng đợi kiểm chứng ngoài Codex, từ gốc project:
+
+```powershell
+.venv/Scripts/python.exe -X utf8 scripts/validate_environments.py --prefix issue-optimized-v1
+```
+
+Hàng đợi chạy preflight 120 task, pilot một task mỗi repo rồi full 120 task; một task lỗi không chặn các task còn lại. Chạy lại cùng prefix để resume, fingerprint đổi thì phải chọn prefix mới. STOP hoặc Ctrl+C dừng cả hàng đợi, không tự khởi động phase tiếp theo. Các lỗi môi trường vẫn cần đọc log và sửa bằng batch mới; hàng đợi không tự sửa profile hoặc mở mạng. Kết quả ở `results/<prefix>-queue.json` và ba manifest riêng. Không có lịch tự động định kỳ.

@@ -54,3 +54,5 @@ dependency_commands:
   - requests==2.31.0
   - argcomplete==1.12.3
 source_history: versioned
+preflight_imports:
+- pytest

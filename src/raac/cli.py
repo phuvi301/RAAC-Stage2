@@ -26,7 +26,7 @@ def main(argv=None):
             command.add_argument(
                 "--test-mode", choices=["suite", "issue"], default="issue"
             )
-    for name in ("batch", "validate"):
+    for name in ("batch", "validate", "preflight"):
         batch = commands.add_parser(name)
         batch.add_argument("--config")
         batch.add_argument("--dataset")
@@ -36,6 +36,17 @@ def main(argv=None):
         batch.add_argument("--resume", action="store_true")
         batch.add_argument("--retry-errors", action="store_true")
         batch.add_argument("--test-mode", choices=["suite", "issue"], default="issue")
+        if name == "validate":
+            batch.add_argument("--stage", choices=["pilot", "full"], default="full")
+            batch.add_argument("--reuse-validated", action="store_true")
+    cache = commands.add_parser("cache")
+    cache.add_argument("action", choices=["status", "prune"])
+    cache.add_argument("--config")
+    cache.add_argument("--max-gib", type=float, default=30)
+    cache.add_argument("--apply", action="store_true")
+    stop = commands.add_parser("stop")
+    stop.add_argument("--batch-id", required=True)
+    stop.add_argument("--config")
     importer = commands.add_parser("import-verified")
     importer.add_argument("--raw", required=True)
     importer.add_argument("--dataset", default="data/tasks/cleaned_benchmark.json")
@@ -56,7 +67,33 @@ def main(argv=None):
             )
             return 0
         runner = DockerSandbox(config=args.config)
-        if args.command in {"batch", "validate"}:
+        if args.command == "cache":
+            from raac.harness.layer3_execution.sandbox.cache import inventory, prune
+
+            result = (
+                inventory(runner)
+                if args.action == "status"
+                else prune(runner, args.max_gib, args.apply)
+            )
+        elif args.command == "stop":
+            import re
+
+            from raac.harness.layer3_execution.sandbox.docker_sandbox import (
+                resolve_path,
+            )
+
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}", args.batch_id):
+                raise ValueError("Invalid batch ID")
+            directory = (
+                resolve_path(runner.root, runner.config["results"])
+                / "batches"
+                / args.batch_id
+            )
+            if not (directory / "manifest.json").exists():
+                raise ValueError("Unknown batch")
+            (directory / "STOP").write_text("User requested stop", encoding="utf-8")
+            result = {"status": "ready", "stop_requested": args.batch_id}
+        elif args.command in {"batch", "validate", "preflight"}:
             result = run_batch(
                 runner,
                 dataset=args.dataset,
@@ -67,6 +104,9 @@ def main(argv=None):
                 retry_errors=args.retry_errors,
                 test_mode=args.test_mode,
                 validate=args.command == "validate",
+                stage=getattr(args, "stage", "full"),
+                reuse_validated=getattr(args, "reuse_validated", False),
+                preflight=args.command == "preflight",
                 progress=lambda event: print(
                     json.dumps(event), file=sys.stderr, flush=True
                 ),
@@ -104,7 +144,11 @@ def main(argv=None):
             result["status"] == "processed"
             and (
                 result.get("validated") == result["total"]
+                if args.command == "validate" and args.stage == "full"
+                else result.get("pilot_passed") == result["total"]
                 if args.command == "validate"
+                else result.get("preflight_passed") == result["total"]
+                if args.command == "preflight"
                 else result["executed"] == result["total"]
             )
         )

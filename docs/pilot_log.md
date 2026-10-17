@@ -122,3 +122,33 @@ chưa đánh dấu evaluator tổng hợp L1–L4 hoặc A5.
 - 2026-10-17 | Kiểm tra adapter Django sau sửa docstring alias: Docker native unittest fixture +14 unit issue evaluation đều pass (15 tests); toàn bộ49 unit cũng pass. Source/profile mặc định đã chuyển issue; suite cần chọn rõ. Triển khai được đưa lên Git theo ủy quyền, nhưng8 repo pilot mới validated và3repo native còn chạy; Pylint1548 chưa đạt. Giữ yêu cầu validation120 thực tế ở trạng thái đang thực hiện. | Agent hỗ trợ Vinh | Chưa nghiệm thu120/120.
 
 - 2026-10-17 | Matplotlib5087 pilot: baseline có P2P skip PDF (thiếu Ghostscript) và hai image comparison failure với system FreeType. Đối chiếu setupext tại base: source quy định bundled FreeType; sửa profile dùng system_freetype=false, thêm make/ghostscript. Cần image và validation mới; không sửa ảnh chuẩn hoặc bỏ test. | Agent hỗ trợ Vinh | Chưa nghiệm thu Matplotlib; full batch chưa bắt đầu.
+
+
+## 2026-10-17 — tối ưu vòng chuẩn bị/validation
+
+Dừng issue-all-v1 sau khi chụp checkpoint, giữ fingerprint và mọi attempt. CLI cũ chưa có cooperative stop nên dừng cây tiến trình sau snapshot và xóa riêng builder của active run theo build.log. Snapshot cuối: 60 validated, 20 validation_failed, 13 collection_error, 25 preparation_error, 1 execution_error, 1 interrupted; không coi đây là 120 môi trường đã đạt. Nguồn: results/batches/issue-all-v1/manifest.json và results/issue-all-v1-before-optimization.json.
+
+Đã thêm preflight import/version/collect trong Docker, pilot F2P, full mặc định, fingerprint từng task, reuse có hash log/report và image ID còn tồn tại, rebuild native theo đường dẫn bảo thủ, builder persistent có khóa và retention 30 GiB. Log tiến độ có phase/elapsed/path; stop giữ checkpoint. Script scripts/validate_environments.py dùng batch mới theo phase, không tạo automation định kỳ.
+
+Bằng chứng framework: một lượt **74 passed** (63 unit +11 Docker integration) trong 97,47s. Sau đó bổ sung Docker test persistent builder: **1 passed** trong 38,60s, xác nhận build lần hai CACHED, cùng image ID, không export OCI cache và builder còn tồn tại. Unit sau bổ sung parser size Buildx: **67 passed**; lượt này có chờ workload lock trong lúc đo native nên wall time 178,59s không phải thời gian unit thuần. Tổng hiện có 67 unit +12 Docker integration đã được kiểm tra qua các lượt; không ghi là một lượt full 79 passed. Ruff và diff check qua.
+
+Đo thật tại results/optimization-measurements.json (giây; cùng F2P/P2P ở full):
+
+| Task | Preflight tổng | Pilot tổng | Full tổng | Baseline full | Gold full | Reuse tổng |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Requests-6027 | 90,797 | 3,281 | 5,218 | 2,344 | 2,375 | 0,109 |
+| Matplotlib-25165 | 26,078 | 13,906 | 142,438 | 70,250 | 65,875 | 0,141 |
+
+Requests preflight gồm cold preparation/build 77,860s; các lượt sau dùng image, preparation 0,390–0,437s. Full mới vẫn đủ baseline 2 F2P fail +185 P2P pass, gold187 pass. Full cũ của cùng task là3,953s (baseline1,734/gold1,640), nên không tuyên bố full Requests nhanh hơn. Pilot nhỏ hơn và reuse tránh chạy lại khi đủ bằng chứng.
+
+Matplotlib preflight/full dùng image cũ được đối chiếu hash source/recipe; preparation mới6,000s so với lượt cũ293,969s có build. Không dùng khác biệt cold/warm này để suy tốc độ build chung. Full mới baseline2 F2P fail +786 P2P pass, gold788 pass. Patch chỉ sửa lib/matplotlib/axis.py, thuộc đường dẫn Python cho phép, không rebuild native. Gold cũ119,328s, gold mới65,875s; baseline cũ72,672s, mới70,250s. Pilot13,906s dùng F2P và không được tính validated. Hai reuse không tạo container test mới và liên kết record full gốc.
+
+Các run đầy đủ: Requests3429833ace954b7c8c4051e1f65a1f6e; Matplotlib92abc2aefd954435a87144ce25da2787. Record cũ thiếu evaluation_identity/evidence_hashes sẽ không được tự nhập thành validated mới. Các task/profile khác vẫn cần hàng đợi preflight/pilot/full mới và xử lý log; chưa nghiệm thu120/120, LLM/L1–L4 hay A5.
+
+
+Retention thực tế: results/optimization-cache-applied.json ghi xóa cache OCI cũ16.283.066.986 byte và39 image sandbox ít dùng; không có lỗi, giữ hai image đo thử. Tổng upper bound Git +image +build cache giảm56,797→29,922 GiB. Đây là upper bound có layer chia sẻ, không phải số byte VHDX chắc chắn thu hồi. Sau lần dọn thật đã đổi inventory sang API bulk để tránh inspect từng image lặp lại; unit bảo vệ active image/dry-run và parser size Buildx có kiểm chứng.
+
+
+Lượt nghiệm thu framework cuối sau inventory bulk và parser size: `RAAC_DOCKER_TESTS=1 python -m pytest -q --tb=short` đạt **80 passed trong172,32s** (68 unit +12 Docker integration). Không có pilot/batch chạy đồng thời trong lượt này. Ruff check, format check, diff check và profile check120/120 đều qua; review33 file không có cache/results/log hoặc secret pattern trong staged content.
+
+Đã khởi chạy hàng đợi `issue-optimized-v1` (launcher PID23236). Snapshot lúc bàn giao: phase preflight, tổng120 task, task đầu astropy__astropy-14507 đang build; chưa có task preflight kết thúc ở snapshot này. Sau preflight, script chạy pilot một task mỗi repo rồi full120, giữ1800/1800s và một task tại một thời điểm. Theo dõi results/issue-optimized-v1-queue.json, results/issue-optimized-v1.stderr.log và results/batches/issue-optimized-v1-*/summary.json. Không tạo lại automation đã bị người dùng xóa. Đây là công việc đang chạy, không phải bằng chứng120/120 đã validated.

@@ -214,3 +214,24 @@ post_patch_commands:
   - --no-build-isolation
   - -e
   - .
+preflight_imports:
+- astropy
+native_rebuild_paths:
+- '*.pyx'
+- '*.pxd'
+- '*.pxi'
+- '*.c'
+- '*.h'
+- '*.cpp'
+- '*setup*'
+- '*meson*'
+- '*generate*'
+- pyproject.toml
+- Makefile*
+- '*.in'
+native_safe_paths:
+- '*/tests/test_*.py'
+- '*/tests/__init__.py'
+- tests/test_*.py
+- astropy/coordinates/sky_coordinate.py
+- astropy/coordinates/angles/core.py

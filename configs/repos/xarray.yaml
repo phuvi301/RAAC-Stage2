@@ -349,3 +349,5 @@ dependency_commands:
   - hypothesis==6.88.1
   - matplotlib==3.6.3
 source_history: versioned
+preflight_imports:
+- xarray

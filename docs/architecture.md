@@ -134,3 +134,8 @@ Layer 3 nạp test patch/selector vào container phase; gold chỉ vào containe
 riêng. Chấm theo trạng thái từng test, không suy từ exit code hay tổng số pass. Batch
 issue có fingerprint riêng với suite. Đây là evaluator test chuyển trạng thái, chưa
 hoàn tất evaluator tổng hợp của benchmark L1–L4 hoặc A5.
+
+
+Sandbox tách định danh build (source + recipe đã render) khỏi định danh đánh giá từng task (profile, artifact/selector, adapter, policy, registry và template). Cache layer dependency nằm trong builder sandbox có khóa độc quyền; builder bị xóa khi lỗi/timeout/hủy để dừng build phía daemon. Retention giữ ngân sách mềm 30 GiB và không xóa tài nguyên đang dùng. Source, môi trường hoặc bằng chứng không khớp sẽ không tái sử dụng validation.
+
+Luồng chẩn đoán là preflight collect/import → pilot F2P → full F2P/P2P. Hai bước đầu có trạng thái riêng, không thay điều kiện nghiệm thu full. CLI hỗ trợ dừng có checkpoint; hàng đợi ngoài Codex dùng các batch riêng cho từng bước. Đây là tối ưu sandbox, không thay runner benchmark hoặc checkpoint của agent/LangGraph.

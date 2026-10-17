@@ -89,6 +89,42 @@ def test_batch_report_resume_and_retry(setup_batch):
     )
 
 
+def test_cooperative_stop_and_resume_preserves_checkpoint(setup_batch):
+    sandbox, calls, _ = setup_batch
+    directory = sandbox.root / "results/batches/stopped"
+
+    def stop(event):
+        if event.get("event") == "batch_started":
+            (directory / "STOP").write_text("stop")
+
+    with pytest.raises(KeyboardInterrupt):
+        batch.run_batch(sandbox, test_mode="suite", batch_id="stopped", progress=stop)
+    assert not calls
+    assert (
+        json.loads((directory / "manifest.json").read_text())["status"] == "interrupted"
+    )
+    batch.run_batch(sandbox, test_mode="suite", batch_id="stopped", resume=True)
+    assert calls == ["first", "second"]
+    assert not (directory / "STOP").exists()
+
+
+def test_resume_rejects_pilot_full_and_reuse_changes(setup_batch):
+    sandbox, _, _ = setup_batch
+    batch.run_batch(sandbox, test_mode="suite", batch_id="stages")
+    with pytest.raises(ValueError, match="fingerprint"):
+        batch.run_batch(
+            sandbox, test_mode="suite", batch_id="stages", resume=True, stage="pilot"
+        )
+    with pytest.raises(ValueError, match="fingerprint"):
+        batch.run_batch(
+            sandbox,
+            test_mode="suite",
+            batch_id="stages",
+            resume=True,
+            reuse_validated=True,
+        )
+
+
 def test_fingerprint_and_selection_validation(setup_batch):
     sandbox, _, _ = setup_batch
     batch.run_batch(sandbox, test_mode="suite", batch_id="test", task_ids=["first"])

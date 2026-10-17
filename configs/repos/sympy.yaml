@@ -53,3 +53,5 @@ dependency_commands:
   - hypothesis==6.31.6
   - antlr4-python3-runtime==4.7.2
   - gmpy2==2.1.5
+preflight_imports:
+- sympy

@@ -58,3 +58,5 @@ dependency_commands:
   - mccabe==0.7.0
   - tomlkit==0.12.1
   - py==1.11.0
+preflight_imports:
+- pylint

@@ -196,6 +196,35 @@ def test_build_wall_clock_timeout_and_builder_cleanup(environment, tmp_path):
     )
 
 
+def test_persistent_builder_reuses_layers(environment, tmp_path):
+    from raac.harness.layer3_execution.sandbox.build import build_image
+
+    runner, _, _ = environment
+    marker = uuid.uuid4().hex
+    (tmp_path / "Dockerfile").write_text(
+        "FROM python:3.11-slim-bookworm\nRUN echo " + marker + " > /cache-marker\n"
+    )
+    tags = ["raac-fixture:cache-" + uuid.uuid4().hex for _ in range(2)]
+    try:
+        for i, tag in enumerate(tags):
+            build_image(tmp_path, tag, tmp_path / (str(i) + ".log"), 120)
+        second = (tmp_path / "1.log").read_text(encoding="utf-8")
+        assert "CACHED" in second
+        assert "exporting cache to client" not in second
+        assert (
+            runner.client.images.get(tags[0]).id == runner.client.images.get(tags[1]).id
+        )
+        assert runner.client.containers.list(
+            filters={"name": "buildx_buildkit_raac-sandbox-managed-v1"}
+        )
+    finally:
+        for tag in tags:
+            try:
+                runner.client.images.remove(tag, force=False)
+            except docker.errors.ImageNotFound:
+                pass
+
+
 def test_real_batch_interrupt_resume_and_error_continuation(
     environment, tmp_path, monkeypatch
 ):
@@ -365,6 +394,119 @@ def test_issue_baseline_gold_candidate_and_missing_selector(environment):
     assert not grade(row, result)["valid"]
     assert not runner.client.containers.list(
         all=True, filters={"label": "raac=" + root.name}
+    )
+
+
+def test_real_preflight_pilot_full_and_reuse(environment, tmp_path):
+    import json
+    import shutil
+
+    import yaml
+
+    from raac.harness.layer3_execution.sandbox.docker_sandbox import digest
+    from raac.harness.layer3_execution.sandbox.optimization import build_identity
+
+    original, image, root = environment
+    shutil.copytree(root / "cache", tmp_path / "cache")
+    commit = (
+        subprocess.check_output(
+            ["git", "-C", str(root / "source"), "rev-parse", "HEAD~1"]
+        )
+        .decode()
+        .strip()
+    )
+    profile = {
+        "version": 1,
+        "repo": "fixture/repo",
+        "base_image": "python:3.11-slim-bookworm",
+        "system_packages": ["git", "gcc", "libc6-dev"],
+        "install_commands": [
+            ["python", "-m", "pip", "install", "pytest==8.3.5"],
+            ["gcc", "-shared", "-fPIC", "native.c", "-o", "native.so"],
+        ],
+        "test_command": ["python", "-m", "pytest"],
+        "preflight_imports": ["value"],
+    }
+    (tmp_path / "profile.yaml").write_text(yaml.safe_dump(profile))
+    (tmp_path / "dataset.json").write_text(
+        json.dumps(
+            {
+                "repos": [
+                    {
+                        "repo": "fixture/repo",
+                        "repo_url": "https://github.com/fixture/repo",
+                        "issues": [
+                            {
+                                "id": "fixture",
+                                "title": "fixture",
+                                "body": "fixture",
+                                "base_commit": commit,
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+    )
+    row = {
+        "repo": "fixture/repo",
+        "base_commit": commit,
+        "instance_id": "fixture-pr",
+        "pr_url": "fixture",
+        "version": "1",
+        "environment_setup_commit": None,
+        "FAIL_TO_PASS": ["test_issue.py::test_issue"],
+        "PASS_TO_PASS": ["test_issue.py::test_regression"],
+        "test_patch": "--- /dev/null\n+++ b/test_issue.py\n@@ -0,0 +1,5 @@\n+from value import VALUE\n+def test_issue():\n+    assert VALUE == 1\n+def test_regression():\n+    assert isinstance(VALUE, int)\n",
+        "gold_patch": "--- a/value.py\n+++ b/value.py\n@@ -1 +1 @@\n-VALUE = 0\n+VALUE = 1\n",
+    }
+    (tmp_path / "evaluation.json").write_text(
+        json.dumps({"source_sha256": "fixture", "tasks": {"fixture": row}})
+    )
+    (tmp_path / "registry").mkdir()
+    (tmp_path / "registry/VERSION").write_text("fixture")
+    (tmp_path / "config.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "dataset": "dataset.json",
+                "repo_cache": "cache",
+                "results": "results",
+                "profiles": {"fixture/repo": "profile.yaml"},
+                "evaluation": "evaluation.json",
+            }
+        )
+    )
+    # Same actual fixture image/source/recipe; exercise cache lookup without an unnecessary second build.
+    task = Task(
+        "fixture", "fixture/repo", str(root / "source"), "fixture", "fixture", commit
+    )
+    key = build_identity(
+        task, digest((root / "context/source.tar").read_bytes()), dockerfile(profile)
+    )
+    image.tag("raac-sandbox", key)
+    runner = DockerSandbox(root=tmp_path, config="config.yaml", client=original.client)
+    preflight = runner.run("fixture", preflight=True)
+    assert preflight["status"] == "preflight_passed", preflight
+    assert preflight["baseline"] is None
+    assert not preflight["preflight"]["test_results"]
+    pilot = runner.run("fixture", validate=True, stage="pilot")
+    assert pilot["status"] == "pilot_passed", pilot
+    assert pilot["baseline_validation"]["required"] == 1
+    full = runner.run("fixture", validate=True)
+    assert full["status"] == "validated", full
+    assert full["baseline_validation"]["required"] == 2
+    reused = runner.run("fixture", validate=True, reuse_validated=True)
+    assert (
+        reused["status"] == "validated" and reused["reused_from"] == full["result_path"]
+    )
+    assert not (tmp_path / "results" / reused["run_id"] / "gold.log").exists()
+    patch = tmp_path / "candidate.patch"
+    patch.write_bytes(row["gold_patch"].encode())
+    candidate = runner.run("fixture", patch_path=patch)
+    assert candidate["status"] == "resolved" and "gold" not in candidate
+    assert not original.client.volumes.list(
+        filters={"label": "raac=" + candidate["run_id"]}
     )
 
 

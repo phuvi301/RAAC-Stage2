@@ -182,3 +182,6 @@ Dữ liệu evaluator được tách khỏi Task/cleaned dataset; không đưa g
 Dùng `raac sandbox validate --config configs/benchmark.compatibility.yaml --batch-id issue-all`
 để kiểm chứng baseline + gold. Muốn chạy toàn bộ suite cũ, thêm `--test-mode suite`.
 Các profile compatibility đang được kiểm chứng; chưa mặc định 120/120 đã đạt.
+
+
+Sandbox có quy trình chuẩn bị nhanh: `raac sandbox preflight` → `raac sandbox validate --stage pilot` → `raac sandbox validate --stage full --reuse-validated`. Chỉ full đạt đủ F2P/P2P mới có trạng thái `validated`. Build dùng cache nội bộ của builder sandbox; batch tự retention theo ngân sách mềm 30 GiB. Xem [hướng dẫn CLI, stop/resume và cache](docs/sandbox.md#chuẩn-bị-nhanh-và-retention-2026-10-17) và [bằng chứng kiểm chứng](docs/pilot_log.md).
