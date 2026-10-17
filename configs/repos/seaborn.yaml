@@ -52,3 +52,5 @@ dependency_commands:
   - matplotlib==3.6.3
   - statsmodels==0.13.5
   - flit_core==3.9.0
+preflight_imports:
+- seaborn

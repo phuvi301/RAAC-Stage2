@@ -421,3 +421,24 @@ post_patch_commands:
   - --no-build-isolation
   - -e
   - .
+preflight_imports:
+- sklearn
+native_rebuild_paths:
+- '*.pyx'
+- '*.pxd'
+- '*.pxi'
+- '*.c'
+- '*.h'
+- '*.cpp'
+- '*setup*'
+- '*meson*'
+- '*generate*'
+- pyproject.toml
+- Makefile*
+- '*.in'
+native_safe_paths:
+- '*/tests/test_*.py'
+- '*/tests/__init__.py'
+- tests/test_*.py
+- sklearn/cluster/_kmeans.py
+- sklearn/metrics/_classification.py

@@ -85,6 +85,8 @@ Thư mục `src/raac/harness/layer3_execution/`.
 - [x] `sandbox/policy.py` tắt network, giới hạn CPU, RAM và thời gian chạy (Vinh)
 - [x] `docker/Dockerfile.sandbox` dựng image chạy code của agent (Vinh)
 - [x] Kiểm thử sandbox bằng một patch cố tình độc hại và xác nhận không ảnh hưởng máy chủ (Vinh)
+
+Ghi chú sandbox 2026-10-17: đã hiện thực preflight/pilot/full, cache builder có khóa, retention mềm30 GiB, reuse validation theo bằng chứng và cooperative stop. 80/80 tests (68 unit +12 Docker integration) qua trong lượt cuối172,32s; Requests-6027 và Matplotlib-25165 full validated với mã mới. Kiểm chứng toàn120 task còn đang thực hiện; xem docs/pilot_log.md. Không thay trạng thái benchmark/evaluator tổng hợp hoặc A5.
 - [ ] `wasm_sandbox.py` chỉ là stub có interface (Vinh)
 
 ### Guardrails và kiểm soát chi phí
@@ -421,3 +423,9 @@ Ghi mỗi dòng theo dạng ngày, vấn đề hoặc quyết định, người 
 - 2026-10-17 | Kiểm tra adapter Django sau sửa docstring alias: Docker native unittest fixture +14 unit issue evaluation đều pass (15 tests); toàn bộ49 unit cũng pass. Source/profile mặc định đã chuyển issue; suite cần chọn rõ. Triển khai được đưa lên Git theo ủy quyền, nhưng8 repo pilot mới validated và3repo native còn chạy; Pylint1548 chưa đạt. Giữ yêu cầu validation120 thực tế ở trạng thái đang thực hiện. | Agent hỗ trợ Vinh | Chưa nghiệm thu120/120.
 
 - 2026-10-17 | Matplotlib5087 pilot: baseline có P2P skip PDF (thiếu Ghostscript) và hai image comparison failure với system FreeType. Đối chiếu setupext tại base: source quy định bundled FreeType; sửa profile dùng system_freetype=false, thêm make/ghostscript. Cần image và validation mới; không sửa ảnh chuẩn hoặc bỏ test. | Agent hỗ trợ Vinh | Chưa nghiệm thu Matplotlib; full batch chưa bắt đầu.
+
+- 2026-10-17 | Tối ưu sandbox theo yêu cầu: giữ checkpoint batch cũ (60 validated/120), thêm preflight, pilot F2P, reuse full có fingerprint/image/hash report, rebuild native bảo thủ, builder persistent và retention30 GiB. 74 tests pass trong lượt chung; thêm1 Docker cache-hit pass và67 unit pass sau parser dung lượng. Requests và Matplotlib full validated; Matplotlib gold119,328→65,875s, pilot13,906s, reuse0,141s; không suy tăng tốc toàn dataset. | Agent hỗ trợ hạ tầng của Vinh | Triển khai đã có bằng chứng; kiểm chứng120 task bằng batch mới còn tiếp tục, chưa nghiệm thu120/120 hoặc A5.
+
+- 2026-10-17 | Retention sandbox thật: xóa16.283.066.986 byte cache OCI cũ và39 image ít dùng, không lỗi; upper bound giảm56,797→29,922 GiB. Giữ Git cache, log/record và hai image đo thử. | Agent hỗ trợ Vinh | Có bằng chứng results/optimization-cache-applied.json; không dùng số liệu upper bound như dung lượng VHDX thu hồi.
+
+- 2026-10-17 | Nghiệm thu framework tối ưu: full80 tests pass trong172,32s, Ruff/format/diff/profile check120 qua; khởi chạy queue issue-optimized-v1 (preflight120 →pilot12 repo →full120). Không tạo lại automation đã xóa; giữ batch cũ và log. | Agent hỗ trợ Vinh | Phần triển khai đã kiểm chứng; validation toàn dataset đang chạy, chưa đánh dấu120/120, LLM/L1–L4 hay A5.

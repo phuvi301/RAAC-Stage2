@@ -35,6 +35,7 @@ EXECUTED = {
     "validation_failed",
     "resolved",
     "unresolved",
+    "pilot_passed",
 }
 
 
@@ -92,7 +93,8 @@ def fingerprint(sandbox, dataset, selection, budget):
         resolve_path(sandbox.root, p) for p in sandbox.config["profiles"].values()
     )
     paths.update(
-        Path(__file__).with_name(name) for name in ("evaluation.py", "issue_runner.py")
+        Path(__file__).with_name(name)
+        for name in ("evaluation.py", "issue_runner.py", "optimization.py", "cache.py")
     )
     if budget.get("test_mode") == "issue":
         from .evaluation import DEFAULT_ARTIFACTS
@@ -137,6 +139,16 @@ def report(directory, manifest):
                 "found_tests": latest.get("baseline_validation", {}).get("found"),
                 "executed_tests": latest.get("baseline_validation", {}).get("executed"),
                 "preparation_seconds": latest.get("preparation_seconds"),
+                "build_seconds": latest.get(
+                    "build_seconds", 0 if latest.get("image_cache_hit") else None
+                ),
+                "image_cache_hit": latest.get("image_cache_hit"),
+                "build_identity": latest.get("build_identity"),
+                "evaluation_identity": latest.get("evaluation_identity"),
+                "preflight_required": latest.get("preflight", {}).get(
+                    "required_selectors"
+                ),
+                "preflight_found": latest.get("preflight", {}).get("found_count"),
                 "baseline_seconds": baseline.get("duration_seconds"),
                 "gold_seconds": (latest.get("gold") or {}).get("duration_seconds"),
                 "statistics_available": baseline.get("statistics_available", False),
@@ -152,6 +164,8 @@ def report(directory, manifest):
                 "expected_failures": stats.get("expected_failures"),
                 "unexpected_successes": stats.get("unexpected_successes"),
                 "record": latest.get("result_path"),
+                "reused_from": latest.get("reused_from"),
+                "stage": latest.get("stage", "full"),
                 "log": baseline.get("log"),
                 "error": latest.get("error"),
             }
@@ -170,6 +184,8 @@ def report(directory, manifest):
         "status": manifest["status"],
         "total": len(rows),
         "validated": sum(r["status"] == "validated" for r in rows),
+        "pilot_passed": sum(r["status"] == "pilot_passed" for r in rows),
+        "preflight_passed": sum(r["status"] == "preflight_passed" for r in rows),
         "executed": sum(r["status"] in EXECUTED for r in rows),
         "active_run": manifest.get("active_run"),
         "statuses": statuses,
@@ -211,6 +227,10 @@ def run_batch(
     progress=None,
     test_mode="issue",
     validate=False,
+    stage="full",
+    preflight=False,
+    reuse_validated=False,
+    auto_prune=True,
 ):
     if retry_errors and not resume:
         raise ValueError("--retry-errors requires --resume")
@@ -256,6 +276,10 @@ def run_batch(
         "test_timeout": 1800,
         "test_mode": test_mode,
         "validate": validate,
+        "stage": stage,
+        "preflight": preflight,
+        "reuse_validated": reuse_validated,
+        "auto_prune": auto_prune,
     }
     signature = fingerprint(sandbox, path, selection, budget)
     directory = (
@@ -277,7 +301,12 @@ def run_batch(
                 "fingerprint": signature,
                 "budget": budget,
                 "test_mode": test_mode,
-                "operation": "validate" if validate else "run",
+                "operation": "preflight"
+                if preflight
+                else "validate"
+                if validate
+                else "run",
+                "stage": stage,
                 "dataset": str(path),
                 "status": "running",
                 "tasks": {
@@ -304,6 +333,8 @@ def run_batch(
                 ):
                     manifest["tasks"][active["task_id"]]["attempts"].append(recovered)
         manifest["status"] = "running"
+        if resume:
+            (directory / "STOP").unlink(missing_ok=True)
         atomic_json(checkpoint, manifest)
         report(directory, manifest)
         try:
@@ -317,6 +348,8 @@ def run_batch(
                     }
                 )
             for task_id in selection:
+                if (directory / "STOP").exists():
+                    raise KeyboardInterrupt
                 if fingerprint(sandbox, path, selection, budget) != signature:
                     raise ValueError(
                         "Configuration changed during batch; create a new batch"
@@ -339,6 +372,8 @@ def run_batch(
                     config=sandbox.config_path,
                     policy=SandboxPolicy(timeout=1800),
                 )
+                runner.stop_file = directory / "STOP"
+                runner.auto_prune = auto_prune
                 result = runner.run(
                     task_id,
                     dataset=path,
@@ -347,6 +382,10 @@ def run_batch(
                     run_id=run_id,
                     test_mode=test_mode,
                     validate=validate,
+                    stage=stage,
+                    preflight=preflight,
+                    reuse_validated=reuse_validated,
+                    progress=progress,
                 )
                 attempts.append(result)
                 manifest.pop("active_run", None)

@@ -97,3 +97,5 @@ dependency_commands:
   - idna==2.10
   - certifi
   - PySocks==1.7.1
+preflight_imports:
+- requests

@@ -169,6 +169,8 @@ def run_django():
         save()
         if errors:
             raise ValueError("; ".join(errors))
+        if spec.get("collect_only"):
+            return unittest.TestResult()
         chosen_ids = {t.id() for t in chosen}
         return original_run(
             self, unittest.TestSuite([t for t in tests if t.id() in chosen_ids])
@@ -218,6 +220,15 @@ def main():
     with open(sys.argv[1]) as source:
         spec = json.load(source)
     sys.path.insert(0, os.getcwd())
+    if spec.get("collect_only"):
+        import importlib
+
+        print("Python: " + sys.version)
+        for name in spec.get("imports", []):
+            module = importlib.import_module(name)
+            print(
+                "Import {}: {}".format(name, getattr(module, "__version__", "unknown"))
+            )
     if spec["framework"] == "django":
         run_django()
         return 0
@@ -227,6 +238,8 @@ def main():
     if not roots:
         raise ValueError("No collection roots")
     args = roots + ["-q"]
+    if spec.get("collect_only"):
+        args.append("--collect-only")
     return pytest.main(args, plugins=[SelectorPlugin()])
 
 

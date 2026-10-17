@@ -159,3 +159,26 @@ post_patch_commands:
   - --no-build-isolation
   - -e
   - .
+preflight_imports:
+- matplotlib
+native_rebuild_paths:
+- '*.pyx'
+- '*.pxd'
+- '*.pxi'
+- '*.c'
+- '*.h'
+- '*.cpp'
+- '*setup*'
+- '*meson*'
+- '*generate*'
+- pyproject.toml
+- Makefile*
+- '*.in'
+native_safe_paths:
+- '*/tests/test_*.py'
+- '*/tests/__init__.py'
+- tests/test_*.py
+- lib/matplotlib/axes/_axes.py
+- lib/matplotlib/axis.py
+- lib/matplotlib/figure.py
+- lib/matplotlib/legend.py
