@@ -73,3 +73,50 @@ Nếu tiến trình bị ngắt: `raac sandbox batch --batch-id baseline-all-v1 
 - 2026-10-17 | Heartbeat 18:22: baseline-all-v1 đã chạy suite 40/120 (5 passed, 35 test_failed), 6 Pylint collection_error thiếu py, 1 Sphinx preparation_error thiếu flit_core, 73 chưa chạy. Đối chiếu pyproject.toml Sphinx-10678 yêu cầu flit_core>=3.7; thêm flit_core==3.9.0 vào sphinx-compatible.yaml/config compatibility. Queue kiểm chứng sau batch chính và legacy gồm pytest/Pylint/Sphinx; chưa coi profile sửa là đã nghiệm thu. | Agent hỗ trợ Vinh | Đang chạy, chưa push.
 
 - 2026-10-17 | Người dùng yêu cầu push ngay bản triển khai hiện có. Snapshot trước push: baseline-all-v1 đang chạy, 41 suite đã chạy (5 passed, 36 test_failed), 6 collection_error Pylint, 1 preparation_error Sphinx, 72 chưa chạy. Profile compatibility/legacy còn chờ Docker kiểm chứng; chưa nghiệm thu hỗ trợ 120/120. Chỉ commit source/config/test/tài liệu và dataset; cache/results/log không đưa lên Git. | Agent hỗ trợ Vinh | Push bản triển khai đang kiểm chứng theo yêu cầu; tiếp tục theo dõi batch.
+
+- 2026-10-17 | Chuyển sang issue tests theo kế hoạch mới: dừng batch suite/driver và giữ lịch sử, nhập 120/120 evaluator từ raw Verified bằng repo+base_commit+PR URL, tách gold/test patch khỏi Task. Thêm run/batch issue mặc định, validate baseline+gold, selector manifest, trạng thái từng test, bảo vệ file test và fingerprint evaluator. 49 unit passed; 8 Docker integration passed trước bổ sung hai fixture native issue/unittest. Requests-6027 validation thật đạt 2 F2P fail +185 P2P pass ở baseline, 187/187 pass sau gold; Flask/Seaborn pilot cũng validated. Các repo còn lại đang kiểm chứng, chưa nghiệm thu 120/120 hoặc evaluator L1–L4/A5. | Agent hỗ trợ Vinh | Đang triển khai và kiểm chứng; chưa push lượt mới.
+
+
+## 2026-10-17 — Issue tests SWE-bench Verified
+
+Raw Stage1 có 500 instances; chọn đúng 120 task bằng repo + base commit, xác nhận
+PR URL. Không sửa cleaned dataset hoặc raw nguồn. Artifact evaluator nhập đủ 120,
+SHA-256 raw: `7303cc5795e3707162f9b0ffcc5694f3fd67e20bd9d514cfdce63146fdebc196`.
+Batch suite baseline-all-v1 và hai driver cũ đã dừng có chủ đích; kết quả được giữ,
+không resume để trộn chế độ. Các lần chạy issue có selector/adapter/fingerprint riêng.
+
+Pilot thực tế hiện có Requests-6027, Flask-5010, Seaborn-2967, Sphinx-4258 và
+pytest-5786 validated. Requests: baseline 2 F2P fail +185 P2P pass, gold187 pass.
+Pytest: baseline2 F2P fail +123 P2P pass, gold125 pass. Log/record tại
+`results/diagnostics/issue-pilot/manifest.json` và các thư mục run được liên kết.
+
+Pylint-1548 chưa validated: test patch import `get_annotation` chưa có trong base,
+nên baseline collection_error; gold18 testcase pass (10 selector, alias tham số
+có thể đại diện nhiều testcase). Không coi gold pass là baseline hợp lệ, không sửa
+raw test để ép đạt. Phải giữ task này trong danh sách chưa đạt tiêu chí nghiêm ngặt.
+
+So sánh thời gian phase baseline đo được (không gồm build; các lượt khác thời điểm):
+Requests68.515s →14.797s (~4.63x); Flask8.5s →2.563s (~3.32x);
+Seaborn190.313s →14.562s (~13.07x); Sphinx69.469s →4.344s (~15.99x).
+Không dùng thời gian Pylint collection_error làm bằng chứng tăng tốc test hợp lệ.
+Không suy mức tăng tốc này cho toàn bộ120 task hoặc cho thời gian build.
+
+49 unit passed. Lượt toàn suite mới nhất:58 passed,1 failure do test build timeout
+tranh chấp khóa với pilot build; các integration issue/native/unittest đã pass.
+Đã tách pilot khỏi lượt kiểm chứng timeout để chạy lại. Chưa nghiệm thu120/120;
+chưa đánh dấu evaluator tổng hợp L1–L4 hoặc A5.
+
+- 2026-10-17 | Kiểm chứng issue runner: 49 unit passed; Docker integration có 9 test pass trong lượt chung và test build timeout chạy lại tách biệt pass (tổng 10 integration). Lỗi trước do pilot giữ cache lock đã được phân lập. Pilot Requests/Flask/Seaborn/Sphinx/pytest validated; Pylint1548 gold pass nhưng baseline collection_error nên chưa đạt. Tiếp tục pilot các repo còn lại bằng driver nền; suite cũ không resume. | Agent hỗ trợ Vinh | Chưa nghiệm thu 120/120; xem issue-pilot manifest.
+
+
+- Pilot bổ sung: Sympy7132 validated. Django23740 lượt đầu collection_error vì raw
+  có ID là docstring; adapter đã đối chiếu suite native với method ID/docstring,
+  giữ tất cả testcase khớp alias và kiểm tra outcome đồng nhất. Lượt Django-v2
+  validated: baseline1 F2P fail +125 P2P pass, gold126 selector pass. Tổng hiện tại
+  8 repo pilot đạt; Pylint chưa đạt, Matplotlib/Astropy/scikit-learn đang tiếp tục.
+- Các số F2P/P2P trên là selector/ID gốc của dataset. Alias có thể đại diện nhiều
+  testcase; báo cáo JSON giữ nodeids/cases thực tế, không suy số testcase từ exit code.
+- Driver issue_validation_driver.py chờ pilot rồi chạy issue-all-v1 đủ120 task,
+  1800 giây build +1800 giây mỗi phase. Nguồn tiến độ: results/issue-validation-driver.json.
+
+- 2026-10-17 | Kiểm tra adapter Django sau sửa docstring alias: Docker native unittest fixture +14 unit issue evaluation đều pass (15 tests); toàn bộ49 unit cũng pass. Source/profile mặc định đã chuyển issue; suite cần chọn rõ. Triển khai được đưa lên Git theo ủy quyền, nhưng8 repo pilot mới validated và3repo native còn chạy; Pylint1548 chưa đạt. Giữ yêu cầu validation120 thực tế ở trạng thái đang thực hiện. | Agent hỗ trợ Vinh | Chưa nghiệm thu120/120.

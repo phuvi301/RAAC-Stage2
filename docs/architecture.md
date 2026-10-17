@@ -125,3 +125,12 @@ CLI raac sandbox gọi DockerSandbox độc lập với LLM/collaboration: datas
 Dockerfile.sandbox hiện là template build theo repo. Kiểm thử Docker thật đã xác nhận patch fail→pass, timeout, cách ly mạng/workspace, patch thử ghi file host và cleanup; các layer/level khác vẫn còn scaffold.
 
 Sandbox baseline có runner batch riêng ở layer3_execution/sandbox/batch.py; benchmark/runner.py dành cho L1–L4 vẫn chưa hiện thực. Manifest/checkpoint của batch baseline tách biệt với checkpoint agent và collaboration; không dùng chúng thay cho nhau. Budget batch là 30 phút build + 30 phút test/task, một task tại một thời điểm. Profile hợp lệ và batch xử lý hết không đồng nghĩa toàn dataset đã chạy test thành công.
+
+
+Evaluator SWE-bench được tách khỏi Task cung cấp cho agent. Dataset cleaned giữ issue ID;
+artifact evaluator ánh xạ sang instance ID/PR tại cùng repo + base commit, chứa test patch,
+gold patch và F2P/P2P. Image build chỉ chứa source base và dependency, không chứa gold.
+Layer 3 nạp test patch/selector vào container phase; gold chỉ vào container validation
+riêng. Chấm theo trạng thái từng test, không suy từ exit code hay tổng số pass. Batch
+issue có fingerprint riêng với suite. Đây là evaluator test chuyển trạng thái, chưa
+hoàn tất evaluator tổng hợp của benchmark L1–L4 hoặc A5.

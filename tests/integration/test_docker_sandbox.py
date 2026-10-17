@@ -280,11 +280,13 @@ def test_real_batch_interrupt_resume_and_error_continuation(
 
     monkeypatch.setattr(batch, "DockerSandbox", CachedImageRunner)
     with pytest.raises(KeyboardInterrupt):
-        batch.run_batch(sandbox, batch_id="docker-batch")
-    result = batch.run_batch(sandbox, batch_id="docker-batch", resume=True)
+        batch.run_batch(sandbox, test_mode="suite", batch_id="docker-batch")
+    result = batch.run_batch(
+        sandbox, test_mode="suite", batch_id="docker-batch", resume=True
+    )
     assert result["executed"] == 2
     assert result["statuses"] == {"test_failed": 1, "passed": 1}
-    batch.run_batch(sandbox, batch_id="docker-batch", resume=True)
+    batch.run_batch(sandbox, test_mode="suite", batch_id="docker-batch", resume=True)
     assert calls == ["fail", "pass"]
 
 
@@ -321,3 +323,131 @@ def test_native_patch_is_rebuilt_before_tests(environment):
         )["status"]
         == "patch_setup_error"
     )
+
+
+def test_issue_baseline_gold_candidate_and_missing_selector(environment):
+    from raac.harness.layer3_execution.sandbox.evaluation import grade
+
+    runner, image, root = environment
+    row = {
+        "FAIL_TO_PASS": ["test_issue.py::test_issue"],
+        "PASS_TO_PASS": ["test_issue.py::test_regression"],
+    }
+    patch = b"--- /dev/null\n+++ b/test_issue.py\n@@ -0,0 +1,5 @@\n+from value import VALUE\n+def test_issue():\n+    assert VALUE == 1\n+def test_regression():\n+    assert isinstance(VALUE, int)\n"
+    spec = {
+        "ids": row["FAIL_TO_PASS"] + row["PASS_TO_PASS"],
+        "roots": ["test_issue.py"],
+        "framework": "pytest",
+        "command": ["python", "-m", "pytest"],
+    }
+    evaluation = {"test_patch": patch.decode(), "selectors": spec}
+    command = ["python", "/tmp/raac-issue-runner.py", "/tmp/raac-selectors.json"]
+    baseline = runner.execute(image, command, root, "issue-base", evaluation=evaluation)
+    assert grade(row, baseline, baseline=True)["valid"]
+    gold = b"--- a/value.py\n+++ b/value.py\n@@ -1 +1 @@\n-VALUE = 0\n+VALUE = 1\n"
+    result = runner.execute(
+        image, command, root, "issue-gold", gold, evaluation=evaluation
+    )
+    assert grade(row, result)["valid"]
+    assert not grade(row, baseline)["valid"]
+    broken = dict(evaluation, test_patch="bad patch")
+    assert (
+        runner.execute(image, command, root, "issue-invalid", evaluation=broken)[
+            "status"
+        ]
+        == "test_patch_error"
+    )
+    spec["ids"].append("test_issue.py::test_missing")
+    result = runner.execute(
+        image, command, root, "issue-missing", evaluation=evaluation
+    )
+    assert result["status"] == "collection_error"
+    assert not grade(row, result)["valid"]
+    assert not runner.client.containers.list(
+        all=True, filters={"label": "raac=" + root.name}
+    )
+
+
+def test_issue_native_rebuild_and_timeout(environment):
+    from dataclasses import replace
+
+    from raac.harness.layer3_execution.sandbox.evaluation import grade
+
+    runner, image, root = environment
+    spec = {
+        "ids": ["native_check.py::test_native"],
+        "roots": ["native_check.py"],
+        "framework": "pytest",
+        "command": ["python", "-m", "pytest"],
+    }
+    patch = "--- a/native_check.py\n+++ b/native_check.py\n@@ -1 +1,2 @@\n+# evaluator test marker\n import ctypes\n"
+    evaluation = {"test_patch": patch, "selectors": spec}
+    command = ["python", "/tmp/raac-issue-runner.py", "/tmp/raac-selectors.json"]
+    gold = b"--- a/native.c\n+++ b/native.c\n@@ -1 +1 @@\n-int value(void) { return 0; }\n+int value(void) { return 1; }\n"
+    profile = {
+        "post_patch_commands": [
+            ["gcc", "-shared", "-fPIC", "native.c", "-o", "native.so"]
+        ]
+    }
+    result = runner.execute(
+        image,
+        command,
+        root,
+        "issue-native",
+        gold,
+        profile=profile,
+        evaluation=evaluation,
+    )
+    assert grade({"FAIL_TO_PASS": spec["ids"], "PASS_TO_PASS": []}, result)["valid"]
+    previous = runner.policy
+    runner.policy = replace(previous, timeout=0.01)
+    try:
+        result = runner.execute(
+            image, command, root, "issue-timeout", evaluation=evaluation
+        )
+        assert result["status"] == "timeout"
+    finally:
+        runner.policy = previous
+
+
+def test_native_unittest_selector_recording(environment):
+    import difflib
+
+    runner, image, root = environment
+    source = """import unittest
+import sys
+from value import VALUE
+class Sample(unittest.TestCase):
+    def test_issue(self):
+        self.assertEqual(VALUE, 1)
+    def test_pass(self):
+        "Regression remains stable."
+        self.assertIsInstance(VALUE, int)
+suite = unittest.defaultTestLoader.loadTestsFromTestCase(Sample)
+r = unittest.TextTestRunner().run(suite)
+sys.exit(not r.wasSuccessful())
+"""
+    patch = "".join(
+        difflib.unified_diff(
+            [],
+            source.splitlines(keepends=True),
+            fromfile="/dev/null",
+            tofile="b/tests/runtests.py",
+        )
+    )
+    ids = ["test_issue (__main__.Sample)", "Regression remains stable."]
+    evaluation = {
+        "test_patch": patch,
+        "selectors": {
+            "ids": ids,
+            "roots": [],
+            "framework": "django",
+            "command": ["python", "tests/runtests.py"],
+        },
+    }
+    command = ["python", "/tmp/raac-issue-runner.py", "/tmp/raac-selectors.json"]
+    result = runner.execute(
+        image, command, root, "issue-unittest", evaluation=evaluation
+    )
+    assert result["test_results"][ids[0]]["outcome"] == "failed"
+    assert result["test_results"][ids[1]]["outcome"] == "passed"

@@ -78,3 +78,49 @@ Resume không truyền bộ lọc sẽ tự dùng danh sách/thứ tự task tro
 Astropy chạy cả astropy/ và docs/ theo tox gốc; Matplotlib chạy toàn lib/ (gồm mpl_toolkits); Xarray dùng testpaths của từng commit để bao gồm cả properties/ khi có. Không dùng cờ quickcheck, bỏ test hay mở mạng để ép baseline pass.
 
 Profile native có post_patch_commands: sau git apply, candidate rebuild extension offline từ dependency đã chuẩn bị, rồi mới chạy test; lỗi rebuild trả patch_setup_error. Astropy, Matplotlib và scikit-learn dùng pip editable --no-index --no-deps --no-build-isolation. Các phase vẫn chịu cùng giới hạn thời gian/tài nguyên; baseline và candidate có volume riêng.
+
+
+## Test theo issue từ SWE-bench Verified
+
+Mặc định mới của `sandbox run`, `batch` và `validate` là `--test-mode issue`.
+Chạy toàn suite cũ phải dùng `--test-mode suite`. Dataset cleaned và Task dành cho
+agent giữ nguyên; evaluator riêng tại `data/evaluation/swe_bench_verified.json`
+chứa 120 ánh xạ issue ID → instance ID (PR), test patch, gold patch và F2P/P2P.
+Không cung cấp file evaluator, gold patch hoặc container validation cho agent.
+File raw Stage1 không bị thay đổi. Import khớp repo + base commit và xác nhận PR URL;
+thiếu hoặc nhiều kết quả sẽ bị từ chối. Hash raw và artifact được lưu để truy vết.
+
+```powershell
+raac sandbox import-verified --raw C:/Users/Admin/Desktop/DACN/Stage1/prototype/data/raw/swe_bench_verified.jsonl
+raac sandbox validate --config configs/benchmark.compatibility.yaml --task-id psf__requests-6027 --batch-id issue-requests
+raac sandbox validate --config configs/benchmark.compatibility.yaml --batch-id issue-all
+raac sandbox validate --config configs/benchmark.compatibility.yaml --batch-id issue-all --resume
+raac sandbox run --config configs/benchmark.compatibility.yaml --task-id psf__requests-6027 --patch candidate.patch
+raac sandbox run --task-id psf__requests-6027 --test-mode suite
+```
+
+Validation chạy baseline + test patch, rồi gold + test patch trong volume mới từ
+cùng image. Gold không nằm trong build context/image; chỉ nạp vào container gold.
+Candidate sửa bất kỳ file thuộc test patch sẽ nhận `protected_test_error`. Patch
+code được áp trước test patch; lỗi test patch nhận `test_patch_error`. Native code
+rebuild offline sau khi áp cả hai patch. Mỗi phase giữ 1800 giây khi chạy batch.
+
+Mỗi selector F2P phải fail ở baseline và pass sau gold; mọi P2P phải pass ở cả hai.
+Skip, xfail/xpass, thiếu test, collection error và timeout không tính là pass.
+`validated` xác nhận chuyển trạng thái test; log assertion vẫn cần được xem khi
+nghi ngờ failure không phản ánh issue. Candidate chỉ `resolved` nếu baseline hợp
+lệ và mọi test yêu cầu pass; đây là tiêu chí test, không phải chứng minh mọi hành vi.
+P2P rỗng được giữ nguyên và không suy ra đã kiểm tra regression đầy đủ.
+
+Pytest thu thập các file liên quan, plugin chọn test qua manifest, ghi per-test
+JSON (`*.tests.json`) và node ID thực tế. Các tên rút gọn của parser SWE-bench được
+chuẩn hóa theo repo; khi một alias khớp nhiều testcase, chạy tất cả và chỉ xác nhận
+outcome đồng nhất. Sympy tên trần phải khớp duy nhất trong file test patch. Django
+chuyển nhãn unittest và ghi kết quả bằng runner gốc với SQLite.
+
+Record/summary thêm chế độ test, hash artifact/test/gold patch, metadata môi trường,
+số selector yêu cầu/tìm thấy/đã chạy, baseline/gold/candidate validation và thời gian
+chuẩn bị/từng phase. Fingerprint bao gồm evaluator/selector/adapter và chế độ chạy.
+Không resume batch suite cũ bằng issue mode. Batch cũ được giữ làm lịch sử, không
+coi kết quả suite là validation issue. Chỉ nghiệm thu 120 task sau Docker validation
+thực tế; cấu hình đủ profile không thay thế bằng chứng.

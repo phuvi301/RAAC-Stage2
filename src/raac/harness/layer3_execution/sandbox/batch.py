@@ -28,7 +28,14 @@ RETRYABLE = {
     "timeout",
     "interrupted",
 }
-EXECUTED = {"passed", "test_failed"}
+EXECUTED = {
+    "passed",
+    "test_failed",
+    "validated",
+    "validation_failed",
+    "resolved",
+    "unresolved",
+}
 
 
 def atomic_json(path, data):
@@ -84,6 +91,17 @@ def fingerprint(sandbox, dataset, selection, budget):
     paths.update(
         resolve_path(sandbox.root, p) for p in sandbox.config["profiles"].values()
     )
+    paths.update(
+        Path(__file__).with_name(name) for name in ("evaluation.py", "issue_runner.py")
+    )
+    if budget.get("test_mode") == "issue":
+        from .evaluation import DEFAULT_ARTIFACTS
+
+        paths.add(
+            resolve_path(
+                sandbox.root, sandbox.config.get("evaluation", DEFAULT_ARTIFACTS)
+            )
+        )
     files = {str(p): digest(p.read_bytes()) for p in sorted(paths)}
     return digest(
         json.dumps(
@@ -111,6 +129,16 @@ def report(directory, manifest):
                 "status": latest.get("status", "not_run"),
                 "attempts": len(attempts),
                 "runner": baseline.get("runner"),
+                "test_mode": latest.get("test_mode", manifest.get("test_mode")),
+                "baseline_valid": latest.get("baseline_validation", {}).get("valid"),
+                "gold_valid": latest.get("gold_validation", {}).get("valid"),
+                "candidate_valid": latest.get("candidate_validation", {}).get("valid"),
+                "required_tests": latest.get("baseline_validation", {}).get("required"),
+                "found_tests": latest.get("baseline_validation", {}).get("found"),
+                "executed_tests": latest.get("baseline_validation", {}).get("executed"),
+                "preparation_seconds": latest.get("preparation_seconds"),
+                "baseline_seconds": baseline.get("duration_seconds"),
+                "gold_seconds": (latest.get("gold") or {}).get("duration_seconds"),
                 "statistics_available": baseline.get("statistics_available", False),
                 "network_mode": policy.get("network_mode"),
                 "test_timeout_seconds": policy.get("timeout"),
@@ -141,6 +169,7 @@ def report(directory, manifest):
         "batch_id": manifest["batch_id"],
         "status": manifest["status"],
         "total": len(rows),
+        "validated": sum(r["status"] == "validated" for r in rows),
         "executed": sum(r["status"] in EXECUTED for r in rows),
         "active_run": manifest.get("active_run"),
         "statuses": statuses,
@@ -180,6 +209,8 @@ def run_batch(
     resume=False,
     retry_errors=False,
     progress=None,
+    test_mode="issue",
+    validate=False,
 ):
     if retry_errors and not resume:
         raise ValueError("--retry-errors requires --resume")
@@ -220,7 +251,12 @@ def run_batch(
         raise ValueError(
             "Profile validation failed: " + "; ".join(validation["errors"])
         )
-    budget = {"build_timeout": 1800, "test_timeout": 1800}
+    budget = {
+        "build_timeout": 1800,
+        "test_timeout": 1800,
+        "test_mode": test_mode,
+        "validate": validate,
+    }
     signature = fingerprint(sandbox, path, selection, budget)
     directory = (
         resolve_path(sandbox.root, sandbox.config["results"]) / "batches" / batch_id
@@ -240,6 +276,8 @@ def run_batch(
                 "batch_id": batch_id,
                 "fingerprint": signature,
                 "budget": budget,
+                "test_mode": test_mode,
+                "operation": "validate" if validate else "run",
                 "dataset": str(path),
                 "status": "running",
                 "tasks": {
@@ -307,6 +345,8 @@ def run_batch(
                     build_timeout=1800,
                     test_timeout=1800,
                     run_id=run_id,
+                    test_mode=test_mode,
+                    validate=validate,
                 )
                 attempts.append(result)
                 manifest.pop("active_run", None)
