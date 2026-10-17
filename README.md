@@ -175,3 +175,10 @@ raac sandbox batch --batch-id baseline-all --resume
 ```
 
 Xem `results/batches/<batch_id>/summary.json` và `summary.csv` để phân biệt test đã chạy với lỗi môi trường hoặc timeout. Profile hợp lệ cho 120 task chưa chứng minh 120 môi trường đã chạy thành công.
+
+
+Chế độ mặc định hiện đánh giá test theo issue từ SWE-bench Verified (F2P + P2P).
+Dữ liệu evaluator được tách khỏi Task/cleaned dataset; không đưa gold patch cho agent.
+Dùng `raac sandbox validate --config configs/benchmark.compatibility.yaml --batch-id issue-all`
+để kiểm chứng baseline + gold. Muốn chạy toàn bộ suite cũ, thêm `--test-mode suite`.
+Các profile compatibility đang được kiểm chứng; chưa mặc định 120/120 đã đạt.

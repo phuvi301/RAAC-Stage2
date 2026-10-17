@@ -69,13 +69,15 @@ def setup_batch(tmp_path, monkeypatch):
 
 def test_batch_report_resume_and_retry(setup_batch):
     sandbox, calls, statuses = setup_batch
-    result = batch.run_batch(sandbox, batch_id="test")
+    result = batch.run_batch(sandbox, test_mode="suite", batch_id="test")
     assert result["total"] == 2 and result["executed"] == 1
     assert calls == ["first", "second"]
-    batch.run_batch(sandbox, batch_id="test", resume=True)
+    batch.run_batch(sandbox, test_mode="suite", batch_id="test", resume=True)
     assert calls == ["first", "second"]
     statuses["second"] = "passed"
-    result = batch.run_batch(sandbox, batch_id="test", resume=True, retry_errors=True)
+    result = batch.run_batch(
+        sandbox, test_mode="suite", batch_id="test", resume=True, retry_errors=True
+    )
     assert calls == ["first", "second", "second"]
     assert result["executed"] == 2
     assert result["tasks"][1]["attempts"] == 2
@@ -89,18 +91,24 @@ def test_batch_report_resume_and_retry(setup_batch):
 
 def test_fingerprint_and_selection_validation(setup_batch):
     sandbox, _, _ = setup_batch
-    batch.run_batch(sandbox, batch_id="test", task_ids=["first"])
+    batch.run_batch(sandbox, test_mode="suite", batch_id="test", task_ids=["first"])
     with pytest.raises(ValueError, match="fingerprint"):
         batch.run_batch(
-            sandbox, batch_id="test", resume=True, task_ids=["first", "second"]
+            sandbox,
+            test_mode="suite",
+            batch_id="test",
+            resume=True,
+            task_ids=["first", "second"],
         )
     (sandbox.root / "registry/VERSION").write_text("2")
     with pytest.raises(ValueError, match="fingerprint"):
-        batch.run_batch(sandbox, batch_id="test", resume=True, task_ids=["first"])
+        batch.run_batch(
+            sandbox, test_mode="suite", batch_id="test", resume=True, task_ids=["first"]
+        )
     with pytest.raises(ValueError, match="Unknown"):
-        batch.run_batch(sandbox, task_ids=["missing"])
+        batch.run_batch(sandbox, test_mode="suite", task_ids=["missing"])
     with pytest.raises(ValueError, match="requires"):
-        batch.run_batch(sandbox, retry_errors=True)
+        batch.run_batch(sandbox, test_mode="suite", retry_errors=True)
 
 
 def test_profile_override_validation(setup_batch):
@@ -127,9 +135,11 @@ def test_resume_recovers_completed_record_after_interrupt(setup_batch, monkeypat
 
     monkeypatch.setattr(batch, "DockerSandbox", InterruptRunner)
     with pytest.raises(KeyboardInterrupt):
-        batch.run_batch(sandbox, batch_id="interrupted")
+        batch.run_batch(sandbox, test_mode="suite", batch_id="interrupted")
     monkeypatch.setattr(batch, "DockerSandbox", original)
-    result = batch.run_batch(sandbox, batch_id="interrupted", resume=True)
+    result = batch.run_batch(
+        sandbox, test_mode="suite", batch_id="interrupted", resume=True
+    )
     assert calls == ["first", "second"]
     assert result["tasks"][0]["attempts"] == 1
 

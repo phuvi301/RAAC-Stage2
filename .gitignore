@@ -16,3 +16,6 @@ data/tasks/*
 !data/tasks/cleaned_benchmark.json
 results/*
 !results/.gitkeep
+!data/evaluation/
+data/evaluation/*
+!data/evaluation/swe_bench_verified.json

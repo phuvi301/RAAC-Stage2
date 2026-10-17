@@ -449,7 +449,16 @@ class DockerSandbox:
                 "hint": "Start Docker Desktop and select Linux containers; no host test fallback is supported.",
             }
 
-    def execute(self, image, command, directory, label, patch=None, profile=None):
+    def execute(
+        self,
+        image,
+        command,
+        directory,
+        label,
+        patch=None,
+        profile=None,
+        evaluation=None,
+    ):
         profile = profile or {}
         volume = self.client.volumes.create(labels={"raac": directory.name})
         container = None
@@ -464,6 +473,9 @@ class DockerSandbox:
             )
             if patch is not None:
                 script += "cd /workspace; git apply --check /tmp/candidate.patch || exit 86; git apply /tmp/candidate.patch || exit 86; "
+            if evaluation is not None:
+                script += "git apply --check /tmp/test.patch || exit 88; git apply /tmp/test.patch || exit 88; "
+            if patch is not None:
                 for rebuild in profile.get("post_patch_commands", []):
                     script += shlex.join(rebuild) + " || exit 87; "
             script += "exec " + shlex.join(command)
@@ -477,13 +489,26 @@ class DockerSandbox:
                 environment=profile.get("environment", {}),
                 **self.policy.container_options(),
             )
-            if patch is not None:
+            files = {"candidate.patch": patch} if patch is not None else {}
+            if evaluation is not None:
+                files.update(
+                    {
+                        "test.patch": evaluation["test_patch"].encode(),
+                        "raac-issue-runner.py": evaluation.get("runner_source")
+                        or Path(__file__).with_name("issue_runner.py").read_bytes(),
+                        "raac-selectors.json": json.dumps(
+                            evaluation["selectors"]
+                        ).encode(),
+                    }
+                )
+            if files:
                 stream = io.BytesIO()
                 with tarfile.open(fileobj=stream, mode="w") as tar:
-                    item = tarfile.TarInfo("candidate.patch")
-                    item.size = len(patch)
-                    item.mode = 0o444
-                    tar.addfile(item, io.BytesIO(patch))
+                    for name, content in files.items():
+                        item = tarfile.TarInfo(name)
+                        item.size = len(content)
+                        item.mode = 0o444
+                        tar.addfile(item, io.BytesIO(content))
                 container.put_archive("/tmp", stream.getvalue())
             container.start()
             # The Docker HTTP timeout is shorter than the run timeout; poll state instead of wait().
@@ -516,8 +541,32 @@ class DockerSandbox:
                 stats = junit_stats(raw)
             except (docker.errors.NotFound, ET.ParseError, ValueError, KeyError):
                 pass
+            issue_report = None
+            issue_report_available = False
+            if evaluation is not None:
+                try:
+                    chunks, _ = container.get_archive("/workspace/raac-tests.json")
+                    with tarfile.open(fileobj=io.BytesIO(b"".join(chunks))) as tar:
+                        raw = tar.extractfile(tar.getmembers()[0]).read()
+                    (directory / f"{label}.tests.json").write_bytes(raw)
+                    issue_report = json.loads(raw)
+                    issue_report_available = True
+                except (docker.errors.NotFound, ValueError, KeyError):
+                    issue_report = {"tests": {}, "errors": ["Missing per-test report"]}
+            if issue_report_available:
+                outcomes = [
+                    v.get("outcome") for v in issue_report.get("tests", {}).values()
+                ]
+                stats = {
+                    "tests": len(outcomes),
+                    "failures": outcomes.count("failed"),
+                    "errors": sum(x in {"runner_error", "mixed"} for x in outcomes),
+                    "skipped": sum(
+                        x in {"skipped", "xfail", "xpass"} for x in outcomes
+                    ),
+                }
             native_count = None
-            if profile.get("test_framework") == "django":
+            if profile.get("test_framework") == "django" and evaluation is None:
                 text = log.read_text(encoding="utf-8", errors="replace")
                 summaries = list(
                     re.finditer(r"^Ran (\d+) tests? in[^\r\n]*$", text, re.MULTILINE)
@@ -552,8 +601,20 @@ class DockerSandbox:
                 status = "timeout"
             elif patch is not None and code == 86:
                 status = "patch_error"
+            elif evaluation is not None and code == 88:
+                status = "test_patch_error"
             elif patch is not None and code == 87:
                 status = "patch_setup_error"
+            elif issue_report is not None:
+                status = (
+                    "collection_error"
+                    if issue_report.get("errors")
+                    else "passed"
+                    if code == 0
+                    else "test_failed"
+                    if code == 1
+                    else "execution_error"
+                )
             elif profile.get("test_framework") == "django" and native_count is None:
                 status = "collection_error" if code == 1 else "execution_error"
             elif profile.get("test_framework") == "django" and native_count == 0:
@@ -577,6 +638,12 @@ class DockerSandbox:
                 }.get(code, "execution_error")
             return {
                 "status": status,
+                "test_results": issue_report.get("tests", {})
+                if issue_report is not None
+                else None,
+                "selector_errors": issue_report.get("errors", [])
+                if issue_report is not None
+                else None,
                 "exit_code": code,
                 "timeout": timed_out,
                 "duration_seconds": round(time.monotonic() - started, 3),
@@ -584,7 +651,9 @@ class DockerSandbox:
                 if profile.get("test_framework", "pytest") == "pytest"
                 else None,
                 "test_statistics": stats,
-                "report_format": profile.get("report_format", "junit"),
+                "report_format": "per-test-json"
+                if issue_report is not None
+                else profile.get("report_format", "junit"),
                 "statistics_available": stats is not None,
                 "runner": profile.get("test_framework", "pytest"),
                 "log": str(log),
@@ -605,6 +674,8 @@ class DockerSandbox:
         build_timeout=None,
         test_timeout=None,
         run_id=None,
+        test_mode="issue",
+        validate=False,
     ):
         run_id = run_id or uuid.uuid4().hex
         directory = resolve_path(self.root, self.config["results"]) / run_id
@@ -621,6 +692,12 @@ class DockerSandbox:
             dataset_path = resolve_path(self.root, dataset or self.config["dataset"])
             task = load_tasks(dataset_path)[task_id]
             record["task"] = asdict(task)
+            if test_mode not in {"suite", "issue"}:
+                raise ValueError("Unknown test mode")
+            record["test_mode"] = test_mode
+            record["operation"] = "validate" if validate else "run"
+            if validate and test_mode != "issue":
+                raise ValueError("Validation requires issue mode")
             profile_name = self.config.get("profiles", {}).get(task.repo)
             if profile_name is None:
                 record["status"] = "profile_missing"
@@ -663,11 +740,71 @@ class DockerSandbox:
                 "dataset_sha256": digest(dataset_path.read_bytes()),
                 "sandbox_code_hashes": {
                     name: digest(Path(__file__).with_name(name).read_bytes())
-                    for name in ("docker_sandbox.py", "build.py", "policy.py")
+                    for name in (
+                        "docker_sandbox.py",
+                        "build.py",
+                        "policy.py",
+                        "evaluation.py",
+                        "issue_runner.py",
+                    )
                 },
                 "effective_config": safe_snapshot(snapshot),
             }
+            from .evaluation import (
+                DEFAULT_ARTIFACTS,
+                grade,
+                load_evaluation,
+                patch_paths,
+                payload,
+            )
+
+            evaluation = None
+            row = None
+            command = profile["test_command"]
             patch = Path(patch_path).read_bytes() if patch_path else None
+            if test_mode == "issue" and not prepare:
+                artifact_path = resolve_path(
+                    self.root, self.config.get("evaluation", DEFAULT_ARTIFACTS)
+                )
+                row = load_evaluation(artifact_path, task)
+                record["evaluation"] = {
+                    k: row[k]
+                    for k in (
+                        "instance_id",
+                        "pr_url",
+                        "version",
+                        "environment_setup_commit",
+                    )
+                }
+                record["evaluation"].update(
+                    {
+                        "artifact_sha256": digest(artifact_path.read_bytes()),
+                        "source_sha256": json.loads(
+                            artifact_path.read_text(encoding="utf-8")
+                        )["source_sha256"],
+                        "test_patch_sha256": digest(row["test_patch"].encode()),
+                        "gold_patch_sha256": digest(row["gold_patch"].encode())
+                        if validate
+                        else None,
+                    }
+                )
+                if patch is not None and patch_paths(patch.decode()) & patch_paths(
+                    row["test_patch"]
+                ):
+                    record["status"] = "protected_test_error"
+                    return record
+                evaluation = {
+                    "test_patch": row["test_patch"],
+                    "selectors": payload(row, profile),
+                    "runner_source": Path(__file__)
+                    .with_name("issue_runner.py")
+                    .read_bytes(),
+                }
+                command = [
+                    "python",
+                    "/tmp/raac-issue-runner.py",
+                    "/tmp/raac-selectors.json",
+                ]
             record["patch_sha256"] = digest(patch) if patch is not None else None
             if patch is not None:
                 (directory / "candidate.patch").write_bytes(patch)
@@ -711,27 +848,74 @@ class DockerSandbox:
                 record["image_id"] = image.id
                 record["dockerfile_sha256"] = digest(recipe.encode())
                 record["image_tag"] = tag
+            record["preparation_seconds"] = round(time.monotonic() - started, 3)
             if prepare:
                 record["status"] = "prepared"
             else:
                 record["status"] = "execution_error"
                 record["baseline"] = self.execute(
                     image,
-                    profile["test_command"],
+                    command,
                     directory,
                     "baseline",
                     profile=profile,
+                    evaluation=evaluation,
                 )
-                if patch is not None:
-                    record["candidate"] = self.execute(
-                        image,
-                        profile["test_command"],
-                        directory,
-                        "candidate",
-                        patch,
-                        profile=profile,
+                if evaluation is not None:
+                    record["baseline_validation"] = grade(
+                        row, record["baseline"], baseline=True
                     )
-                record["status"] = (record["candidate"] or record["baseline"])["status"]
+                if validate:
+                    record["gold"] = self.execute(
+                        image,
+                        command,
+                        directory,
+                        "gold",
+                        row["gold_patch"].encode(),
+                        profile=profile,
+                        evaluation=evaluation,
+                    )
+                    record["gold_validation"] = grade(row, record["gold"])
+                    record["status"] = (
+                        "validated"
+                        if record["baseline_validation"]["valid"]
+                        and record["gold_validation"]["valid"]
+                        else "validation_failed"
+                    )
+                else:
+                    if patch is not None:
+                        record["candidate"] = self.execute(
+                            image,
+                            command,
+                            directory,
+                            "candidate",
+                            patch,
+                            profile=profile,
+                            evaluation=evaluation,
+                        )
+                        if evaluation is not None:
+                            record["candidate_validation"] = grade(
+                                row, record["candidate"]
+                            )
+                    record["status"] = (record["candidate"] or record["baseline"])[
+                        "status"
+                    ]
+                    if evaluation is not None and record["candidate"] is not None:
+                        record["status"] = (
+                            "resolved"
+                            if record["candidate_validation"]["valid"]
+                            and record["baseline_validation"]["valid"]
+                            else "unresolved"
+                        )
+            if evaluation is not None:
+                for phase in (
+                    record.get("baseline"),
+                    record.get("gold"),
+                    record.get("candidate"),
+                ):
+                    if phase and phase["status"] not in {"passed", "test_failed"}:
+                        record["status"] = phase["status"]
+                        break
             return record
         except subprocess.TimeoutExpired as exc:
             record["status"] = (

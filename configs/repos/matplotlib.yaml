@@ -12,6 +12,8 @@ system_packages:
 - fonts-dejavu-core
 - imagemagick
 - inkscape
+- make
+- ghostscript
 environment:
   MPLBACKEND: Agg
   OMP_NUM_THREADS: '1'
@@ -73,7 +75,7 @@ task_overrides:
     - - python
       - -c
       - from pathlib import Path; Path('/tmp/mplsetup.cfg').write_text('[libs]\nsystem_freetype
-        = true\nsystem_qhull = true\n')
+        = false\nsystem_qhull = true\n')
   matplotlib__matplotlib-20665:
     base_image: python:3.8-slim-bookworm
     install_commands:
@@ -110,7 +112,7 @@ task_overrides:
     - - python
       - -c
       - from pathlib import Path; Path('/tmp/mplsetup.cfg').write_text('[libs]\nsystem_freetype
-        = true\nsystem_qhull = true\n')
+        = false\nsystem_qhull = true\n')
 dependency_commands:
 - - python
   - -m
@@ -145,7 +147,7 @@ dependency_commands:
 - - python
   - -c
   - from pathlib import Path; Path('/tmp/mplsetup.cfg').write_text('[libs]\nsystem_freetype
-    = true\nsystem_qhull = true\n')
+    = false\nsystem_qhull = true\n')
 source_history: versioned
 post_patch_commands:
 - - python

@@ -23,22 +23,40 @@ def main(argv=None):
             command.add_argument("--dataset")
         if name == "run":
             command.add_argument("--patch")
-    batch = commands.add_parser("batch")
-    batch.add_argument("--config")
-    batch.add_argument("--dataset")
-    batch.add_argument("--repo", action="append")
-    batch.add_argument("--task-id", action="append")
-    batch.add_argument("--batch-id")
-    batch.add_argument("--resume", action="store_true")
-    batch.add_argument("--retry-errors", action="store_true")
+            command.add_argument(
+                "--test-mode", choices=["suite", "issue"], default="issue"
+            )
+    for name in ("batch", "validate"):
+        batch = commands.add_parser(name)
+        batch.add_argument("--config")
+        batch.add_argument("--dataset")
+        batch.add_argument("--repo", action="append")
+        batch.add_argument("--task-id", action="append")
+        batch.add_argument("--batch-id")
+        batch.add_argument("--resume", action="store_true")
+        batch.add_argument("--retry-errors", action="store_true")
+        batch.add_argument("--test-mode", choices=["suite", "issue"], default="issue")
+    importer = commands.add_parser("import-verified")
+    importer.add_argument("--raw", required=True)
+    importer.add_argument("--dataset", default="data/tasks/cleaned_benchmark.json")
+    importer.add_argument("--output", default="data/evaluation/swe_bench_verified.json")
     profiles = commands.add_parser("profiles")
     profiles.add_argument("action", choices=["check"])
     profiles.add_argument("--config")
     profiles.add_argument("--dataset")
     args = parser.parse_args(argv)
     try:
+        if args.command == "import-verified":
+            from raac.harness.layer3_execution.sandbox.evaluation import import_verified
+
+            print(
+                json.dumps(
+                    import_verified(args.raw, args.dataset, args.output), indent=2
+                )
+            )
+            return 0
         runner = DockerSandbox(config=args.config)
-        if args.command == "batch":
+        if args.command in {"batch", "validate"}:
             result = run_batch(
                 runner,
                 dataset=args.dataset,
@@ -47,6 +65,8 @@ def main(argv=None):
                 batch_id=args.batch_id,
                 resume=args.resume,
                 retry_errors=args.retry_errors,
+                test_mode=args.test_mode,
+                validate=args.command == "validate",
                 progress=lambda event: print(
                     json.dumps(event), file=sys.stderr, flush=True
                 ),
@@ -61,6 +81,7 @@ def main(argv=None):
                 dataset=args.dataset,
                 patch_path=getattr(args, "patch", None),
                 prepare=args.command == "prepare",
+                test_mode=getattr(args, "test_mode", "issue"),
             )
     except KeyboardInterrupt:
         print(
@@ -77,8 +98,16 @@ def main(argv=None):
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return (
         0
-        if result["status"] in {"ready", "prepared", "passed", "valid"}
-        or (result["status"] == "processed" and result["executed"] == result["total"])
+        if result["status"]
+        in {"ready", "prepared", "passed", "valid", "validated", "resolved"}
+        or (
+            result["status"] == "processed"
+            and (
+                result.get("validated") == result["total"]
+                if args.command == "validate"
+                else result["executed"] == result["total"]
+            )
+        )
         else 1
     )
 
