@@ -208,3 +208,33 @@ def test_all_effective_profiles_have_consistent_pip_pins():
                     name, version = argument.split("==", 1)
                     assert name not in pins or pins[name] == version, task.id
                     pins[name] = version
+
+
+@pytest.mark.parametrize("skipped,expected", [(True, "xfail"), (False, "xpass")])
+def test_empty_xfail_reason_is_not_skip_or_pass(
+    tmp_path, monkeypatch, skipped, expected
+):
+    from types import SimpleNamespace
+
+    from raac.harness.layer3_execution.sandbox import issue_runner as runner
+
+    monkeypatch.setattr(runner, "REPORT", str(tmp_path / "report.json"))
+    monkeypatch.setattr(runner, "results", {})
+    plugin = runner.SelectorPlugin()
+    node = "test_category.py::test_plot"
+    plugin.node_map = {node: [node]}
+    plugin.outcomes = {node: {}}
+    plugin.pytest_runtest_logreport(
+        SimpleNamespace(
+            nodeid=node,
+            when="call",
+            longrepr="",
+            wasxfail="",
+            skipped=skipped,
+            failed=False,
+        )
+    )
+    assert runner.results[node]["outcome"] == expected
+    row = {"FAIL_TO_PASS": [], "PASS_TO_PASS": [node]}
+    phase = {"status": "passed", "test_results": runner.results}
+    assert not grade(row, phase)["valid"]

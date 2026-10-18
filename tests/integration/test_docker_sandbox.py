@@ -101,6 +101,38 @@ def test_baseline_patch_and_invalid(environment):
     assert not runner.client.volumes.list(filters={"label": "raac=" + root.name})
 
 
+def test_empty_reason_xfail_and_xpass_are_not_passed(environment):
+    from raac.harness.layer3_execution.sandbox.evaluation import grade, payload
+
+    runner, image, root = environment
+    row = {
+        "repo": "fixture/repo",
+        "FAIL_TO_PASS": [],
+        "PASS_TO_PASS": [
+            "test_markers.py::test_expected",
+            "test_markers.py::test_unexpected",
+        ],
+        "test_patch": (
+            "diff --git a/test_markers.py b/test_markers.py\n"
+            "new file mode 100644\n--- /dev/null\n+++ b/test_markers.py\n"
+            "@@ -0,0 +1,7 @@\n+import pytest\n+@pytest.mark.xfail\n"
+            "+def test_expected():\n+    assert False\n+@pytest.mark.xfail\n"
+            "+def test_unexpected():\n+    assert True\n"
+        ),
+    }
+    row["selectors"] = payload(row, {"test_command": ["python", "-m", "pytest"]})
+    result = runner.execute(
+        image,
+        ["python", "/tmp/raac-issue-runner.py", "/tmp/raac-selectors.json"],
+        root,
+        "markers",
+        evaluation=row,
+    )
+    assert result["test_results"][row["PASS_TO_PASS"][0]]["outcome"] == "xfail"
+    assert result["test_results"][row["PASS_TO_PASS"][1]]["outcome"] == "xpass"
+    assert not grade(row, result)["valid"]
+
+
 def test_timeout(environment):
     runner, image, root = environment
     short = DockerSandbox(client=runner.client, policy=SandboxPolicy(timeout=1))

@@ -106,7 +106,7 @@ class SelectorPlugin:
     def pytest_runtest_logreport(self, report):
         if str(getattr(report, "longrepr", "")).startswith("[XPASS(strict)]"):
             outcome = "xpass"
-        elif getattr(report, "wasxfail", None):
+        elif getattr(report, "wasxfail", None) is not None:
             outcome = "xfail" if report.skipped else "xpass"
         elif report.failed:
             outcome = "failed" if report.when == "call" else "runner_error"

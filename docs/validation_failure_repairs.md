@@ -13,7 +13,7 @@ Trong 24 task từng có record validation_failed: hiện 12 task có record val
 | Mạng ngoài | Requests1723/1765/1920/2316/2930/5367 | DNS/network unreachable hoặc test đòi connect timeout nhưng network none trả lỗi ngay. Không retry hàng loạt khi chính sách không đổi. |
 | Baseline/selector chưa hợp lệ | Django33552 | Sau sửa addSubTest, đủ80 test thực thi/gold80pass; F2P test_has_keys vẫn pass trên SQLite. |
 | Baseline/selector chưa hợp lệ | Matplotlib22640 | 4 P2P rút gọn, mỗi ID khớp3 case với trạng thái mixed. |
-| Baseline/selector chưa hợp lệ | Pylint7229 | P2P rút gọn khớp cả case fail của F2P; baseline mixed, gold19pass. |
+| Baseline/selector chưa hợp lệ | Pylint7229 | P2P rút gọn bao gồm case regex có quantifier chỉ pass sau gold; baseline mixed, gold19pass. Case này khác F2P test_csv_regex_error. |
 | Baseline/selector chưa hợp lệ | Xarray3992/4354/6597 | Gold pass toàn bộ; baseline lần lượt4/8/1 P2P fail do hành vi được gold sửa.6597 đã đối chiếu thêm Dask lịch sử, vẫn fail cùng case. Chưa kết luận raw sai nếu chưa so harness tham chiếu. |
 
 
@@ -104,3 +104,26 @@ Cập nhật solver7036 sang micromamba2.6.0-0, SHA256 e9482483cd42cb28a93629841
 
 
 Kiểm tra cuối ngày 2026-10-19: **86/86 tests passed trong 106,72s**, gồm74unit +12Docker integration. Ruff/format/diff check và profile check120/120 qua; quét mẫu credential phổ biến trong diff không phát hiện. Hàng đợi sửa đã processed; batch cũ giữ interrupted, không tự resume sau đổi fingerprint. Không commit/push.
+
+
+## Rà lại trực tiếp ngày 2026-10-19
+
+Theo yêu cầu, chạy lại nhóm validation_failed tại terminal riêng bằng batch `validation-failed-v2-full`, giữ full F2P/P2P và artifact. Sau đó terminal nối tiếp resume11task môi trường/ngắt ở `issue-remaining-v2-full`. Nhóm5artifact cũ không có trong lựa chọn;6Requests networknone không retry khi chính sách không đổi.
+
+- Django33552 record `d5908d385d7d48b7a570a05e786f585e`: baseline80/80executed; F2P test_has_keys vẫn pass với khóa chữ a/c/h, test_patch không đổi test này; gold80pass. Không quy toàn bộ lỗi này cho SQLite khi chưa có bằng chứng backend khác.
+- Pylint7229 record `cfadbb4a8c184685826646ca818ac0a6`: P2P rút gọn `[foo,` khớp2case `foo, bar` pass và `foo, bar{1,3}` fail baseline; gold19selectorpass. Case fail này nằm trong P2P rút gọn, không trùng F2P test_csv_regex_error. Không tự chọn casepass để bỏ lỗi.
+- Matplotlib22640: source base đã đánh dấu Axes.plot xfail trong2test mixed_type; alias rút gọn kéo cảcase scatter/bar pass và plotxfail. Không thể đạt tiêu chí mọiP2Ppass bằng cách coi xfail là pass.
+
+Đang chạy Xarray3992/4354/6597; chưa có kết luận mới cho toàn batch.
+
+
+### Sửa adapter trong lúc kiểm chứng
+
+Matplotlib22640 cho thấy dấu xfail không có reason bị ghi skipped. Tái hiện unit còn phát hiện nhánh xpass reason rỗng bị ghi passed. Sửa kiểm tra wasxfail theo `is not None`, giữ xfail/xpass không hợp lệ cho P2P;2regressionunit fail trước sửa,22test evaluator pass sau sửa. Thêm Docker fixture có xfail/xpass thật và xác nhận grading không pass; đang chạy full framework. Dừng batch11có kiểm soát trước khi đổi adapter, không resume fingerprint cũ; batch mới `issue-repairs-v3-full` kiểm tra lại Matplotlib22640 rồi9task còn lại. Astropy14355/14363 đã validated trong batch v2 (735/9selector goldpass), giữ record cũ đúng provenance.
+
+Framework sau sửa: **89/89passed trong131,50s**,76unit+13Docker integration (gồm fixture xfail/xpass); Ruff/format/profilecheck120qua. Không nghiệm thu thêm task từ mock.
+
+Matplotlib22640 sau sửa adapter đã full chạy lại: record `9d76b58d604e4e8a8bbb0f49b1fc1322`;4P2Palias mỗiID có2casepassed+1casexfail ởcảbaseline/gold. Giữ validation_failed, không còn ghi xfail thành skipped. Astropy14523 trong batchv3 đang build native, chưa nghiệm thu trước khi có fullrecord.
+
+
+Chốt lượt 2026-10-19: nhóm11task môi trường/ngắt đã fullvalidated đủ11/11; toàn bộ120task có record mới nhất gồm103validated/12validation_failed/4collection_error/1execution_error. Nhóm5artifact vẫn bỏ qua;12validation_failed không được chuyển nhãn. Không có task production đang chạy sau batchv4 processed. Xem bảng record trong environment_repairs.md và results/current-validation-summary.json/.csv.
