@@ -66,6 +66,7 @@ task_overrides:
       - ipython==8.12.3
       - objgraph==3.5.0
       - matplotlib==3.3.4
+      - pyparsing==2.4.7
   astropy__astropy-8706:
     base_image: python:3.8-slim-bookworm
     install_commands:
@@ -100,6 +101,7 @@ task_overrides:
       - ipython==8.12.3
       - objgraph==3.5.0
       - matplotlib==3.3.4
+      - pyparsing==2.4.7
   astropy__astropy-12906:
     dependency_commands:
     - - python
@@ -134,6 +136,7 @@ task_overrides:
       - ipython==8.12.3
       - objgraph==3.5.0
       - matplotlib==3.6.3
+      - pyparsing==2.4.7
     base_image: python:3.9-slim-bookworm
   astropy__astropy-13009:
     dependency_commands:
@@ -169,7 +172,33 @@ task_overrides:
       - ipython==8.12.3
       - objgraph==3.5.0
       - matplotlib==3.6.3
+      - pyparsing==2.4.7
     base_image: python:3.9-slim-bookworm
+    install_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - --no-build-isolation
+      - -e
+      - .
+    - &id001
+      - python
+      - -c
+      - from pathlib import Path; import astropy_iers_data; p=Path.home()/'.astropy/config';
+        p.mkdir(parents=True,exist_ok=True); f=Path(astropy_iers_data.__file__).parent/'data/Leap_Second.dat';
+        assert f.is_file(); (p/'astropy.cfg').write_text('[utils.iers.iers]\nsystem_leap_second_file
+        = '+str(f)+'\nauto_download = False\n')
+  astropy__astropy-13355:
+    install_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - --no-build-isolation
+      - -e
+      - .
+    - *id001
 dependency_commands:
 - - python
   - -m
@@ -203,6 +232,7 @@ dependency_commands:
   - ipython==8.12.3
   - objgraph==3.5.0
   - matplotlib==3.6.3
+  - pyparsing==2.4.7
 source_history: versioned
 post_patch_commands:
 - - python

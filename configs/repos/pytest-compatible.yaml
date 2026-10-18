@@ -11,6 +11,7 @@ environment:
   OPENBLAS_NUM_THREADS: '1'
   MKL_NUM_THREADS: '1'
   PYTHONPATH: /workspace/src
+  PYTHONUSERBASE: /home/runner/.local
 test_framework: pytest
 report_format: junit
 report_path: /workspace/pytest.xml

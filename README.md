@@ -185,3 +185,5 @@ Các profile compatibility đang được kiểm chứng; chưa mặc định 12
 
 
 Sandbox có quy trình chuẩn bị nhanh: `raac sandbox preflight` → `raac sandbox validate --stage pilot` → `raac sandbox validate --stage full --reuse-validated`. Chỉ full đạt đủ F2P/P2P mới có trạng thái `validated`. Build dùng cache nội bộ của builder sandbox; batch tự retention theo ngân sách mềm 30 GiB. Xem [hướng dẫn CLI, stop/resume và cache](docs/sandbox.md#chuẩn-bị-nhanh-và-retention-2026-10-17) và [bằng chứng kiểm chứng](docs/pilot_log.md).
+
+Chi tiết sửa lỗi môi trường và adapter theo log: [báo cáo validation_failed](docs/validation_failure_repairs.md). Record `validation_failed` cần xem kết quả từng F2P/P2P; gold pass chưa đủ để đánh dấu task validated.

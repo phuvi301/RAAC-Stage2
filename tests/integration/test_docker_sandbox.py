@@ -561,7 +561,9 @@ import sys
 from value import VALUE
 class Sample(unittest.TestCase):
     def test_issue(self):
-        self.assertEqual(VALUE, 1)
+        for expected in (1, 0):
+            with self.subTest(expected=expected):
+                self.assertGreaterEqual(VALUE, expected)
     def test_pass(self):
         "Regression remains stable."
         self.assertIsInstance(VALUE, int)
@@ -577,7 +579,7 @@ sys.exit(not r.wasSuccessful())
             tofile="b/tests/runtests.py",
         )
     )
-    ids = ["test_issue (__main__.Sample)", "Regression remains stable."]
+    ids = ["test_issue (__main__.Sample.test_issue)", "Regression remains stable."]
     evaluation = {
         "test_patch": patch,
         "selectors": {
@@ -593,3 +595,9 @@ sys.exit(not r.wasSuccessful())
     )
     assert result["test_results"][ids[0]]["outcome"] == "failed"
     assert result["test_results"][ids[1]]["outcome"] == "passed"
+    gold = b"diff --git a/value.py b/value.py\n--- a/value.py\n+++ b/value.py\n@@ -1 +1 @@\n-VALUE = 0\n+VALUE = 1\n"
+    fixed = runner.execute(
+        image, command, root, "issue-unittest-fixed", patch=gold, evaluation=evaluation
+    )
+    assert fixed["status"] == "passed"
+    assert fixed["test_results"][ids[0]]["outcome"] == "passed"
