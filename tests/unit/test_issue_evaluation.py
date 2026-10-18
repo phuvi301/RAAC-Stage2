@@ -135,3 +135,76 @@ def test_upstream_selector_aliases(monkeypatch):
         runner.django_label("test_one (app.tests.Example)")
         == "app.tests.Example.test_one"
     )
+    assert (
+        runner.django_label("test_one (app.tests.Example.test_one)")
+        == "app.tests.Example.test_one"
+    )
+
+
+@pytest.mark.parametrize(
+    "repo", ["sphinx-doc/sphinx", "scikit-learn/scikit-learn", "astropy/astropy"]
+)
+def test_upstream_whitespace_parameter_aliases(repo, monkeypatch):
+    from raac.harness.layer3_execution.sandbox import issue_runner as runner
+
+    monkeypatch.setattr(runner, "spec", {"repo": repo})
+    assert (
+        runner.upstream_alias("a.py::test_case[Loss must be positive]")
+        == "a.py::test_case[Loss"
+    )
+
+
+def test_ambiguous_sympy_names_remain_errors(tmp_path, monkeypatch):
+    from raac.harness.layer3_execution.sandbox import issue_runner as runner
+
+    monkeypatch.setattr(runner, "REPORT", str(tmp_path / "report.json"))
+    monkeypatch.setattr(runner, "spec", {"repo": "sympy/sympy", "ids": ["test_shared"]})
+    monkeypatch.setattr(runner, "errors", [])
+    monkeypatch.setattr(runner, "selection_errors", {})
+    monkeypatch.setattr(runner, "found", [])
+    from types import SimpleNamespace
+
+    items = [
+        SimpleNamespace(nodeid="a.py::test_shared", name="test_shared"),
+        SimpleNamespace(nodeid="b.py::test_shared", name="test_shared"),
+    ]
+    with pytest.raises(pytest.UsageError):
+        runner.SelectorPlugin().pytest_collection_modifyitems(None, Mock(), items)
+    diagnostic = json.loads((tmp_path / "report.json").read_text())
+    assert diagnostic["selection_errors"]["test_shared"]["reason"] == "ambiguous"
+    assert len(diagnostic["selection_errors"]["test_shared"]["matches"]) == 2
+
+
+def test_missing_collection_root_is_explicit(tmp_path, monkeypatch):
+    from raac.harness.layer3_execution.sandbox import issue_runner as runner
+
+    path = tmp_path / "selectors.json"
+    path.write_text(
+        json.dumps(
+            {"framework": "pytest", "roots": [str(tmp_path / "generated_only.py")]}
+        )
+    )
+    monkeypatch.setattr(runner.sys, "argv", ["runner", str(path)])
+    monkeypatch.setattr(runner, "errors", [])
+    assert runner.main() == 4
+    assert "collection root missing" in runner.errors[0]
+
+
+def test_all_effective_profiles_have_consistent_pip_pins():
+    from raac.harness.layer3_execution.sandbox.docker_sandbox import (
+        load_profile,
+        resolve_path,
+    )
+
+    sandbox = DockerSandbox()
+    for task in load_tasks(ROOT / "data/tasks/cleaned_benchmark.json").values():
+        profile = load_profile(
+            resolve_path(ROOT, sandbox.config["profiles"][task.repo]), task
+        )
+        for command in profile.get("dependency_commands", []):
+            pins = {}
+            for argument in command:
+                if "==" in argument:
+                    name, version = argument.split("==", 1)
+                    assert name not in pins or pins[name] == version, task.id
+                    pins[name] = version

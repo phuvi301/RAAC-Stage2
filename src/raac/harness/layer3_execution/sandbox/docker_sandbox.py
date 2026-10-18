@@ -265,9 +265,21 @@ def archive_repo(task, cache_root, destination, versioned=False, deadline=None):
             subprocess.run(
                 [
                     "git",
+                    "-c",
+                    "pack.writeReverseIndex=false",
                     "--git-dir",
                     str(cache),
                     "pack-objects",
+                    # Stable source bytes across thread scheduling, cache repacks,
+                    # and host Git compression/index defaults. Otherwise image keys
+                    # can change between preflight and full for the same commit.
+                    "--threads=1",
+                    "--no-reuse-delta",
+                    "--no-reuse-object",
+                    "--compression=6",
+                    "--window=10",
+                    "--depth=50",
+                    "--index-version=2",
                     str(Path(packed) / "pack"),
                 ],
                 input=objects,
@@ -305,7 +317,7 @@ def archive_repo(task, cache_root, destination, versioned=False, deadline=None):
                     + task.repo.encode()
                     + b"\n",
                 )
-                for file in Path(packed).iterdir():
+                for file in sorted(Path(packed).iterdir()):
                     add(".git/objects/pack/" + file.name, file.read_bytes())
     return cache
 

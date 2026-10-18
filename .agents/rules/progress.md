@@ -62,3 +62,8 @@ trigger: always_on
 - Không sửa trạng thái các mục ngoài phạm vi chỉ vì thấy chúng có vẻ đã xong.
 - Không ghi secret/API key hoặc dữ liệu nhạy cảm vào checklist và log.
 - Việc tự cập nhật là nghĩa vụ trong lượt làm việc của agent, không phải một tiến trình nền hoặc hook tự chạy.
+
+
+## Push Git — yêu cầu người dùng ngày 2026-10-17
+
+Không tự động push. Chỉ chạy `git push` khi người dùng yêu cầu rõ cho lần push đó. Các ủy quyền push trước yêu cầu này không còn áp dụng; hoàn tất triển khai, kiểm thử hoặc dọn log không mặc nhiên cho phép push.

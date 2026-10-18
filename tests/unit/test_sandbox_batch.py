@@ -225,6 +225,7 @@ def test_profile_rejects_secret_environment(setup_batch):
 
 
 def test_versioned_source_keeps_release_ancestry(tmp_path):
+    import hashlib
     import subprocess
     import tarfile
 
@@ -259,6 +260,33 @@ def test_versioned_source_keeps_release_ancestry(tmp_path):
         archive,
         versioned=True,
     )
+    original_hash = hashlib.sha256(archive.read_bytes()).hexdigest()
+    # Repacking the mirror and changing Git's pack defaults must not invalidate
+    # image cache keys for an unchanged commit and source recipe.
+    cached_repo = tmp_path / "cache/fixture/repo.git"
+    for key, value in (
+        ("pack.window", "100"),
+        ("pack.depth", "100"),
+        ("pack.threads", "4"),
+        ("pack.writeReverseIndex", "true"),
+    ):
+        subprocess.run(
+            ["git", "--git-dir", str(cached_repo), "config", key, value], check=True
+        )
+    subprocess.run(
+        ["git", "--git-dir", str(cached_repo), "repack", "-adf"],
+        check=True,
+        capture_output=True,
+    )
+    for _ in range(3):
+        repeated = tmp_path / "repeated.tar"
+        archive_repo(
+            Task("fixture", "fixture/repo", str(repo), "t", "b", commit),
+            tmp_path / "cache",
+            repeated,
+            versioned=True,
+        )
+        assert hashlib.sha256(repeated.read_bytes()).hexdigest() == original_hash
     checkout = tmp_path / "checkout"
     checkout.mkdir()
     # This archive is produced entirely from the local test fixture.

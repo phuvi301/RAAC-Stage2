@@ -12,12 +12,21 @@ REPORT = "/workspace/raac-tests.json"
 results = {}
 found = []
 errors = []
+selection_errors = {}
 spec = {}
 
 
 def save():
     with open(REPORT, "w") as output:
-        json.dump({"tests": results, "found": found, "errors": errors}, output)
+        json.dump(
+            {
+                "tests": results,
+                "found": found,
+                "errors": errors,
+                "selection_errors": selection_errors,
+            },
+            output,
+        )
 
 
 def key(value):
@@ -36,6 +45,9 @@ def upstream_alias(value):
         "matplotlib/matplotlib",
         "pallets/flask",
         "mwaskom/seaborn",
+        "sphinx-doc/sphinx",
+        "scikit-learn/scikit-learn",
+        "astropy/astropy",
     ):
         value = value.split()[0]
     if repo in ("psf/requests", "pylint-dev/pylint"):
@@ -70,6 +82,10 @@ class SelectorPlugin:
                 ]
             if not matches or ("::" not in wanted and len(matches) != 1):
                 errors.append("selector missing or ambiguous: " + wanted)
+                selection_errors[wanted] = {
+                    "reason": "ambiguous" if matches else "missing",
+                    "matches": [item.nodeid for item in matches],
+                }
                 continue
             found.append(wanted)
             self.outcomes[wanted] = {}
@@ -130,7 +146,10 @@ class SelectorPlugin:
 
 def django_label(value):
     matched = re.match(r"^(\w+) \(([^)]+)\)$", value)
-    return matched.group(2) + "." + matched.group(1) if matched else value
+    if not matched:
+        return value
+    method, parent = matched.groups()
+    return parent if parent.endswith("." + method) else parent + "." + method
 
 
 def run_django():
@@ -207,6 +226,18 @@ def run_django():
             return record
 
         setattr(unittest.TextTestResult, method, wrap(original, outcome))
+    if hasattr(unittest.TextTestResult, "addSubTest"):
+        original_subtest = unittest.TextTestResult.addSubTest
+        failed_subtest = wrap(original_subtest, "failed")
+
+        def record_subtest(self, test, subtest, error):
+            # Successful subtests do not complete their parent test. In
+            # particular, they must never erase an earlier failing subtest.
+            if error is None:
+                return original_subtest(self, test, subtest, error)
+            return failed_subtest(self, test, subtest, error)
+
+        unittest.TextTestResult.addSubTest = record_subtest
     command = spec["command"]
     script = command[1]
     flags = [x for x in command[2:] if x.startswith("--")]
@@ -237,6 +268,10 @@ def main():
     roots = spec["roots"]
     if not roots:
         raise ValueError("No collection roots")
+    missing_roots = [root for root in roots if not os.path.exists(root)]
+    if missing_roots:
+        errors.extend("collection root missing: " + root for root in missing_roots)
+        return 4
     args = roots + ["-q"]
     if spec.get("collect_only"):
         args.append("--collect-only")

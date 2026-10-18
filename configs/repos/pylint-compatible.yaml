@@ -28,7 +28,45 @@ test_command:
 - tests
 - -q
 - --junitxml=/workspace/pytest.xml
-task_overrides: {}
+task_overrides:
+  pylint-dev__pylint-3878:
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==68.2.2
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==7.4.4
+      - pytest-cov==4.1.0
+      - pytest-xdist==3.5.0
+      - packaging==23.2
+      - pytest-benchmark==4.0.0
+      - pytest-timeout==2.2.0
+      - testfixtures==7.2.2
+      - GitPython==3.1.40
+      - typing-extensions==4.8.0
+      - toml==0.10.2
+      - tomli==2.0.1
+      - dill==0.3.7
+      - platformdirs==3.11.0
+      - isort==5.12.0
+      - mccabe==0.7.0
+      - tomlkit==0.12.1
+      - py==1.11.0
+      - appdirs==1.4.4
+  pylint-dev__pylint-7231:
+    environment:
+      MPLBACKEND: Agg
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONPATH: /workspace
 dependency_commands:
 - - python
   - -m

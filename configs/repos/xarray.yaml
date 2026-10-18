@@ -151,6 +151,10 @@ task_overrides:
       - numcodecs==0.11.0
       - fsspec==2023.3.0
       - hypothesis==6.88.1
+      - pint==0.16.1
+      - sparse==0.14.0
+      - numba==0.57.1
+      - numbagg==0.2.1
   pydata__xarray-4049:
     base_image: python:3.9-slim-bookworm
     install_commands:
@@ -192,6 +196,9 @@ task_overrides:
       - numcodecs==0.11.0
       - fsspec==2023.3.0
       - hypothesis==6.88.1
+      - sparse==0.14.0
+      - numba==0.57.1
+      - numbagg==0.2.1
   pydata__xarray-4074:
     base_image: python:3.9-slim-bookworm
     install_commands:
@@ -315,6 +322,108 @@ task_overrides:
       - numcodecs==0.11.0
       - fsspec==2023.3.0
       - hypothesis==6.88.1
+  pydata__xarray-4682:
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==68.2.2
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==7.4.4
+      - pytest-cov==4.1.0
+      - pytest-xdist==3.5.0
+      - packaging==23.2
+      - numpy==1.23.5
+      - scipy==1.10.1
+      - pandas==1.5.3
+      - Cython==0.29.36
+      - setuptools-scm==7.1.0
+      - cftime==1.6.2
+      - netCDF4==1.6.4
+      - h5py==3.8.0
+      - h5netcdf==1.1.0
+      - dask[array]==2023.3.2
+      - bottleneck==1.3.7
+      - zarr==2.14.2
+      - numcodecs==0.11.0
+      - fsspec==2023.3.0
+      - hypothesis==6.88.1
+      - matplotlib==3.6.3
+      - pint==0.16.1
+      - sparse==0.14.0
+      - numba==0.57.1
+      - numbagg==0.2.1
+  pydata__xarray-7036:
+    environment:
+      MPLBACKEND: Agg
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PATH: /home/runner/conda-env/bin:/home/runner/.local/bin:/usr/local/bin:/usr/bin:/bin
+      MAMBA_ROOT_PREFIX: /home/runner/mamba
+    dependency_commands:
+    - - python
+      - -c
+      - import hashlib,urllib.request; from pathlib import Path; b=urllib.request.urlopen('https://github.com/mamba-org/micromamba-releases/releases/download/2.6.0-0/micromamba-linux-64',timeout=120).read();
+        assert hashlib.sha256(b).hexdigest()=='e9482483cd42cb28a936298419e47a9411a60b4595c767b3c6b5967d9ef64633';
+        p=Path.home()/'.local/bin/micromamba'; p.parent.mkdir(parents=True,exist_ok=True);
+        p.write_bytes(b); p.chmod(0o755)
+    - - python
+      - -c
+      - import subprocess; subprocess.run(['/home/runner/.local/bin/micromamba', 'create',
+        '--yes', '--verbose', '--prefix', '/home/runner/conda-env', '--override-channels',
+        '--channel', 'conda-forge', '--strict-channel-priority', 'python=3.10', 'numpy=1.23.5',
+        'cdms2=3.1.5', 'iris=3.4'],check=True); subprocess.run(['/home/runner/.local/bin/micromamba',
+        'clean', '--all', '--yes'],check=True)
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==68.2.2
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==7.4.4
+      - pytest-cov==4.1.0
+      - pytest-xdist==3.5.0
+      - packaging==23.2
+      - numpy==1.23.5
+      - scipy==1.10.1
+      - pandas==1.5.3
+      - Cython==0.29.36
+      - setuptools-scm==7.1.0
+      - cftime==1.6.2
+      - netCDF4==1.6.4
+      - h5py==3.8.0
+      - h5netcdf==1.1.0
+      - dask[array]==2023.3.2
+      - bottleneck==1.3.7
+      - zarr==2.14.2
+      - numcodecs==0.11.0
+      - fsspec==2023.3.0
+      - sparse==0.14.0
+      - hypothesis==6.88.1
+      - matplotlib==3.6.3
+      - pint==0.19.2
+      - numexpr==2.8.4
+      - flox==0.5.10
+      - numbagg==0.2.1
+    preflight_imports:
+    - xarray
+    - cdms2
+    - iris
+    - pint
+    - numexpr
+    - flox
 dependency_commands:
 - - python
   - -m

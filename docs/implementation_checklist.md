@@ -12,7 +12,7 @@ Cách dùng file này
 - Chữ trong ngoặc cuối dòng là người phụ trách, Vũ, Vinh hoặc Tuấn, đổi lại nếu hoán đổi việc.
 - Ghi ngày cập nhật cuối mỗi khi sửa file, và ghi vấn đề phát sinh vào mục nhật ký cuối file.
 
-Cập nhật gần nhất ngày 2026-10-17
+Cập nhật gần nhất ngày 2026-10-19
 
 ---
 
@@ -429,3 +429,23 @@ Ghi mỗi dòng theo dạng ngày, vấn đề hoặc quyết định, người 
 - 2026-10-17 | Retention sandbox thật: xóa16.283.066.986 byte cache OCI cũ và39 image ít dùng, không lỗi; upper bound giảm56,797→29,922 GiB. Giữ Git cache, log/record và hai image đo thử. | Agent hỗ trợ Vinh | Có bằng chứng results/optimization-cache-applied.json; không dùng số liệu upper bound như dung lượng VHDX thu hồi.
 
 - 2026-10-17 | Nghiệm thu framework tối ưu: full80 tests pass trong172,32s, Ruff/format/diff/profile check120 qua; khởi chạy queue issue-optimized-v1 (preflight120 →pilot12 repo →full120). Không tạo lại automation đã xóa; giữ batch cũ và log. | Agent hỗ trợ Vinh | Phần triển khai đã kiểm chứng; validation toàn dataset đang chạy, chưa đánh dấu120/120, LLM/L1–L4 hay A5.
+
+- 2026-10-17 | Theo yêu cầu người dùng, dọn22 file results rỗng/trùng (34,60 MiB): snapshot139 attempt được đối chiếu trùng hoàn toàn manifest và các log điều phối lặp summary/status; giữ mọi log build/test, record, report, checkpoint và log queue đang chạy. Bổ sung quy tắc chỉ push khi được yêu cầu rõ cho lần đó, hủy ủy quyền push cũ. | Agent hỗ trợ Vinh | Hoàn tất kiểm tra file đã xóa và bảo toàn evidence; audit results/cleanup-20261017.json. Không commit hoặc push.
+
+- 2026-10-17 | Theo yêu cầu người dùng, chuyển queue issue-optimized-v1 sang Windows Terminal riêng: cooperative STOP, xác nhận batch lock đã nhả và tiến trình cũ kết thúc; resume cùng fingerprint/manifest. PowerShell PID31940 thuộc WindowsTerminal PID31068, worker PID28732/29192, không thuộc cây tiến trình Codex. | Agent hỗ trợ Vinh | Đã xác nhận queue running và active run mới cho Astropy-7335; giữ mọi attempt/checkpoint. Không commit/push.
+
+- 2026-10-18 | Đọc log issue-optimized-v1: preflight90 pass/30 lỗi, pilot10/12 pass, full đã interrupted. Sửa profile pyparsing/Pint/appdirs/py.test, pin SCM và pytest/Python lịch sử; sửa ID Django/alias upstream, giữ lỗi selector mơ hồ và artifact không chạy được. Framework85 tests pass (73 unit+12 Docker). Django34272 đã full validated (1 F2P,9 P2P); đang kiểm chứng đại diện các nhóm còn lại. | Agent hỗ trợ hạ tầng Vinh | Đang thực hiện; xem docs/environment_repairs.md. Không sửa test/gold/base, không mở mạng test, không commit/push; chưa nghiệm thu toàn120.
+
+- 2026-10-18 | Sửa lỗi môi trường theo log: đại diện Django/Sphinx/Sympy/Pylint/Xarray4682, Astropy14507/12906, sklearn26306/24860/12972/13110/14709/25957 và Matplotlib20665 đã full validated (14 task). Framework86/86 pass trong140,42s gồm12 Docker integration; profile check120/120. Sửa source archive ổn định để cache image không bị đổi do Git pack; khởi động batch mới issue-env-repairs-v1-full cho30task lỗi, Windows Terminal riêng. | Agent hỗ trợ Vinh | Đang kiểm chứng toàn nhóm;5task vướng artifact/protocol vẫn chưa đạt, chưa nghiệm thu120/120/A5. Không commit/push.
+
+- 2026-10-18 | Ưu tiên validation_failed theo yêu cầu: dừng có kiểm soát batch issue-env-repairs-v1-full; audit26record/24task (23task chưa có validated). Sửa profile PYTHONUSERBASE cho pytester subprocess, dependency sparse/numbagg Xarray4049, fixture path Sphinx9218, PYTHONPATH Pylint7231 và leap-second local Astropy13009/13355. | Agent hỗ trợ Vinh | Đang kiểm chứng Docker từng task; không thay F2P/P2P/test/gold hoặc mở mạng; xem docs/validation_failure_repairs.md. Chưa commit/push hoặc nghiệm thu toàn dataset.
+
+- 2026-10-18 | Nhóm validation_failed: 5task pytest5819/6194/7126/7981/10060 đã full validated sau cố định PYTHONUSERBASE đúng profile compatible. Sửa adapter addSubTest, Docker regression baseline fail→fixture patch pass qua; Django33552 đủ80/80 executed/gold80pass nhưng1F2P vẫn pass baseline SQLite nên giữ validation_failed. | Agent hỗ trợ Vinh | Đang kiểm chứng Sphinx/Pylint/Xarray/Astropy; không nới grading hoặc mạng, không commit/push.
+
+- 2026-10-18 | Nhóm validation_failed đã sửa có bằng chứng: thêm Sphinx9218 và Pylint7231 (source/fixture PYTHONPATH), Xarray4049 (sparse/numba/numbagg; gold863pass không skip), tổng8task gồm5pytest. Xarray4354 rerun đủ612selector/goldpass nhưng8P2P baseline fail nên chưa đạt. | Agent hỗ trợ Vinh | Tiếp tục Astropy13009/13355 và môi trường lịch sử Xarray6597; bảo toàn artifact/chính sách, không commit/push.
+
+- 2026-10-18 | Nhóm validation_failed: Astropy13009/13355 đã full validated sau dùng leap-second local; tổng10task vừa sửa, cộng Matplotlib5087 đã đạt trước đó thành11/24task có validated mới nhất. Xarray6597 thử Dask2021.4.1 vẫn cùngP2Pfail/gold265pass; gỡ override thử, giữ record. Tiếp tục Xarray7036 theo môi trường conda-forge củaCIbase, CDMS2/Iris/Pint/NumExpr/Flox đủ thay vì bỏ29skip. | Agent hỗ trợ Vinh | Đang kiểm chứng7036; chưa nghiệm thu toàn bộ, không thay grading/mạng, không commit/push.
+
+- 2026-10-19 | Xarray7036 đã full validated với override conda-core/pip, Micromamba2.6pinSHA: preflight271,078s; full41,5s, baseline12F2Pfail/945P2Ppass, gold957pass/0skip. Tổng11task validation_failed vừa sửa (12/24task nguồn có validated gồm1đãđạttrước); còn12task mạng/baseline/selector chưa đạt. | Agent hỗ trợ Vinh | Hoàn tất sửa nhóm môi trường optional; giữ lịch sử/grade/network, đang kiểm tra cuối. Không nghiệm thu120/120, L1–L4/A5, không commit/push.
+
+- 2026-10-19 | Kiểm tra cuối các sửa validation_failed:86/86tests pass trong106,72s (74unit+12Docker), Ruff/format/diff/profile120check qua, reviewdiff/credentialpatterns không phát hiện. Queue sửa processed, không còn task test chạy nền; kết quả tổng hợp12validated/12validation_failed của24task nguồn. | Agent hỗ trợ Vinh | Bàn giao phần sửa có bằng chứng; còn12task mạng/backend/selector, không nghiệm thu120/120/A5, không commit/push.
