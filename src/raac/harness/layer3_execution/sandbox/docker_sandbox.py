@@ -347,6 +347,7 @@ def load_profile(path, task):
         "report_path",
         "build_timeout",
         "test_timeout",
+        "network_fixture",
     }
     if set(profile) - allowed:
         raise ValueError("Unknown profile fields")
@@ -380,6 +381,12 @@ def load_profile(path, task):
         raise ValueError("Overrides cannot change the repo")
     if profile.get("source_history", "snapshot") not in {"snapshot", "versioned"}:
         raise ValueError("Unknown source_history")
+    if profile.get("network_fixture", "none") not in {
+        "none",
+        "requests_httpbin",
+        "requests_tarpit",
+    }:
+        raise ValueError("Unknown network fixture")
     environment = profile.get("environment", {})
     if not isinstance(environment, dict) or any(
         not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(k)) or not isinstance(v, str)
@@ -490,9 +497,21 @@ class DockerSandbox:
         profile = profile or {}
         volume = self.client.volumes.create(labels={"raac": directory.name})
         container = None
+        network_fixture = None
         started = time.monotonic()
         log = directory / f"{label}.log"
         try:
+            options = self.policy.container_options()
+            environment = dict(profile.get("environment", {}))
+            if profile.get("network_fixture", "none") != "none":
+                from .network import NetworkFixture
+
+                network_fixture = NetworkFixture(
+                    self.client, image, profile["network_fixture"], directory, label
+                )
+                network_fixture.start()
+                options.update(network_fixture.options)
+                environment.update(network_fixture.environment)
             # Docker populates a new empty volume from the image's /workspace.
             script = (
                 "set -eu; rm -f "
@@ -503,6 +522,8 @@ class DockerSandbox:
                 script += "cd /workspace; git apply --check /tmp/candidate.patch || exit 86; git apply /tmp/candidate.patch || exit 86; "
             if evaluation is not None:
                 script += "git apply --check /tmp/test.patch || exit 88; git apply /tmp/test.patch || exit 88; "
+            if profile.get("network_fixture") == "requests_httpbin":
+                script += "python -E -s /tmp/raac-network-setup.py || exit 90; "
             from .optimization import needs_native_rebuild
 
             effective_patch = (patch or b"") + (
@@ -520,10 +541,12 @@ class DockerSandbox:
                 volumes={volume.name: {"bind": "/workspace", "mode": "rw"}},
                 labels={"raac": directory.name},
                 use_config_proxy=False,
-                environment=profile.get("environment", {}),
-                **self.policy.container_options(),
+                environment=environment,
+                **options,
             )
             files = {"candidate.patch": patch} if patch is not None else {}
+            if network_fixture is not None:
+                files.update(network_fixture.files)
             if evaluation is not None:
                 files.update(
                     {
@@ -564,6 +587,8 @@ class DockerSandbox:
                 time.sleep(1)
             code = container.attrs["State"].get("ExitCode")
             log.write_bytes(container.logs(stdout=True, stderr=True))
+            if network_fixture is not None and code in {0, 1}:
+                network_fixture.collect(container)
             stats = None
             try:
                 if profile.get("report_format", "junit") == "none":
@@ -635,6 +660,8 @@ class DockerSandbox:
                         )
             if timed_out:
                 status = "timeout"
+            elif code == 90:
+                status = "preparation_error"
             elif patch is not None and code == 86:
                 status = "patch_error"
             elif evaluation is not None and code == 88:
@@ -674,6 +701,13 @@ class DockerSandbox:
                 }.get(code, "execution_error")
             return {
                 "status": status,
+                "network": network_fixture.report
+                if network_fixture
+                else {
+                    "fixture": "none",
+                    "network_mode": "none",
+                    "external_network": False,
+                },
                 "native_rebuilt": rebuilt,
                 "found_selectors": issue_report.get("found", [])
                 if issue_report
@@ -703,7 +737,11 @@ class DockerSandbox:
                 if container is not None:
                     container.remove(force=True)
             finally:
-                volume.remove(force=True)
+                try:
+                    volume.remove(force=True)
+                finally:
+                    if network_fixture is not None:
+                        network_fixture.close()
                 if getattr(self, "phase_progress", None):
                     self.phase_progress("cleanup", log)
 
@@ -803,10 +841,18 @@ class DockerSandbox:
             )
             record["build_timeout"] = effective_build_timeout
             preparation_deadline = time.monotonic() + effective_build_timeout
+            policy_snapshot = self.policy.snapshot()
+            policy_snapshot.update(
+                network_fixture=profile.get("network_fixture", "none"),
+                external_network=False,
+            )
+            if profile.get("network_fixture", "none") != "none":
+                policy_snapshot["network_mode"] = "isolated-bridge"
+                policy_snapshot["host_gateway"] = False
             # Only this explicit schema is accepted: arbitrary credential-bearing config is not logged.
             snapshot = {
                 "profile": profile,
-                "policy": self.policy.snapshot(),
+                "policy": policy_snapshot,
                 "dataset": str(dataset_path),
                 "repo_cache": self.config["repo_cache"],
                 "results": self.config["results"],
@@ -833,6 +879,7 @@ class DockerSandbox:
                         "issue_runner.py",
                         "optimization.py",
                         "cache.py",
+                        "network.py",
                     )
                 },
                 "effective_config": safe_snapshot(snapshot),
@@ -875,9 +922,10 @@ class DockerSandbox:
                         else None,
                     }
                 )
-                if patch is not None and patch_paths(patch.decode()) & patch_paths(
-                    row["test_patch"]
-                ):
+                protected_paths = patch_paths(row["test_patch"])
+                if profile.get("network_fixture") == "requests_httpbin":
+                    protected_paths.add("requests/cacert.pem")
+                if patch is not None and patch_paths(patch.decode()) & protected_paths:
                     record["status"] = "protected_test_error"
                     return record
                 if stage == "pilot":
@@ -907,7 +955,7 @@ class DockerSandbox:
                 task,
                 profile,
                 row,
-                self.policy.snapshot(),
+                policy_snapshot,
                 record["provenance"]["registry_version"],
                 stage,
             )

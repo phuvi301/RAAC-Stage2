@@ -94,7 +94,13 @@ def fingerprint(sandbox, dataset, selection, budget):
     )
     paths.update(
         Path(__file__).with_name(name)
-        for name in ("evaluation.py", "issue_runner.py", "optimization.py", "cache.py")
+        for name in (
+            "evaluation.py",
+            "issue_runner.py",
+            "optimization.py",
+            "cache.py",
+            "network.py",
+        )
     )
     if budget.get("test_mode") == "issue":
         from .evaluation import DEFAULT_ARTIFACTS

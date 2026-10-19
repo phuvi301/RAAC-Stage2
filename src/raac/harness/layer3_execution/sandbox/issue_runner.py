@@ -96,7 +96,9 @@ class SelectorPlugin:
         rejected = [item for item in items if item not in selected]
         if rejected:
             config.hook.pytest_deselected(items=rejected)
-        items[:] = selected
+        # Filtering must preserve pytest's collection order: legacy tests can
+        # share state, and the evaluator manifest is not an execution schedule.
+        items[:] = [item for item in items if item in selected]
         save()
         if errors:
             import pytest

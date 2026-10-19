@@ -41,6 +41,8 @@ def environment(tmp_path_factory):
         "from value import VALUE\ndef test_value():\n    assert VALUE == 1\n"
     )
     (repo / "native.c").write_bytes(b"int value(void) { return 0; }\n")
+    (repo / "requests").mkdir()
+    (repo / "requests/cacert.pem").write_bytes(b"# fixture trust bundle\n")
     (repo / "native_check.py").write_bytes(
         b"import ctypes\ndef test_native():\n    assert ctypes.CDLL('/workspace/native.so').value() == 1\n"
     )
@@ -61,6 +63,21 @@ def environment(tmp_path_factory):
         "system_packages": ["git", "gcc", "libc6-dev"],
         "install_commands": [
             ["python", "-m", "pip", "install", "pytest==8.3.5"],
+            [
+                "python",
+                "-m",
+                "pip",
+                "install",
+                "setuptools==69.5.1",
+                "httpbin==0.7.0",
+                "Flask==1.1.4",
+                "Werkzeug==1.0.1",
+                "Jinja2==2.11.3",
+                "MarkupSafe==2.0.1",
+                "itsdangerous==1.1.0",
+                "trustme==0.9.0",
+                "requests==2.32.3",
+            ],
             ["gcc", "-shared", "-fPIC", "native.c", "-o", "native.so"],
         ],
     }
@@ -133,6 +150,33 @@ def test_empty_reason_xfail_and_xpass_are_not_passed(environment):
     assert not grade(row, result)["valid"]
 
 
+def test_selector_preserves_stateful_test_order(environment):
+    from raac.harness.layer3_execution.sandbox.evaluation import payload
+
+    runner, image, root = environment
+    row = {
+        "repo": "fixture/repo",
+        "FAIL_TO_PASS": [],
+        "PASS_TO_PASS": ["test_order.py::test_last", "test_order.py::test_first"],
+        "test_patch": (
+            "diff --git a/test_order.py b/test_order.py\nnew file mode 100644\n"
+            "--- /dev/null\n+++ b/test_order.py\n@@ -0,0 +1,6 @@\n"
+            "+STATE = 0\n+def test_first():\n+    assert STATE == 0\n"
+            "+def test_last():\n+    global STATE\n+    STATE = 1\n"
+        ),
+    }
+    row["selectors"] = payload(row, {"test_command": ["python", "-m", "pytest"]})
+    result = runner.execute(
+        image,
+        ["python", "/tmp/raac-issue-runner.py", "/tmp/raac-selectors.json"],
+        root,
+        "collection-order",
+        evaluation=row,
+    )
+    assert result["status"] == "passed"
+    assert all(test["outcome"] == "passed" for test in result["test_results"].values())
+
+
 def test_timeout(environment):
     runner, image, root = environment
     short = DockerSandbox(client=runner.client, policy=SandboxPolicy(timeout=1))
@@ -140,6 +184,77 @@ def test_timeout(environment):
         image, ["python", "-c", "import time; time.sleep(30)"], root, "timeout"
     )
     assert result["status"] == "timeout"
+
+
+@pytest.mark.parametrize("kind", ["requests_httpbin", "requests_tarpit"])
+def test_internal_network_services_block_egress_and_host_gateway(environment, kind):
+    runner, image, root = environment
+    code = """import os,socket,requests
+from value import VALUE
+assert VALUE == 0
+session=requests.Session()
+session.trust_env=False
+try:
+    session.get('http://10.255.255.1', timeout=.15)
+except requests.exceptions.ConnectTimeout:
+    pass
+else:
+    raise AssertionError('Expected real TCP connect timeout')
+for ip,port in [('8.8.8.8',53),('10.255.255.254',80)]:
+    s=socket.socket(); s.settimeout(.15)
+    try:s.connect((ip,port))
+    except OSError:pass
+    else:raise AssertionError('Unexpected external/host access')
+    finally:s.close()
+if os.environ.get('HTTPBIN_URL'):
+    response=requests.get(os.environ['HTTPBIN_URL']+'get', timeout=3)
+    assert response.status_code == 200
+    assert response.json()['url'] == 'http://httpbin.org/get'
+    assert requests.get('https://httpbin.org/get',timeout=3).status_code == 200
+    prepared = requests.Request('GET','https://httpbin.org/get').prepare()
+    assert session.send(prepared,verify='/workspace/requests/cacert.pem',timeout=3).status_code == 200
+    assert session.send(prepared,timeout=3).status_code == 200
+    assert requests.get('http://httpbin.org/redirect/2',timeout=3).status_code == 200
+    redirected=requests.get('http://httpbin.org/redirect-to',
+        params={'url':'http://www.google.co.uk/headers'},auth=('user','pass'),timeout=3)
+    assert redirected.history[0].request.headers['Authorization']
+    assert 'Authorization' not in redirected.request.headers
+    assert 'Authorization' not in redirected.json()['headers']
+print('internal network checks passed')
+"""
+    result = runner.execute(
+        image, ["python", "-c", code], root, kind, profile={"network_fixture": kind}
+    )
+    assert result["status"] == "passed", (root / (kind + ".log")).read_text()
+    assert result["network"]["external_network"] is False
+    assert result["network"]["host_gateway"] is False
+    if kind == "requests_httpbin":
+        change = result["network"]["trust_bundle"][0]
+        assert change["path"] == "requests/cacert.pem"
+        assert change["before_sha256"] != change["after_sha256"]
+    assert not runner.client.networks.list(filters={"label": "raac=" + root.name})
+    assert not runner.client.containers.list(
+        all=True, filters={"label": "raac=" + root.name}
+    )
+    assert not runner.client.volumes.list(filters={"label": "raac=" + root.name})
+
+
+def test_internal_network_timeout_cleanup(environment):
+    runner, image, root = environment
+    short = DockerSandbox(client=runner.client, policy=SandboxPolicy(timeout=1))
+    result = short.execute(
+        image,
+        ["python", "-c", "import time;time.sleep(30)"],
+        root,
+        "internal_timeout",
+        profile={"network_fixture": "requests_tarpit"},
+    )
+    assert result["status"] == "timeout"
+    assert not runner.client.networks.list(filters={"label": "raac=" + root.name})
+    assert not runner.client.containers.list(
+        all=True, filters={"label": "raac=" + root.name}
+    )
+    assert not runner.client.volumes.list(filters={"label": "raac=" + root.name})
 
 
 def test_network_host_and_parallel_isolation(environment):

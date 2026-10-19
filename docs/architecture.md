@@ -141,3 +141,6 @@ Sandbox tách định danh build (source + recipe đã render) khỏi định da
 Luồng chẩn đoán là preflight collect/import → pilot F2P → full F2P/P2P. Hai bước đầu có trạng thái riêng, không thay điều kiện nghiệm thu full. CLI hỗ trợ dừng có checkpoint; hàng đợi ngoài Codex dùng các batch riêng cho từng bước. Đây là tối ưu sandbox, không thay runner benchmark hoặc checkpoint của agent/LangGraph.
 
 Adapter unittest ghi nhận cả failure từ `addSubTest`; subtest thành công không ghi đè failure trước đó. Profile có thể tạo môi trường dependency riêng ngoài checkout (ví dụ prefix conda của Xarray7036); source base, test/gold patch và volume theo phase vẫn tách như cũ. Một selector upstream rút gọn khớp nhiều case phải có trạng thái thống nhất; kết quả mixed không được tính là pass. Xem [báo cáo sửa validation](validation_failure_repairs.md).
+
+
+Sandbox hỗ trợ profile `network_fixture` dạng enum (mặc định none): requests_httpbin hoặc requests_tarpit. Fixture dùng bridge internal+isolated riêng cho từng phase, không có Internet/gateway host; httpbin chạy trong sidecar từ image base, không nhận gold/candidate patch. Policy hiệu lực, hash network.py và cấu hình fixture tham gia fingerprint đánh giá; build identity giữ theo source/recipe. Cleanup thu hồi cả sidecar/network. Xem network_fixture_repairs.md.

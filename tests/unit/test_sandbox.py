@@ -97,6 +97,7 @@ def test_profile_override(tmp_path):
         (5, None, "no_tests"),
         (86, b"bad", "patch_error"),
         (87, b"bad", "patch_setup_error"),
+        (90, None, "preparation_error"),
     ],
 )
 def test_execute_cleanup(tmp_path, exit_code, patch, status):

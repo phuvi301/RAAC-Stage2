@@ -194,3 +194,41 @@ Framework sau sửa:85 passed trong108,66s (73 unit +12 Docker integration), Ruf
 
 
 - 2026-10-19 | Hoàn tất chạy/sửa nhóm11 môi trường/ngắt:11/11fullvalidated thật qua các batchv2/v3/v4; sửa wasxfail rỗng và pinjoblib/numpydoc25844 có Docker chứng minh. Toàn120record mới nhất:103validated/12validation_failed/4collection_error/1execution_error;5artifact bỏ qua đúng yêu cầu.6baseline/selector đã rerun vẫn chưađạt,6Requests networknone giữ bằng chứng. Batchv4 processed, không còn task chạy; đã dọn43logtrùng/rỗng720627byte, giữphase logs/checkpoints. | Agent hỗ trợ Vinh | Phần môi trường11task hoàn tất; chưa nghiệm thu120/120 hoặc L1–L4/A5. Không commit/push.
+
+
+- 2026-10-19 | Theo yêu cầu push trước: đã push a589606 lên origin/Vinh; sau đó triển khai fixture mạng nội bộ cho6Requests. Probe TCP thật timeout .1/chặn external+gateway;3Docker integration mới qua, full framework đang chạy. Profile120check qua; không đổi source/tests/nhãn. | Agent hỗ trợ Vinh | Đang kiểm chứng baseline/gold6task bằng batch mới; phần mạng chưa push, chưa nghiệm thu thêm task hoặc120/120/A5.
+
+
+- 2026-10-19 | Mạng nội bộ chạy thật: Requests2930 và5367 đã validated, gold85/131pass.4Requests cũ hếtDNSnhưngP2PSession.send chưa dùng CA env; bổ sung publicCA vào PEM tạm của Requests/certifi, auditSHAtrước/sau và chặn candidate sửa bundle. Batchv1 processed trước sửa; chuẩn bịv2 cho4task. Requests1723 có6F2Ppass ngaybase sau phục hồi mạng nên giữ validation_failed, không đổi nhãn. | Agent hỗ trợ Vinh | Đang kiểm traTLS/fullframework; phần mạng chưa push, không nghiệm thu120/120.
+
+### 2026-10-19 — Giữ thứ tự collection và redirect khác hostname
+
+Batch v2 processed: 1723 baseline0/6F2Pfail, 1765 và1920 baseline1/6F2Pfail; cả ba P2Ppass vàgold85/85/113pass. Chưa validated vì yêu cầu mọiF2Pfail.2316 còn2P2Pfail: adapter đưa test sửa global get_netrc_auth lên trước theo thứ tự manifest; redirect off-host tới www.google.co.uk chưa được khai báo nội bộ.
+
+Sửa adapter chỉ lọc, giữ nguyên thứ tự pytest collection; không sửa test hoặc nhãn. Khai báo đúng hai hostname httpbin.org/www.google.co.uk cùng sidecar nội bộ và SAN TLS, ghi aliases trong record. Khác hostname vẫn kiểm tra auth stripping qua redirect, không truy cập Google/Internet. Thêm regression cho manifest đảo thứ tự với test chia sẻ trạng thái và Docker redirect kiểm tra Authorization bị bỏ ở host đích. Batch mới v3 chạy lại đủ6task, giữ lịch sử v1/v2.
+
+### Kết quả v3 full — 2026-10-19
+
+Kiểm thử framework:104/104passed trong133,23s (87unit+17Docker thật); Ruff vàdiffcheck qua; profilescheck120/120. Batch requests-internal-network-v3-full chạy trong WindowsTerminal riêng, processed6/6, không còn tài nguyên fixture container/network/volume sau cleanup. Ngân sách1800s chuẩn bị và1800s mỗi phase; một task/lượt.
+
+| Task Requests | F2P fail tại baseline | P2P pass tại baseline | Gold pass | Kết quả |
+| --- | --- | --- | --- | --- |
+| 2930 | 1/1 | 84/84 | 85/85 | validated |
+| 5367 | 1/1 | 130/130 | 131/131 | validated |
+| 1723 | 0/6 | 79/79 | 85/85 | validation_failed |
+| 1765 | 1/6 | 79/79 | 85/85 | validation_failed |
+| 1920 | 1/6 | 107/107 | 113/113 | validation_failed |
+| 2316 | 1/8 | 133/133 | 141/141 | validation_failed |
+
+Mọi P2P baseline và toàn bộ gold đều pass sau sửa môi trường. Bốn task cũ còn F2P pass ngaybase, không phải lỗi mạng/build/collection. Không đổi F2P/P2P hoặc phiên bảnPython để ép fail; cần đối chiếu điều kiện lịch sử/harness tham chiếu trước quyết định tiếp. Record giữ riêngv1/v2/v3; record2316v3:3b32c36b4c184c5092473635b3deb6b3. Thứ tự collection được giữ nguyên, không thay bằng thứ tựF2P/P2P.
+
+Tổng hợp120record full mới nhất:105validated/10validation_failed/4collection_error/1execution_error. Nhóm5artifact giữ nguyên theo yêu cầu. Đây là tổng hợp bằng chứng từngtask ở các fingerprint khác nhau, không phải một batch120task đã nghiệm thu trên cấu hìnhmới. results/current-validation-summary.json và.csv lưu liên kết record; log/checkpoint được giữ. Phần mạng hiện chỉ local, chưa commit/push; push theo yêu cầu trước đó chỉ gồm a589606.
+
+### 2026-10-19 — Đối chứng harness chính thức
+Theo yêu cầu người dùng, chạy taskRAAC psf__requests-2316 / SWE-bench psf__requests-2317 bằng harnessv3.0.0 commitd83e1001739f4d96add351d9ec0d56f4594a0d82 trong thưmụcWSLtạm /home/phuvi301/raac-reference-tmp-20261019. RawStage1 chỉđọc; dùng imagechínhthức namespace swebench để tránh rebuild. Chạy goldrồibaseline tuần tự trongWindowsTerminal, không phụ thuộcCodex. Lưu evidence results/official-reference-requests2316-20261019; wrapperdọn image mới và thưmụctạm khi kếtthúc, khôngdọn cacheRAAC. Điều kiệnmạng mặcđịnhharnessofficial được ghi riêng, không nhập vàonghiệmthuRAAC. Đangchạy, chưakếtluận.
+
+### 2026-10-19 — Đối chứng Requests2316 hoàn tất và đã dọn
+
+Harnessofficialv3.0.0/SWEinstance2317: goldresolvedtrue,8/8F2P+133/133P2Ppass. Baseline-v2resolvedfalse,7F2Ppass/1fail(test_encoded_methods),133/133P2Ppass. Hiện tượng F2Ppass mộtphần cũng tồn tại ởharnessofficial; không ép fail bằng đổi môi trường/nhãn. Filetest chạy143case: gold142pass/1fail vàbaseline141pass/2fail; test_conflicting_post_paramsfail cảhai nhưngngoàinhómchấm. Khôngcoi goldlàtoànsuitepass. Newline-onlybaseline lầnđầu lỗiapply, đãghi nhận và chạy lại bằng markerfilekhôngđụngcode/test. Giữvalidation_failedRAAC theoquytắcbaselinehiệntại; chưađốichứng14taskkhác.
+
+Evidence/log/provenance: results/official-reference-requests2316-20261019; hướngdẫn/kếtluận docs/swebench_reference.md. Đãxóa imageofficialmớitải0,95GiB và cả2thưmụctạmWSL (clone+venv), xácnhận khôngcòncontainer/image. Khôngprunechung, khôngđụngcacheRAAC; rawStage1hashkhôngđổi. Scriptstáihiện gom vàoevidence, khôngđểfiletạmởgốcresults. Khôngcommit/push.

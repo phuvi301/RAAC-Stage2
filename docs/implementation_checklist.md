@@ -464,3 +464,19 @@ Ghi mỗi dòng theo dạng ngày, vấn đề hoặc quyết định, người 
 
 
 - 2026-10-19 | Hoàn tất chạy/sửa nhóm11 môi trường/ngắt:11/11fullvalidated thật qua các batchv2/v3/v4; sửa wasxfail rỗng và pinjoblib/numpydoc25844 có Docker chứng minh. Toàn120record mới nhất:103validated/12validation_failed/4collection_error/1execution_error;5artifact bỏ qua đúng yêu cầu.6baseline/selector đã rerun vẫn chưađạt,6Requests networknone giữ bằng chứng. Batchv4 processed, không còn task chạy; đã dọn43logtrùng/rỗng720627byte, giữphase logs/checkpoints. | Agent hỗ trợ Vinh | Phần môi trường11task hoàn tất; chưa nghiệm thu120/120 hoặc L1–L4/A5. Không commit/push.
+
+
+- 2026-10-19 | Theo yêu cầu push trước: đã push a589606 lên origin/Vinh; sau đó triển khai fixture mạng nội bộ cho6Requests. Probe TCP thật timeout .1/chặn external+gateway;3Docker integration mới qua, full framework đang chạy. Profile120check qua; không đổi source/tests/nhãn. | Agent hỗ trợ Vinh | Đang kiểm chứng baseline/gold6task bằng batch mới; phần mạng chưa push, chưa nghiệm thu thêm task hoặc120/120/A5.
+
+
+- 2026-10-19 | Mạng nội bộ chạy thật: Requests2930 và5367 đã validated, gold85/131pass.4Requests cũ hếtDNSnhưngP2PSession.send chưa dùng CA env; bổ sung publicCA vào PEM tạm của Requests/certifi, auditSHAtrước/sau và chặn candidate sửa bundle. Batchv1 processed trước sửa; chuẩn bịv2 cho4task. Requests1723 có6F2Ppass ngaybase sau phục hồi mạng nên giữ validation_failed, không đổi nhãn. | Agent hỗ trợ Vinh | Đang kiểm traTLS/fullframework; phần mạng chưa push, không nghiệm thu120/120.
+
+- 2026-10-19 | Requests network v2 đã processed; gold1723/1765/1920pass nhưng baseline cóF2Ppass nên giữ validation_failed. Sửa selector giữ thứ tự collection và ánh xạ hostname redirect khácorigin vào sidecarisolated; thêm regressionunit/Docker. | Agent hỗ trợ Vinh | Đang kiểm chứng, không đổi nhãn/test, chưa push phầnmạng hoặc nghiệm thu120/120/A5.
+
+- 2026-10-19 | Hoàn tất fixture mạng nội bộ6Requests và sửa selector giữcollectionorder;104/104test (87unit+17Docker) qua. Batchv3 processed6/6:2930/5367validated;4taskcũP2P/goldpass toàn bộ nhưngF2Pbaselinepass một phần nên chưavalidated. Tổnglatest120:105validated/10validation_failed/4collection_error/1execution_error;5artifact giữnguyên. | Agent hỗ trợ Vinh | Phầnmạng đã kiểm chứng, còn10điềukiệnbaseline/selector; không nghiệm thu120/120/L1–L4/A5, chưapushthêm.
+
+- 2026-10-19 | Bắtđầu đối chứng Requests2316 bằng harnessofficialv3.0.0/SWEinstance2317, rawchỉđọc, imageofficial, gold/baseline tuần tự trongWSLTerminal; bằngchứng riêng vàcleanupthưmụctạm/image saukếtthúc. | Agent hỗ trợ Vinh | Đangchạy, khôngđổi nhãn hoặcstatusvalidatedRAAC, khôngpush.
+
+- 2026-10-19 | Đối chứng Requests2316/SWE2317 bằngofficialv3.0.0 hoàn tất:gold8/8F2P+133/133P2Ppass;baseline7F2Ppass/1fail+133P2Ppass, khớpRAAC. Ngoàinhómchấmconflicting_post_paramsfailcảhai. Lượtnewline-onlylỗiapplyđãrerunmarkerfile; rawkhôngđổi. Image0,95GiB+2thưmụctạmWSLđãdọn, log/provenancegiữriêng. | Agent hỗ trợ Vinh | Chỉ1taskđốichứng, giữvalidation_failedtheotiêuchíhiệntại; khôngnghiệmthu15task/A5, khôngpush.
+
+- 2026-10-19 | Người dùng yêu cầu push phần đã kiểm chứng: review fixture mạng/selector và báo cáo đối chứngofficial;87/87unit kiểmtralại qua,Ruff/diffcheckqua,104/104unit+Dockerđãqua trướcđó. Giữ105validated/15chưađạt, khôngđổitiêuchí hoặc nhãn. | Agent hỗ trợ Vinh | Chuẩnbịcommit/pushorigin/Vinh; khôngđưacache/results/logvàoGit.

@@ -42,6 +42,7 @@ def evaluation_identity(task, profile, row, policy, registry, stage):
                     "optimization.py",
                     "policy.py",
                     "build.py",
+                    "network.py",
                 )
             },
             "template": hashlib.sha256(

@@ -175,6 +175,33 @@ def test_ambiguous_sympy_names_remain_errors(tmp_path, monkeypatch):
     assert len(diagnostic["selection_errors"]["test_shared"]["matches"]) == 2
 
 
+def test_selector_preserves_collection_order(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from raac.harness.layer3_execution.sandbox import issue_runner as runner
+
+    monkeypatch.setattr(runner, "REPORT", str(tmp_path / "report.json"))
+    monkeypatch.setattr(
+        runner, "spec", {"ids": ["a.py::test_last", "a.py::test_first"]}
+    )
+    for name, value in [
+        ("errors", []),
+        ("selection_errors", {}),
+        ("found", []),
+        ("results", {}),
+    ]:
+        monkeypatch.setattr(runner, name, value)
+    items = [
+        SimpleNamespace(nodeid="a.py::" + name, name=name)
+        for name in ["test_first", "test_excluded", "test_last"]
+    ]
+    first, excluded, last = items
+    config = Mock()
+    runner.SelectorPlugin().pytest_collection_modifyitems(None, config, items)
+    assert items == [first, last]
+    config.hook.pytest_deselected.assert_called_once_with(items=[excluded])
+
+
 def test_missing_collection_root_is_explicit(tmp_path, monkeypatch):
     from raac.harness.layer3_execution.sandbox import issue_runner as runner
 
