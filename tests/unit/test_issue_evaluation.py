@@ -135,3 +135,208 @@ def test_upstream_selector_aliases(monkeypatch):
         runner.django_label("test_one (app.tests.Example)")
         == "app.tests.Example.test_one"
     )
+    assert (
+        runner.django_label("test_one (app.tests.Example.test_one)")
+        == "app.tests.Example.test_one"
+    )
+
+
+@pytest.mark.parametrize(
+    "repo", ["sphinx-doc/sphinx", "scikit-learn/scikit-learn", "astropy/astropy"]
+)
+def test_upstream_whitespace_parameter_aliases(repo, monkeypatch):
+    from raac.harness.layer3_execution.sandbox import issue_runner as runner
+
+    monkeypatch.setattr(runner, "spec", {"repo": repo})
+    assert (
+        runner.upstream_alias("a.py::test_case[Loss must be positive]")
+        == "a.py::test_case[Loss"
+    )
+
+
+def test_ambiguous_sympy_names_remain_errors(tmp_path, monkeypatch):
+    from raac.harness.layer3_execution.sandbox import issue_runner as runner
+
+    monkeypatch.setattr(runner, "REPORT", str(tmp_path / "report.json"))
+    monkeypatch.setattr(runner, "spec", {"repo": "sympy/sympy", "ids": ["test_shared"]})
+    monkeypatch.setattr(runner, "errors", [])
+    monkeypatch.setattr(runner, "selection_errors", {})
+    monkeypatch.setattr(runner, "found", [])
+    from types import SimpleNamespace
+
+    items = [
+        SimpleNamespace(nodeid="a.py::test_shared", name="test_shared"),
+        SimpleNamespace(nodeid="b.py::test_shared", name="test_shared"),
+    ]
+    with pytest.raises(pytest.UsageError):
+        runner.SelectorPlugin().pytest_collection_modifyitems(None, Mock(), items)
+    diagnostic = json.loads((tmp_path / "report.json").read_text())
+    assert diagnostic["selection_errors"]["test_shared"]["reason"] == "ambiguous"
+    assert len(diagnostic["selection_errors"]["test_shared"]["matches"]) == 2
+
+
+def test_selector_preserves_collection_order(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from raac.harness.layer3_execution.sandbox import issue_runner as runner
+
+    monkeypatch.setattr(runner, "REPORT", str(tmp_path / "report.json"))
+    monkeypatch.setattr(
+        runner, "spec", {"ids": ["a.py::test_last", "a.py::test_first"]}
+    )
+    for name, value in [
+        ("errors", []),
+        ("selection_errors", {}),
+        ("found", []),
+        ("results", {}),
+    ]:
+        monkeypatch.setattr(runner, name, value)
+    items = [
+        SimpleNamespace(nodeid="a.py::" + name, name=name)
+        for name in ["test_first", "test_excluded", "test_last"]
+    ]
+    first, excluded, last = items
+    config = Mock()
+    runner.SelectorPlugin().pytest_collection_modifyitems(None, config, items)
+    assert items == [first, last]
+    config.hook.pytest_deselected.assert_called_once_with(items=[excluded])
+
+
+def test_missing_collection_root_is_explicit(tmp_path, monkeypatch):
+    from raac.harness.layer3_execution.sandbox import issue_runner as runner
+
+    path = tmp_path / "selectors.json"
+    path.write_text(
+        json.dumps(
+            {"framework": "pytest", "roots": [str(tmp_path / "generated_only.py")]}
+        )
+    )
+    monkeypatch.setattr(runner.sys, "argv", ["runner", str(path)])
+    monkeypatch.setattr(runner, "errors", [])
+    assert runner.main() == 4
+    assert "collection root missing" in runner.errors[0]
+
+
+def test_sympy_expansion_retains_all_cases_and_cannot_hide_failure(
+    tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from raac.harness.layer3_execution.sandbox import issue_runner as runner
+
+    monkeypatch.setattr(runner, "REPORT", str(tmp_path / "report.json"))
+    monkeypatch.setattr(
+        runner,
+        "spec",
+        {
+            "repo": "sympy/sympy",
+            "ids": ["test_shared"],
+            "selector_policy": "sympy-all-matches-v1",
+        },
+    )
+    for name, value in [
+        ("errors", []),
+        ("selection_errors", {}),
+        ("found", []),
+        ("results", {}),
+    ]:
+        monkeypatch.setattr(runner, name, value)
+    items = [
+        SimpleNamespace(nodeid=p + "::test_shared", name="test_shared")
+        for p in ["a.py", "b.py"]
+    ]
+    plugin = runner.SelectorPlugin()
+    plugin.pytest_collection_modifyitems(None, Mock(), items)
+    assert len(items) == 2
+    for item, failed in zip(items, [True, False], strict=True):
+        plugin.pytest_runtest_logreport(
+            SimpleNamespace(
+                nodeid=item.nodeid,
+                when="call",
+                longrepr="assertion" if failed else "",
+                failed=failed,
+                skipped=False,
+            )
+        )
+    result = runner.results["test_shared"]
+    assert result["outcome"] == "mixed"
+    assert len(result["cases"]) == 2
+    assert not grade(
+        {"FAIL_TO_PASS": ["test_shared"], "PASS_TO_PASS": []},
+        {"status": "test_failed", "test_results": runner.results},
+    )["valid"]
+
+
+def test_expansion_policy_changes_only_evaluation_and_retired_override_is_removed():
+    from raac.harness.layer3_execution.sandbox.docker_sandbox import (
+        dockerfile,
+        load_profile,
+    )
+
+    tasks = load_tasks(ROOT / "data/tasks/cleaned_benchmark.json")
+    profile = load_profile(
+        ROOT / "configs/repos/sympy.yaml", tasks["sympy__sympy-14237"]
+    )
+    row = load_evaluation(ROOT / DEFAULT_ARTIFACTS, tasks["sympy__sympy-14237"])
+    assert payload(row, profile)["selector_policy"] == "unique-v1"
+    profile = dict(profile, selector_policy="sympy-all-matches-v1")
+    unique = dict(profile, selector_policy="unique-v1")
+    assert dockerfile(profile) == dockerfile(unique)
+    other = next(
+        t
+        for t in tasks.values()
+        if t.repo == "sympy/sympy" and t.id != "sympy__sympy-14237"
+    )
+    assert "selector_policy" not in load_profile(
+        ROOT / "configs/repos/sympy.yaml", other
+    )
+
+
+def test_all_effective_profiles_have_consistent_pip_pins():
+    from raac.harness.layer3_execution.sandbox.docker_sandbox import (
+        load_profile,
+        resolve_path,
+    )
+
+    sandbox = DockerSandbox()
+    for task in load_tasks(ROOT / "data/tasks/cleaned_benchmark.json").values():
+        profile = load_profile(
+            resolve_path(ROOT, sandbox.config["profiles"][task.repo]), task
+        )
+        for command in profile.get("dependency_commands", []):
+            pins = {}
+            for argument in command:
+                if "==" in argument:
+                    name, version = argument.split("==", 1)
+                    assert name not in pins or pins[name] == version, task.id
+                    pins[name] = version
+
+
+@pytest.mark.parametrize("skipped,expected", [(True, "xfail"), (False, "xpass")])
+def test_empty_xfail_reason_is_not_skip_or_pass(
+    tmp_path, monkeypatch, skipped, expected
+):
+    from types import SimpleNamespace
+
+    from raac.harness.layer3_execution.sandbox import issue_runner as runner
+
+    monkeypatch.setattr(runner, "REPORT", str(tmp_path / "report.json"))
+    monkeypatch.setattr(runner, "results", {})
+    plugin = runner.SelectorPlugin()
+    node = "test_category.py::test_plot"
+    plugin.node_map = {node: [node]}
+    plugin.outcomes = {node: {}}
+    plugin.pytest_runtest_logreport(
+        SimpleNamespace(
+            nodeid=node,
+            when="call",
+            longrepr="",
+            wasxfail="",
+            skipped=skipped,
+            failed=False,
+        )
+    )
+    assert runner.results[node]["outcome"] == expected
+    row = {"FAIL_TO_PASS": [], "PASS_TO_PASS": [node]}
+    phase = {"status": "passed", "test_results": runner.results}
+    assert not grade(row, phase)["valid"]

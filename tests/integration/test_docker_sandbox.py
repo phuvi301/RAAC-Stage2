@@ -41,6 +41,8 @@ def environment(tmp_path_factory):
         "from value import VALUE\ndef test_value():\n    assert VALUE == 1\n"
     )
     (repo / "native.c").write_bytes(b"int value(void) { return 0; }\n")
+    (repo / "requests").mkdir()
+    (repo / "requests/cacert.pem").write_bytes(b"# fixture trust bundle\n")
     (repo / "native_check.py").write_bytes(
         b"import ctypes\ndef test_native():\n    assert ctypes.CDLL('/workspace/native.so').value() == 1\n"
     )
@@ -61,6 +63,21 @@ def environment(tmp_path_factory):
         "system_packages": ["git", "gcc", "libc6-dev"],
         "install_commands": [
             ["python", "-m", "pip", "install", "pytest==8.3.5"],
+            [
+                "python",
+                "-m",
+                "pip",
+                "install",
+                "setuptools==69.5.1",
+                "httpbin==0.7.0",
+                "Flask==1.1.4",
+                "Werkzeug==1.0.1",
+                "Jinja2==2.11.3",
+                "MarkupSafe==2.0.1",
+                "itsdangerous==1.1.0",
+                "trustme==0.9.0",
+                "requests==2.32.3",
+            ],
             ["gcc", "-shared", "-fPIC", "native.c", "-o", "native.so"],
         ],
     }
@@ -101,6 +118,65 @@ def test_baseline_patch_and_invalid(environment):
     assert not runner.client.volumes.list(filters={"label": "raac=" + root.name})
 
 
+def test_empty_reason_xfail_and_xpass_are_not_passed(environment):
+    from raac.harness.layer3_execution.sandbox.evaluation import grade, payload
+
+    runner, image, root = environment
+    row = {
+        "repo": "fixture/repo",
+        "FAIL_TO_PASS": [],
+        "PASS_TO_PASS": [
+            "test_markers.py::test_expected",
+            "test_markers.py::test_unexpected",
+        ],
+        "test_patch": (
+            "diff --git a/test_markers.py b/test_markers.py\n"
+            "new file mode 100644\n--- /dev/null\n+++ b/test_markers.py\n"
+            "@@ -0,0 +1,7 @@\n+import pytest\n+@pytest.mark.xfail\n"
+            "+def test_expected():\n+    assert False\n+@pytest.mark.xfail\n"
+            "+def test_unexpected():\n+    assert True\n"
+        ),
+    }
+    row["selectors"] = payload(row, {"test_command": ["python", "-m", "pytest"]})
+    result = runner.execute(
+        image,
+        ["python", "/tmp/raac-issue-runner.py", "/tmp/raac-selectors.json"],
+        root,
+        "markers",
+        evaluation=row,
+    )
+    assert result["test_results"][row["PASS_TO_PASS"][0]]["outcome"] == "xfail"
+    assert result["test_results"][row["PASS_TO_PASS"][1]]["outcome"] == "xpass"
+    assert not grade(row, result)["valid"]
+
+
+def test_selector_preserves_stateful_test_order(environment):
+    from raac.harness.layer3_execution.sandbox.evaluation import payload
+
+    runner, image, root = environment
+    row = {
+        "repo": "fixture/repo",
+        "FAIL_TO_PASS": [],
+        "PASS_TO_PASS": ["test_order.py::test_last", "test_order.py::test_first"],
+        "test_patch": (
+            "diff --git a/test_order.py b/test_order.py\nnew file mode 100644\n"
+            "--- /dev/null\n+++ b/test_order.py\n@@ -0,0 +1,6 @@\n"
+            "+STATE = 0\n+def test_first():\n+    assert STATE == 0\n"
+            "+def test_last():\n+    global STATE\n+    STATE = 1\n"
+        ),
+    }
+    row["selectors"] = payload(row, {"test_command": ["python", "-m", "pytest"]})
+    result = runner.execute(
+        image,
+        ["python", "/tmp/raac-issue-runner.py", "/tmp/raac-selectors.json"],
+        root,
+        "collection-order",
+        evaluation=row,
+    )
+    assert result["status"] == "passed"
+    assert all(test["outcome"] == "passed" for test in result["test_results"].values())
+
+
 def test_timeout(environment):
     runner, image, root = environment
     short = DockerSandbox(client=runner.client, policy=SandboxPolicy(timeout=1))
@@ -108,6 +184,77 @@ def test_timeout(environment):
         image, ["python", "-c", "import time; time.sleep(30)"], root, "timeout"
     )
     assert result["status"] == "timeout"
+
+
+@pytest.mark.parametrize("kind", ["requests_httpbin", "requests_tarpit"])
+def test_internal_network_services_block_egress_and_host_gateway(environment, kind):
+    runner, image, root = environment
+    code = """import os,socket,requests
+from value import VALUE
+assert VALUE == 0
+session=requests.Session()
+session.trust_env=False
+try:
+    session.get('http://10.255.255.1', timeout=.15)
+except requests.exceptions.ConnectTimeout:
+    pass
+else:
+    raise AssertionError('Expected real TCP connect timeout')
+for ip,port in [('8.8.8.8',53),('10.255.255.254',80)]:
+    s=socket.socket(); s.settimeout(.15)
+    try:s.connect((ip,port))
+    except OSError:pass
+    else:raise AssertionError('Unexpected external/host access')
+    finally:s.close()
+if os.environ.get('HTTPBIN_URL'):
+    response=requests.get(os.environ['HTTPBIN_URL']+'get', timeout=3)
+    assert response.status_code == 200
+    assert response.json()['url'] == 'http://httpbin.org/get'
+    assert requests.get('https://httpbin.org/get',timeout=3).status_code == 200
+    prepared = requests.Request('GET','https://httpbin.org/get').prepare()
+    assert session.send(prepared,verify='/workspace/requests/cacert.pem',timeout=3).status_code == 200
+    assert session.send(prepared,timeout=3).status_code == 200
+    assert requests.get('http://httpbin.org/redirect/2',timeout=3).status_code == 200
+    redirected=requests.get('http://httpbin.org/redirect-to',
+        params={'url':'http://www.google.co.uk/headers'},auth=('user','pass'),timeout=3)
+    assert redirected.history[0].request.headers['Authorization']
+    assert 'Authorization' not in redirected.request.headers
+    assert 'Authorization' not in redirected.json()['headers']
+print('internal network checks passed')
+"""
+    result = runner.execute(
+        image, ["python", "-c", code], root, kind, profile={"network_fixture": kind}
+    )
+    assert result["status"] == "passed", (root / (kind + ".log")).read_text()
+    assert result["network"]["external_network"] is False
+    assert result["network"]["host_gateway"] is False
+    if kind == "requests_httpbin":
+        change = result["network"]["trust_bundle"][0]
+        assert change["path"] == "requests/cacert.pem"
+        assert change["before_sha256"] != change["after_sha256"]
+    assert not runner.client.networks.list(filters={"label": "raac=" + root.name})
+    assert not runner.client.containers.list(
+        all=True, filters={"label": "raac=" + root.name}
+    )
+    assert not runner.client.volumes.list(filters={"label": "raac=" + root.name})
+
+
+def test_internal_network_timeout_cleanup(environment):
+    runner, image, root = environment
+    short = DockerSandbox(client=runner.client, policy=SandboxPolicy(timeout=1))
+    result = short.execute(
+        image,
+        ["python", "-c", "import time;time.sleep(30)"],
+        root,
+        "internal_timeout",
+        profile={"network_fixture": "requests_tarpit"},
+    )
+    assert result["status"] == "timeout"
+    assert not runner.client.networks.list(filters={"label": "raac=" + root.name})
+    assert not runner.client.containers.list(
+        all=True, filters={"label": "raac=" + root.name}
+    )
+    assert not runner.client.volumes.list(filters={"label": "raac=" + root.name})
 
 
 def test_network_host_and_parallel_isolation(environment):
@@ -194,6 +341,35 @@ def test_build_wall_clock_timeout_and_builder_cleanup(environment, tmp_path):
     assert not runner.client.containers.list(
         all=True, filters={"name": "buildx_buildkit_" + builder}
     )
+
+
+def test_persistent_builder_reuses_layers(environment, tmp_path):
+    from raac.harness.layer3_execution.sandbox.build import build_image
+
+    runner, _, _ = environment
+    marker = uuid.uuid4().hex
+    (tmp_path / "Dockerfile").write_text(
+        "FROM python:3.11-slim-bookworm\nRUN echo " + marker + " > /cache-marker\n"
+    )
+    tags = ["raac-fixture:cache-" + uuid.uuid4().hex for _ in range(2)]
+    try:
+        for i, tag in enumerate(tags):
+            build_image(tmp_path, tag, tmp_path / (str(i) + ".log"), 120)
+        second = (tmp_path / "1.log").read_text(encoding="utf-8")
+        assert "CACHED" in second
+        assert "exporting cache to client" not in second
+        assert (
+            runner.client.images.get(tags[0]).id == runner.client.images.get(tags[1]).id
+        )
+        assert runner.client.containers.list(
+            filters={"name": "buildx_buildkit_raac-sandbox-managed-v1"}
+        )
+    finally:
+        for tag in tags:
+            try:
+                runner.client.images.remove(tag, force=False)
+            except docker.errors.ImageNotFound:
+                pass
 
 
 def test_real_batch_interrupt_resume_and_error_continuation(
@@ -325,6 +501,44 @@ def test_native_patch_is_rebuilt_before_tests(environment):
     )
 
 
+def test_expanded_sympy_selectors_run_every_concrete_case(environment):
+    runner, image, root = environment
+    patch = ""
+    for path, value in [("test_printer_a.py", "False"), ("test_printer_b.py", "True")]:
+        patch += (
+            "--- /dev/null\n+++ b/"
+            + path
+            + "\n@@ -0,0 +1,2 @@\n+def test_shared():\n+    assert "
+            + value
+            + "\n"
+        )
+    evaluation = {
+        "test_patch": patch,
+        "selectors": {
+            "repo": "sympy/sympy",
+            "selector_policy": "sympy-all-matches-v1",
+            "ids": ["test_shared"],
+            "roots": ["test_printer_a.py", "test_printer_b.py"],
+            "framework": "pytest",
+        },
+    }
+    result = runner.execute(
+        image,
+        ["python", "/tmp/raac-issue-runner.py", "/tmp/raac-selectors.json"],
+        root,
+        "sympy-expansion",
+        evaluation=evaluation,
+    )
+    assert result["status"] == "test_failed"
+    test = result["test_results"]["test_shared"]
+    assert test["outcome"] == "mixed"
+    assert {case["outcome"] for case in test["cases"].values()} == {"failed", "passed"}
+    assert set(test["nodeids"]) == {
+        "test_printer_a.py::test_shared",
+        "test_printer_b.py::test_shared",
+    }
+
+
 def test_issue_baseline_gold_candidate_and_missing_selector(environment):
     from raac.harness.layer3_execution.sandbox.evaluation import grade
 
@@ -365,6 +579,119 @@ def test_issue_baseline_gold_candidate_and_missing_selector(environment):
     assert not grade(row, result)["valid"]
     assert not runner.client.containers.list(
         all=True, filters={"label": "raac=" + root.name}
+    )
+
+
+def test_real_preflight_pilot_full_and_reuse(environment, tmp_path):
+    import json
+    import shutil
+
+    import yaml
+
+    from raac.harness.layer3_execution.sandbox.docker_sandbox import digest
+    from raac.harness.layer3_execution.sandbox.optimization import build_identity
+
+    original, image, root = environment
+    shutil.copytree(root / "cache", tmp_path / "cache")
+    commit = (
+        subprocess.check_output(
+            ["git", "-C", str(root / "source"), "rev-parse", "HEAD~1"]
+        )
+        .decode()
+        .strip()
+    )
+    profile = {
+        "version": 1,
+        "repo": "fixture/repo",
+        "base_image": "python:3.11-slim-bookworm",
+        "system_packages": ["git", "gcc", "libc6-dev"],
+        "install_commands": [
+            ["python", "-m", "pip", "install", "pytest==8.3.5"],
+            ["gcc", "-shared", "-fPIC", "native.c", "-o", "native.so"],
+        ],
+        "test_command": ["python", "-m", "pytest"],
+        "preflight_imports": ["value"],
+    }
+    (tmp_path / "profile.yaml").write_text(yaml.safe_dump(profile))
+    (tmp_path / "dataset.json").write_text(
+        json.dumps(
+            {
+                "repos": [
+                    {
+                        "repo": "fixture/repo",
+                        "repo_url": "https://github.com/fixture/repo",
+                        "issues": [
+                            {
+                                "id": "fixture",
+                                "title": "fixture",
+                                "body": "fixture",
+                                "base_commit": commit,
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+    )
+    row = {
+        "repo": "fixture/repo",
+        "base_commit": commit,
+        "instance_id": "fixture-pr",
+        "pr_url": "fixture",
+        "version": "1",
+        "environment_setup_commit": None,
+        "FAIL_TO_PASS": ["test_issue.py::test_issue"],
+        "PASS_TO_PASS": ["test_issue.py::test_regression"],
+        "test_patch": "--- /dev/null\n+++ b/test_issue.py\n@@ -0,0 +1,5 @@\n+from value import VALUE\n+def test_issue():\n+    assert VALUE == 1\n+def test_regression():\n+    assert isinstance(VALUE, int)\n",
+        "gold_patch": "--- a/value.py\n+++ b/value.py\n@@ -1 +1 @@\n-VALUE = 0\n+VALUE = 1\n",
+    }
+    (tmp_path / "evaluation.json").write_text(
+        json.dumps({"source_sha256": "fixture", "tasks": {"fixture": row}})
+    )
+    (tmp_path / "registry").mkdir()
+    (tmp_path / "registry/VERSION").write_text("fixture")
+    (tmp_path / "config.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "dataset": "dataset.json",
+                "repo_cache": "cache",
+                "results": "results",
+                "profiles": {"fixture/repo": "profile.yaml"},
+                "evaluation": "evaluation.json",
+            }
+        )
+    )
+    # Same actual fixture image/source/recipe; exercise cache lookup without an unnecessary second build.
+    task = Task(
+        "fixture", "fixture/repo", str(root / "source"), "fixture", "fixture", commit
+    )
+    key = build_identity(
+        task, digest((root / "context/source.tar").read_bytes()), dockerfile(profile)
+    )
+    image.tag("raac-sandbox", key)
+    runner = DockerSandbox(root=tmp_path, config="config.yaml", client=original.client)
+    preflight = runner.run("fixture", preflight=True)
+    assert preflight["status"] == "preflight_passed", preflight
+    assert preflight["baseline"] is None
+    assert not preflight["preflight"]["test_results"]
+    pilot = runner.run("fixture", validate=True, stage="pilot")
+    assert pilot["status"] == "pilot_passed", pilot
+    assert pilot["baseline_validation"]["required"] == 1
+    full = runner.run("fixture", validate=True)
+    assert full["status"] == "validated", full
+    assert full["baseline_validation"]["required"] == 2
+    reused = runner.run("fixture", validate=True, reuse_validated=True)
+    assert (
+        reused["status"] == "validated" and reused["reused_from"] == full["result_path"]
+    )
+    assert not (tmp_path / "results" / reused["run_id"] / "gold.log").exists()
+    patch = tmp_path / "candidate.patch"
+    patch.write_bytes(row["gold_patch"].encode())
+    candidate = runner.run("fixture", patch_path=patch)
+    assert candidate["status"] == "resolved" and "gold" not in candidate
+    assert not original.client.volumes.list(
+        filters={"label": "raac=" + candidate["run_id"]}
     )
 
 
@@ -410,6 +737,71 @@ def test_issue_native_rebuild_and_timeout(environment):
         runner.policy = previous
 
 
+def test_python39_subtest_parameter_repr_cannot_crash_reporting(tmp_path):
+    import base64
+    from pathlib import Path
+
+    client = docker.from_env(timeout=30)
+    tag = "python:3.9-slim-bookworm"
+    try:
+        image = client.images.get(tag)
+        existed = True
+    except docker.errors.ImageNotFound:
+        image = client.images.pull(tag)
+        existed = False
+    source = (
+        Path(__file__).parents[2]
+        / "src/raac/harness/layer3_execution/sandbox/issue_runner.py"
+    )
+    encoded = base64.b64encode(source.read_bytes()).decode()
+    code = """import base64, io, types, unittest
+module = types.ModuleType('trusted_runner')
+exec(compile(base64.b64decode(SOURCE), 'trusted_runner.py', 'exec'), module.__dict__)
+class Unprintable:
+    calls = 0
+    def __repr__(self):
+        Unprintable.calls += 1
+        raise RuntimeError('lazy query failed while reporting')
+class Sample(unittest.TestCase):
+    def test_issue(self):
+        with self.subTest(query=Unprintable()):
+            self.assertEqual(0, 1)
+    def test_stable(self):
+        self.assertEqual(1, 1)
+ids = [Sample(name).id() for name in ('test_issue', 'test_stable')]
+module.REPORT = '/tmp/subtest-report.json'
+module.spec = {'ids': ids, 'command': ['python', 'fixture.py']}
+stream = io.StringIO()
+def fixture(*args, **kwargs):
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(Sample)
+    result = unittest.TextTestRunner(stream=stream, verbosity=1).run(suite)
+    assert len(result.failures) == 1
+    assert not result.errors
+module.runpy.run_path = fixture
+module.run_django()
+assert module.results[ids[0]]['outcome'] == 'failed'
+assert module.results[ids[1]]['outcome'] == 'passed'
+assert 'AssertionError' in stream.getvalue()
+assert Unprintable.calls == 0
+print('Original assertion preserved; reporting completed')
+""".replace("SOURCE", repr(encoded))
+    try:
+        result = DockerSandbox(client=client).execute(
+            image,
+            ["python", "-c", code],
+            tmp_path,
+            "python39-subtest",
+            profile={"report_format": "none"},
+        )
+        assert result["status"] == "passed", (
+            tmp_path / "python39-subtest.log"
+        ).read_text()
+    finally:
+        if not existed:
+            client.images.remove(tag)
+        client.close()
+
+
 def test_native_unittest_selector_recording(environment):
     import difflib
 
@@ -419,7 +811,9 @@ import sys
 from value import VALUE
 class Sample(unittest.TestCase):
     def test_issue(self):
-        self.assertEqual(VALUE, 1)
+        for expected in (1, 0):
+            with self.subTest(expected=expected):
+                self.assertGreaterEqual(VALUE, expected)
     def test_pass(self):
         "Regression remains stable."
         self.assertIsInstance(VALUE, int)
@@ -435,7 +829,7 @@ sys.exit(not r.wasSuccessful())
             tofile="b/tests/runtests.py",
         )
     )
-    ids = ["test_issue (__main__.Sample)", "Regression remains stable."]
+    ids = ["test_issue (__main__.Sample.test_issue)", "Regression remains stable."]
     evaluation = {
         "test_patch": patch,
         "selectors": {
@@ -451,3 +845,9 @@ sys.exit(not r.wasSuccessful())
     )
     assert result["test_results"][ids[0]]["outcome"] == "failed"
     assert result["test_results"][ids[1]]["outcome"] == "passed"
+    gold = b"diff --git a/value.py b/value.py\n--- a/value.py\n+++ b/value.py\n@@ -1 +1 @@\n-VALUE = 0\n+VALUE = 1\n"
+    fixed = runner.execute(
+        image, command, root, "issue-unittest-fixed", patch=gold, evaluation=evaluation
+    )
+    assert fixed["status"] == "passed"
+    assert fixed["test_results"][ids[0]]["outcome"] == "passed"

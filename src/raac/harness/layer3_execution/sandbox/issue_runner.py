@@ -12,12 +12,24 @@ REPORT = "/workspace/raac-tests.json"
 results = {}
 found = []
 errors = []
+selection_errors = {}
+selected_nodes = {}
 spec = {}
 
 
 def save():
     with open(REPORT, "w") as output:
-        json.dump({"tests": results, "found": found, "errors": errors}, output)
+        json.dump(
+            {
+                "tests": results,
+                "found": found,
+                "errors": errors,
+                "selection_errors": selection_errors,
+                "selector_policy": spec.get("selector_policy", "unique-v1"),
+                "selected_nodes": selected_nodes,
+            },
+            output,
+        )
 
 
 def key(value):
@@ -36,6 +48,9 @@ def upstream_alias(value):
         "matplotlib/matplotlib",
         "pallets/flask",
         "mwaskom/seaborn",
+        "sphinx-doc/sphinx",
+        "scikit-learn/scikit-learn",
+        "astropy/astropy",
     ):
         value = value.split()[0]
     if repo in ("psf/requests", "pylint-dev/pylint"):
@@ -68,10 +83,21 @@ class SelectorPlugin:
                 matches = [
                     item for item in items if upstream_alias(item.nodeid) == wanted
                 ]
-            if not matches or ("::" not in wanted and len(matches) != 1):
+            expand_all = (
+                spec.get("repo") == "sympy/sympy"
+                and spec.get("selector_policy") == "sympy-all-matches-v1"
+            )
+            if not matches or (
+                "::" not in wanted and len(matches) != 1 and not expand_all
+            ):
                 errors.append("selector missing or ambiguous: " + wanted)
+                selection_errors[wanted] = {
+                    "reason": "ambiguous" if matches else "missing",
+                    "matches": [item.nodeid for item in matches],
+                }
                 continue
             found.append(wanted)
+            selected_nodes[wanted] = [item.nodeid for item in matches]
             self.outcomes[wanted] = {}
             for item in matches:
                 self.node_map.setdefault(item.nodeid, []).append(wanted)
@@ -80,7 +106,9 @@ class SelectorPlugin:
         rejected = [item for item in items if item not in selected]
         if rejected:
             config.hook.pytest_deselected(items=rejected)
-        items[:] = selected
+        # Filtering must preserve pytest's collection order: legacy tests can
+        # share state, and the evaluator manifest is not an execution schedule.
+        items[:] = [item for item in items if item in selected]
         save()
         if errors:
             import pytest
@@ -90,7 +118,7 @@ class SelectorPlugin:
     def pytest_runtest_logreport(self, report):
         if str(getattr(report, "longrepr", "")).startswith("[XPASS(strict)]"):
             outcome = "xpass"
-        elif getattr(report, "wasxfail", None):
+        elif getattr(report, "wasxfail", None) is not None:
             outcome = "xfail" if report.skipped else "xpass"
         elif report.failed:
             outcome = "failed" if report.when == "call" else "runner_error"
@@ -130,7 +158,10 @@ class SelectorPlugin:
 
 def django_label(value):
     matched = re.match(r"^(\w+) \(([^)]+)\)$", value)
-    return matched.group(2) + "." + matched.group(1) if matched else value
+    if not matched:
+        return value
+    method, parent = matched.groups()
+    return parent if parent.endswith("." + method) else parent + "." + method
 
 
 def run_django():
@@ -138,6 +169,17 @@ def run_django():
     identities = {}
     outcomes = {}
     original_run = unittest.TextTestRunner.run
+    original_description = unittest.TextTestResult.getDescription
+
+    def safe_description(self, test):
+        # repr() of a lazy QuerySet can execute the failing query again.
+        # Keep the parent identity, never evaluate subtest parameter values
+        # merely to print a failure. Python 2 has no _SubTest class.
+        if isinstance(test, getattr(unittest.case, "_SubTest", ())):
+            return test.test_case.id() + " [subtest parameter values omitted]"
+        return original_description(self, test)
+
+    unittest.TextTestResult.getDescription = safe_description
 
     def flatten(suite):
         for test in suite:
@@ -169,6 +211,8 @@ def run_django():
         save()
         if errors:
             raise ValueError("; ".join(errors))
+        if spec.get("collect_only"):
+            return unittest.TestResult()
         chosen_ids = {t.id() for t in chosen}
         return original_run(
             self, unittest.TestSuite([t for t in tests if t.id() in chosen_ids])
@@ -205,6 +249,18 @@ def run_django():
             return record
 
         setattr(unittest.TextTestResult, method, wrap(original, outcome))
+    if hasattr(unittest.TextTestResult, "addSubTest"):
+        original_subtest = unittest.TextTestResult.addSubTest
+        failed_subtest = wrap(original_subtest, "failed")
+
+        def record_subtest(self, test, subtest, error):
+            # Successful subtests do not complete their parent test. In
+            # particular, they must never erase an earlier failing subtest.
+            if error is None:
+                return original_subtest(self, test, subtest, error)
+            return failed_subtest(self, test, subtest, error)
+
+        unittest.TextTestResult.addSubTest = record_subtest
     command = spec["command"]
     script = command[1]
     flags = [x for x in command[2:] if x.startswith("--")]
@@ -218,6 +274,15 @@ def main():
     with open(sys.argv[1]) as source:
         spec = json.load(source)
     sys.path.insert(0, os.getcwd())
+    if spec.get("collect_only"):
+        import importlib
+
+        print("Python: " + sys.version)
+        for name in spec.get("imports", []):
+            module = importlib.import_module(name)
+            print(
+                "Import {}: {}".format(name, getattr(module, "__version__", "unknown"))
+            )
     if spec["framework"] == "django":
         run_django()
         return 0
@@ -226,7 +291,13 @@ def main():
     roots = spec["roots"]
     if not roots:
         raise ValueError("No collection roots")
+    missing_roots = [root for root in roots if not os.path.exists(root)]
+    if missing_roots:
+        errors.extend("collection root missing: " + root for root in missing_roots)
+        return 4
     args = roots + ["-q"]
+    if spec.get("collect_only"):
+        args.append("--collect-only")
     return pytest.main(args, plugins=[SelectorPlugin()])
 
 

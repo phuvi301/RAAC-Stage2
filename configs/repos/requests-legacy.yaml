@@ -1,4 +1,4 @@
-version: 1
+version: 2
 repo: psf/requests
 base_image: python:3.9-slim-bookworm
 system_packages:
@@ -54,39 +54,8 @@ task_overrides:
       - --no-build-isolation
       - -e
       - .
-  psf__requests-1723:
-    test_command:
-    - python
-    - -m
-    - pytest
-    - test_requests.py
-    - -q
-    - --junitxml=/workspace/pytest.xml
-  psf__requests-1765:
-    test_command:
-    - python
-    - -m
-    - pytest
-    - test_requests.py
-    - -q
-    - --junitxml=/workspace/pytest.xml
-  psf__requests-1920:
-    test_command:
-    - python
-    - -m
-    - pytest
-    - test_requests.py
-    - -q
-    - --junitxml=/workspace/pytest.xml
-  psf__requests-2316:
-    test_command:
-    - python
-    - -m
-    - pytest
-    - test_requests.py
-    - -q
-    - --junitxml=/workspace/pytest.xml
   psf__requests-2930:
+    network_fixture: requests_tarpit
     test_command:
     - python
     - -m
@@ -94,6 +63,8 @@ task_overrides:
     - test_requests.py
     - -q
     - --junitxml=/workspace/pytest.xml
+  psf__requests-5367:
+    network_fixture: requests_tarpit
 dependency_commands:
 - - python
   - -m
@@ -122,3 +93,5 @@ dependency_commands:
   - idna==2.10
   - certifi
   - PySocks==1.7.1
+preflight_imports:
+- requests

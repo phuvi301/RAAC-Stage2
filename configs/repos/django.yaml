@@ -57,3 +57,5 @@ dependency_commands:
   - argon2-cffi==21.3.0
   - bcrypt==4.0.1
   - tblib==1.7.0
+preflight_imports:
+- django

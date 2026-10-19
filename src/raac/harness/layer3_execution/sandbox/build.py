@@ -1,9 +1,9 @@
-"""Bounded Docker builds in disposable, independently cancellable builders."""
+"""Bounded Docker builds with an exclusively owned persistent builder."""
 
 import os
+import re
 import subprocess
 import time
-import uuid
 from pathlib import Path
 
 
@@ -11,12 +11,36 @@ class BuildTimeout(TimeoutError):
     """The build exceeded its wall-clock budget."""
 
 
-def _build_image(context: Path, tag: str, log: Path, timeout: int):
+def build_metrics(log):
+    """Parse BuildKit's measured steps; overlapping steps are not wall-clock totals."""
+    labels, steps = {}, []
+    for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
+        match = re.match(r"#(\d+) (.*)", line)
+        if not match:
+            continue
+        number, text = match.groups()
+        if text.startswith(("[", "exporting", "importing", "sending tarball")):
+            labels.setdefault(number, text)
+        done = re.match(r"DONE ([\d.]+)s", text)
+        if done:
+            steps.append(
+                {
+                    "step": number,
+                    "label": labels.get(number, "unknown"),
+                    "seconds": float(done[1]),
+                }
+            )
+    return {
+        "steps": steps,
+        "note": "BuildKit steps may overlap; do not sum as total build time.",
+    }
+
+
+def _build_image(context: Path, tag: str, log: Path, timeout: int, progress=None):
     # A private builder lets cancellation stop daemon-side work as well as the CLI.
-    builder = "raac-" + uuid.uuid4().hex
+    builder = "raac-sandbox-managed-v1"
     process = None
-    cache = Path(__file__).resolve().parents[5] / "data/build-cache"
-    cache.mkdir(parents=True, exist_ok=True)
+    completed = False
     deadline = time.monotonic() + timeout
     environment = os.environ.copy()
     # BuildKit must not inject host proxy credentials into build RUN instructions.
@@ -25,22 +49,33 @@ def _build_image(context: Path, tag: str, log: Path, timeout: int):
             environment.pop(key)
     try:
         with log.open("wb") as output:
-            subprocess.run(
-                [
-                    "docker",
-                    "buildx",
-                    "create",
-                    "--name",
-                    builder,
-                    "--driver",
-                    "docker-container",
-                ],
-                stdout=output,
-                stderr=subprocess.STDOUT,
-                check=True,
+            output.write((builder + "\n").encode())
+            output.flush()
+            exists = subprocess.run(
+                ["docker", "buildx", "inspect", builder],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
                 timeout=max(1, deadline - time.monotonic()),
                 env=environment,
             )
+            if exists.returncode != 0:
+                subprocess.run(
+                    [
+                        "docker",
+                        "buildx",
+                        "create",
+                        "--name",
+                        builder,
+                        "--driver",
+                        "docker-container",
+                    ],
+                    stdout=output,
+                    stderr=subprocess.STDOUT,
+                    check=True,
+                    timeout=max(1, deadline - time.monotonic()),
+                    env=environment,
+                )
             process = subprocess.Popen(
                 [
                     "docker",
@@ -49,10 +84,6 @@ def _build_image(context: Path, tag: str, log: Path, timeout: int):
                     "--builder",
                     builder,
                     "--load",
-                    "--cache-from",
-                    "type=local,src=" + str(cache),
-                    "--cache-to",
-                    "type=local,dest=" + str(cache) + ",mode=max",
                     "--progress=plain",
                     "--provenance=false",
                     "--build-arg",
@@ -76,7 +107,11 @@ def _build_image(context: Path, tag: str, log: Path, timeout: int):
                 stderr=subprocess.STDOUT,
                 env=environment,
             )
+            last_progress = 0
             while process.poll() is None:
+                if progress and time.monotonic() - last_progress >= 10:
+                    progress()
+                    last_progress = time.monotonic()
                 if time.monotonic() >= deadline:
                     raise BuildTimeout(f"Build exceeded {timeout}s; see {log}")
                 time.sleep(0.2)
@@ -84,6 +119,7 @@ def _build_image(context: Path, tag: str, log: Path, timeout: int):
                 raise RuntimeError(
                     f"Docker build exited {process.returncode}; see {log}"
                 )
+            completed = True
     except subprocess.TimeoutExpired as exc:
         raise BuildTimeout(f"Build exceeded {timeout}s; see {log}") from exc
     finally:
@@ -95,21 +131,33 @@ def _build_image(context: Path, tag: str, log: Path, timeout: int):
                 process.kill()
                 process.wait(timeout=5)
         # rm stops/removes this builder's container and state; other builds are untouched.
-        subprocess.run(
-            ["docker", "buildx", "rm", "--force", builder],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=60,
-        )
+        if not completed:
+            subprocess.run(
+                ["docker", "buildx", "rm", "--force", builder],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=60,
+            )
 
 
-def build_image(context: Path, tag: str, log: Path, timeout: int):
+def build_image(context: Path, tag: str, log: Path, timeout: int, progress=None):
     from .docker_sandbox import ROOT, cache_lock
 
     started = time.monotonic()
-    with cache_lock(ROOT / "data/build-cache.lock", timeout=timeout):
-        remaining = timeout - (time.monotonic() - started)
-        if remaining <= 0:
-            raise BuildTimeout("Build budget exhausted waiting for build cache lock")
-        return _build_image(context, tag, log, remaining)
+    try:
+        with cache_lock(
+            ROOT / "data/build-cache.lock", timeout=timeout, on_wait=progress
+        ):
+            remaining = timeout - (time.monotonic() - started)
+            if remaining <= 0:
+                raise BuildTimeout(
+                    "Build budget exhausted waiting for build cache lock"
+                )
+            return _build_image(context, tag, log, remaining, progress=progress)
+    except TimeoutError as exc:
+        if isinstance(exc, BuildTimeout):
+            raise
+        raise BuildTimeout(
+            "Build budget exhausted waiting for build cache lock"
+        ) from exc

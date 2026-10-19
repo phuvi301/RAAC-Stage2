@@ -19,7 +19,7 @@ from pathlib import Path
 import yaml
 
 import docker
-from raac.benchmark.dataset import load_tasks
+from raac.benchmark.dataset import load_tasks, source_dataset
 
 from .build import BuildTimeout, build_image
 from .policy import SandboxPolicy
@@ -71,7 +71,7 @@ def resolve_path(root, value):
 
 
 @contextmanager
-def cache_lock(path, timeout=120):
+def cache_lock(path, timeout=120, on_wait=None):
     """Cross-process advisory lock; OS releases the lock after a process crash."""
     path.parent.mkdir(parents=True, exist_ok=True)
     handle = path.open("a+b")
@@ -79,6 +79,7 @@ def cache_lock(path, timeout=120):
         handle.write(b"0")
         handle.flush()
     deadline = time.monotonic() + timeout
+    notified = 0
     while True:
         try:
             handle.seek(0)
@@ -92,6 +93,13 @@ def cache_lock(path, timeout=120):
                 fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
             break
         except OSError:
+            if on_wait and time.monotonic() - notified >= 10:
+                try:
+                    on_wait()
+                except BaseException:
+                    handle.close()
+                    raise
+                notified = time.monotonic()
             if time.monotonic() >= deadline:
                 handle.close()
                 raise TimeoutError(f"Cache lock timed out: {path}")
@@ -257,9 +265,21 @@ def archive_repo(task, cache_root, destination, versioned=False, deadline=None):
             subprocess.run(
                 [
                     "git",
+                    "-c",
+                    "pack.writeReverseIndex=false",
                     "--git-dir",
                     str(cache),
                     "pack-objects",
+                    # Stable source bytes across thread scheduling, cache repacks,
+                    # and host Git compression/index defaults. Otherwise image keys
+                    # can change between preflight and full for the same commit.
+                    "--threads=1",
+                    "--no-reuse-delta",
+                    "--no-reuse-object",
+                    "--compression=6",
+                    "--window=10",
+                    "--depth=50",
+                    "--index-version=2",
                     str(Path(packed) / "pack"),
                 ],
                 input=objects,
@@ -297,7 +317,7 @@ def archive_repo(task, cache_root, destination, versioned=False, deadline=None):
                     + task.repo.encode()
                     + b"\n",
                 )
-                for file in Path(packed).iterdir():
+                for file in sorted(Path(packed).iterdir()):
                     add(".git/objects/pack/" + file.name, file.read_bytes())
     return cache
 
@@ -316,6 +336,9 @@ def load_profile(path, task):
         "install_commands",
         "dependency_commands",
         "post_patch_commands",
+        "native_rebuild_paths",
+        "native_safe_paths",
+        "preflight_imports",
         "source_history",
         "test_command",
         "environment",
@@ -324,6 +347,8 @@ def load_profile(path, task):
         "report_path",
         "build_timeout",
         "test_timeout",
+        "network_fixture",
+        "selector_policy",
     }
     if set(profile) - allowed:
         raise ValueError("Unknown profile fields")
@@ -357,6 +382,22 @@ def load_profile(path, task):
         raise ValueError("Overrides cannot change the repo")
     if profile.get("source_history", "snapshot") not in {"snapshot", "versioned"}:
         raise ValueError("Unknown source_history")
+    if profile.get("selector_policy", "unique-v1") not in {
+        "unique-v1",
+        "sympy-all-matches-v1",
+    }:
+        raise ValueError("Unknown selector policy")
+    if (
+        profile.get("selector_policy") == "sympy-all-matches-v1"
+        and task.repo != "sympy/sympy"
+    ):
+        raise ValueError("Sympy selector policy requires sympy/sympy")
+    if profile.get("network_fixture", "none") not in {
+        "none",
+        "requests_httpbin",
+        "requests_tarpit",
+    }:
+        raise ValueError("Unknown network fixture")
     environment = profile.get("environment", {})
     if not isinstance(environment, dict) or any(
         not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(k)) or not isinstance(v, str)
@@ -378,6 +419,11 @@ def load_profile(path, task):
     report_path = profile.get("report_path", "/workspace/pytest.xml")
     if not report_path.startswith("/workspace/") or ".." in report_path.split("/"):
         raise ValueError("report_path must be inside /workspace")
+    for field in ("native_rebuild_paths", "native_safe_paths", "preflight_imports"):
+        if not isinstance(profile.get(field, []), list) or any(
+            not isinstance(x, str) or not x for x in profile.get(field, [])
+        ):
+            raise ValueError(f"{field} must be a list of nonempty strings")
     return profile
 
 
@@ -462,9 +508,21 @@ class DockerSandbox:
         profile = profile or {}
         volume = self.client.volumes.create(labels={"raac": directory.name})
         container = None
+        network_fixture = None
         started = time.monotonic()
         log = directory / f"{label}.log"
         try:
+            options = self.policy.container_options()
+            environment = dict(profile.get("environment", {}))
+            if profile.get("network_fixture", "none") != "none":
+                from .network import NetworkFixture
+
+                network_fixture = NetworkFixture(
+                    self.client, image, profile["network_fixture"], directory, label
+                )
+                network_fixture.start()
+                options.update(network_fixture.options)
+                environment.update(network_fixture.environment)
             # Docker populates a new empty volume from the image's /workspace.
             script = (
                 "set -eu; rm -f "
@@ -475,7 +533,15 @@ class DockerSandbox:
                 script += "cd /workspace; git apply --check /tmp/candidate.patch || exit 86; git apply /tmp/candidate.patch || exit 86; "
             if evaluation is not None:
                 script += "git apply --check /tmp/test.patch || exit 88; git apply /tmp/test.patch || exit 88; "
-            if patch is not None:
+            if profile.get("network_fixture") == "requests_httpbin":
+                script += "python -E -s /tmp/raac-network-setup.py || exit 90; "
+            from .optimization import needs_native_rebuild
+
+            effective_patch = (patch or b"") + (
+                evaluation["test_patch"].encode() if evaluation else b""
+            )
+            rebuilt = needs_native_rebuild(profile, effective_patch or None)
+            if rebuilt:
                 for rebuild in profile.get("post_patch_commands", []):
                     script += shlex.join(rebuild) + " || exit 87; "
             script += "exec " + shlex.join(command)
@@ -486,10 +552,12 @@ class DockerSandbox:
                 volumes={volume.name: {"bind": "/workspace", "mode": "rw"}},
                 labels={"raac": directory.name},
                 use_config_proxy=False,
-                environment=profile.get("environment", {}),
-                **self.policy.container_options(),
+                environment=environment,
+                **options,
             )
             files = {"candidate.patch": patch} if patch is not None else {}
+            if network_fixture is not None:
+                files.update(network_fixture.files)
             if evaluation is not None:
                 files.update(
                     {
@@ -518,6 +586,8 @@ class DockerSandbox:
             while True:
                 container.reload()
                 log.write_bytes(container.logs(stdout=True, stderr=True))
+                if getattr(self, "phase_progress", None):
+                    self.phase_progress(label, log)
                 if container.status in ("exited", "dead"):
                     break
                 if time.monotonic() >= deadline:
@@ -525,9 +595,11 @@ class DockerSandbox:
                     container.kill()
                     container.reload()
                     break
-                time.sleep(0.1)
+                time.sleep(1)
             code = container.attrs["State"].get("ExitCode")
             log.write_bytes(container.logs(stdout=True, stderr=True))
+            if network_fixture is not None and code in {0, 1}:
+                network_fixture.collect(container)
             stats = None
             try:
                 if profile.get("report_format", "junit") == "none":
@@ -599,11 +671,13 @@ class DockerSandbox:
                         )
             if timed_out:
                 status = "timeout"
+            elif code == 90:
+                status = "preparation_error"
             elif patch is not None and code == 86:
                 status = "patch_error"
             elif evaluation is not None and code == 88:
                 status = "test_patch_error"
-            elif patch is not None and code == 87:
+            elif code == 87:
                 status = "patch_setup_error"
             elif issue_report is not None:
                 status = (
@@ -638,6 +712,17 @@ class DockerSandbox:
                 }.get(code, "execution_error")
             return {
                 "status": status,
+                "network": network_fixture.report
+                if network_fixture
+                else {
+                    "fixture": "none",
+                    "network_mode": "none",
+                    "external_network": False,
+                },
+                "native_rebuilt": rebuilt,
+                "found_selectors": issue_report.get("found", [])
+                if issue_report
+                else [],
                 "test_results": issue_report.get("tests", {})
                 if issue_report is not None
                 else None,
@@ -663,9 +748,20 @@ class DockerSandbox:
                 if container is not None:
                     container.remove(force=True)
             finally:
-                volume.remove(force=True)
+                try:
+                    volume.remove(force=True)
+                finally:
+                    if network_fixture is not None:
+                        network_fixture.close()
+                if getattr(self, "phase_progress", None):
+                    self.phase_progress("cleanup", log)
 
-    def run(
+    def run(self, *args, **kwargs):
+        # All entrypoints share one workload slot, including separate CLI processes.
+        with cache_lock(self.root / "data/sandbox-run.lock", timeout=1800):
+            return self._run(*args, **kwargs)
+
+    def _run(
         self,
         task_id,
         dataset=None,
@@ -676,6 +772,10 @@ class DockerSandbox:
         run_id=None,
         test_mode="issue",
         validate=False,
+        stage="full",
+        preflight=False,
+        reuse_validated=False,
+        progress=None,
     ):
         run_id = run_id or uuid.uuid4().hex
         directory = resolve_path(self.root, self.config["results"]) / run_id
@@ -688,14 +788,55 @@ class DockerSandbox:
             "candidate": None,
         }
         started = time.monotonic()
+        last_event = [None, 0]
+
+        def phase(name, log=None):
+            if getattr(self, "stop_file", None) and self.stop_file.exists():
+                raise KeyboardInterrupt
+            if last_event[0] == name and time.monotonic() - last_event[1] < 10:
+                return
+            last_event[:] = [name, time.monotonic()]
+            event = {
+                "event": "phase",
+                "task_id": task_id,
+                "run_id": run_id,
+                "phase": name,
+                "elapsed_seconds": round(time.monotonic() - started, 1),
+                "log": str(log) if log else None,
+            }
+            (directory / "progress.json").write_text(
+                json.dumps(event), encoding="utf-8"
+            )
+            if progress:
+                progress(event)
+            if getattr(self, "stop_file", None) and self.stop_file.exists():
+                raise KeyboardInterrupt
+
+        self.phase_progress = phase
         try:
+            if preflight and test_mode != "issue":
+                raise ValueError("Preflight requires issue mode")
+            if stage not in {"pilot", "full"}:
+                raise ValueError("Unknown validation stage")
+            if stage != "full" and not validate:
+                raise ValueError("Pilot requires validation")
+            record["stage"] = stage
+            record["operation"] = (
+                "preflight" if preflight else "validate" if validate else "run"
+            )
             dataset_path = resolve_path(self.root, dataset or self.config["dataset"])
             task = load_tasks(dataset_path)[task_id]
             record["task"] = asdict(task)
+            dataset_metadata = json.loads(dataset_path.read_text(encoding="utf-8"))
+            if dataset_metadata.get("kind") == "raac-task-selection":
+                record["benchmark"] = {
+                    "id": dataset_metadata["benchmark_id"],
+                    "task_count": dataset_metadata["task_count"],
+                    "selection_sha256": digest(dataset_path.read_bytes()),
+                }
             if test_mode not in {"suite", "issue"}:
                 raise ValueError("Unknown test mode")
             record["test_mode"] = test_mode
-            record["operation"] = "validate" if validate else "run"
             if validate and test_mode != "issue":
                 raise ValueError("Validation requires issue mode")
             profile_name = self.config.get("profiles", {}).get(task.repo)
@@ -718,10 +859,18 @@ class DockerSandbox:
             )
             record["build_timeout"] = effective_build_timeout
             preparation_deadline = time.monotonic() + effective_build_timeout
+            policy_snapshot = self.policy.snapshot()
+            policy_snapshot.update(
+                network_fixture=profile.get("network_fixture", "none"),
+                external_network=False,
+            )
+            if profile.get("network_fixture", "none") != "none":
+                policy_snapshot["network_mode"] = "isolated-bridge"
+                policy_snapshot["host_gateway"] = False
             # Only this explicit schema is accepted: arbitrary credential-bearing config is not logged.
             snapshot = {
                 "profile": profile,
-                "policy": self.policy.snapshot(),
+                "policy": policy_snapshot,
                 "dataset": str(dataset_path),
                 "repo_cache": self.config["repo_cache"],
                 "results": self.config["results"],
@@ -738,6 +887,9 @@ class DockerSandbox:
                     for p in (self.config_path, profile_path)
                 },
                 "dataset_sha256": digest(dataset_path.read_bytes()),
+                "source_dataset_sha256": digest(
+                    source_dataset(dataset_path).read_bytes()
+                ),
                 "sandbox_code_hashes": {
                     name: digest(Path(__file__).with_name(name).read_bytes())
                     for name in (
@@ -746,6 +898,9 @@ class DockerSandbox:
                         "policy.py",
                         "evaluation.py",
                         "issue_runner.py",
+                        "optimization.py",
+                        "cache.py",
+                        "network.py",
                     )
                 },
                 "effective_config": safe_snapshot(snapshot),
@@ -766,6 +921,12 @@ class DockerSandbox:
                 artifact_path = resolve_path(
                     self.root, self.config.get("evaluation", DEFAULT_ARTIFACTS)
                 )
+                expected_evaluator = dataset_metadata.get("evaluation_sha256")
+                if (
+                    expected_evaluator
+                    and digest(artifact_path.read_bytes()) != expected_evaluator
+                ):
+                    raise ValueError("Frozen benchmark evaluator hash changed")
                 row = load_evaluation(artifact_path, task)
                 record["evaluation"] = {
                     k: row[k]
@@ -788,11 +949,14 @@ class DockerSandbox:
                         else None,
                     }
                 )
-                if patch is not None and patch_paths(patch.decode()) & patch_paths(
-                    row["test_patch"]
-                ):
+                protected_paths = patch_paths(row["test_patch"])
+                if profile.get("network_fixture") == "requests_httpbin":
+                    protected_paths.add("requests/cacert.pem")
+                if patch is not None and patch_paths(patch.decode()) & protected_paths:
                     record["status"] = "protected_test_error"
                     return record
+                if stage == "pilot":
+                    row = dict(row, PASS_TO_PASS=[])
                 evaluation = {
                     "test_patch": row["test_patch"],
                     "selectors": payload(row, profile),
@@ -800,6 +964,10 @@ class DockerSandbox:
                     .with_name("issue_runner.py")
                     .read_bytes(),
                 }
+                evaluation["selectors"]["collect_only"] = preflight
+                evaluation["selectors"]["imports"] = (
+                    profile.get("preflight_imports", []) if preflight else []
+                )
                 command = [
                     "python",
                     "/tmp/raac-issue-runner.py",
@@ -808,7 +976,58 @@ class DockerSandbox:
             record["patch_sha256"] = digest(patch) if patch is not None else None
             if patch is not None:
                 (directory / "candidate.patch").write_bytes(patch)
+            from .optimization import evaluation_identity, reusable_record
+
+            record["evaluation_identity"] = evaluation_identity(
+                task,
+                profile,
+                row,
+                policy_snapshot,
+                record["provenance"]["registry_version"],
+                stage,
+            )
+            if reuse_validated and validate and stage == "full":
+                old = reusable_record(
+                    resolve_path(self.root, self.config["results"]),
+                    record["evaluation_identity"],
+                )
+                if old:
+                    self.connect()
+                    try:
+                        self.client.images.get(old["image_id"])
+                    except docker.errors.ImageNotFound:
+                        # A rebuild may resolve unpinned dependencies differently.
+                        # Historical evidence remains, but cannot validate that image.
+                        old = None
+                if old:
+                    record.update(
+                        {
+                            k: old[k]
+                            for k in (
+                                "baseline",
+                                "gold",
+                                "baseline_validation",
+                                "gold_validation",
+                                "image_id",
+                                "source_sha256",
+                                "image_tag",
+                                "dockerfile_sha256",
+                            )
+                        }
+                    )
+                    record["reused_from"] = old["result_path"]
+                    record["status"] = "validated"
+                    record["preparation_seconds"] = 0
+                    return record
+            phase("source")
             self.connect()
+            if getattr(self, "auto_prune", False):
+                from .cache import prune
+
+                phase("cache")
+                record["cache_retention"] = prune(
+                    self, protect_tasks=[task_id], apply=True, workload_locked=True
+                )
             with tempfile.TemporaryDirectory() as tmp:
                 context = Path(tmp)
                 archive_repo(
@@ -822,36 +1041,90 @@ class DockerSandbox:
                 record["source_sha256"] = source_sha256
                 recipe = dockerfile(profile)
                 (context / "Dockerfile").write_text(recipe, encoding="utf-8")
-                key = digest(
-                    json.dumps(
-                        {
-                            "commit": task.base_commit,
-                            "source_sha256": source_sha256,
-                            "repo": task.repo,
-                            "profile": profile,
-                            "recipe": recipe,
-                        },
-                        sort_keys=True,
-                    ).encode()
-                )
+                from .optimization import build_identity
+
+                key = build_identity(task, source_sha256, recipe)
+                record["build_identity"] = key
                 tag = "raac-sandbox:" + key
                 try:
                     image = self.client.images.get(tag)
+                    record["image_cache_hit"] = True
                 except docker.errors.ImageNotFound:
-                    remaining_build_time = preparation_deadline - time.monotonic()
-                    if remaining_build_time <= 0:
-                        raise BuildTimeout("Preparation budget exhausted before build")
-                    build_image(
-                        context, tag, directory / "build.log", remaining_build_time
+                    from .optimization import compatible_image
+
+                    image = compatible_image(
+                        self.client,
+                        resolve_path(self.root, self.config["results"]),
+                        task,
+                        source_sha256,
+                        digest(recipe.encode()),
                     )
-                    image = self.client.images.get(tag)
+                    if image is not None:
+                        image.tag("raac-sandbox", key)
+                        record["image_cache_hit"] = True
+                        record["image_adopted"] = True
+                    else:
+                        remaining_build_time = preparation_deadline - time.monotonic()
+                        if remaining_build_time <= 0:
+                            raise BuildTimeout(
+                                "Preparation budget exhausted before build"
+                            )
+                        phase("build", directory / "build.log")
+                        self.build_cancel = lambda: phase(
+                            "build", directory / "build.log"
+                        )
+                        build_started = time.monotonic()
+                        build_image(
+                            context,
+                            tag,
+                            directory / "build.log",
+                            remaining_build_time,
+                            **(
+                                {"progress": self.build_cancel}
+                                if progress or getattr(self, "stop_file", None)
+                                else {}
+                            ),
+                        )
+                        record["build_seconds"] = round(
+                            time.monotonic() - build_started, 3
+                        )
+                        from .build import build_metrics
+
+                        record["build_metrics"] = build_metrics(directory / "build.log")
+                        record["image_cache_hit"] = False
+                        image = self.client.images.get(tag)
                 record["image_id"] = image.id
                 record["dockerfile_sha256"] = digest(recipe.encode())
                 record["image_tag"] = tag
             record["preparation_seconds"] = round(time.monotonic() - started, 3)
             if prepare:
                 record["status"] = "prepared"
+            elif preflight:
+                phase("preflight", directory / "preflight.log")
+                record["preflight"] = self.execute(
+                    image,
+                    command,
+                    directory,
+                    "preflight",
+                    profile=profile,
+                    evaluation=evaluation,
+                )
+                found = record["preflight"].get("found_selectors", [])
+                record["preflight"]["executed_selectors"] = 0
+                record["preflight"]["found_count"] = len(found)
+                record["preflight"]["required_selectors"] = len(
+                    evaluation["selectors"]["ids"]
+                )
+                record["status"] = (
+                    "preflight_passed"
+                    if record["preflight"]["exit_code"] == 0
+                    and set(found) == set(evaluation["selectors"]["ids"])
+                    else record["preflight"]["status"]
+                )
+                if record["status"] == "passed":
+                    record["status"] = "preflight_failed"
             else:
+                phase("baseline", directory / "baseline.log")
                 record["status"] = "execution_error"
                 record["baseline"] = self.execute(
                     image,
@@ -866,6 +1139,7 @@ class DockerSandbox:
                         row, record["baseline"], baseline=True
                     )
                 if validate:
+                    phase("gold", directory / "gold.log")
                     record["gold"] = self.execute(
                         image,
                         command,
@@ -877,13 +1151,14 @@ class DockerSandbox:
                     )
                     record["gold_validation"] = grade(row, record["gold"])
                     record["status"] = (
-                        "validated"
+                        ("pilot_passed" if stage == "pilot" else "validated")
                         if record["baseline_validation"]["valid"]
                         and record["gold_validation"]["valid"]
                         else "validation_failed"
                     )
                 else:
                     if patch is not None:
+                        phase("candidate", directory / "candidate.log")
                         record["candidate"] = self.execute(
                             image,
                             command,
@@ -936,6 +1211,18 @@ class DockerSandbox:
             record["error"] = f"{type(exc).__name__}: {exc}"
             return record
         finally:
+            if record.get("status") == "validated" and not record.get("reused_from"):
+                record["evidence_hashes"] = {
+                    p.name: digest(p.read_bytes())
+                    for p in directory.iterdir()
+                    if p.name
+                    in {
+                        "baseline.log",
+                        "gold.log",
+                        "baseline.tests.json",
+                        "gold.tests.json",
+                    }
+                }
             record["duration_seconds"] = round(time.monotonic() - started, 3)
             record["result_path"] = str(directory / "record.json")
             (directory / "record.json").write_text(

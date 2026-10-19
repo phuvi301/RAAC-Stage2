@@ -53,3 +53,5 @@ dependency_commands:
   - python-dotenv==1.0.0
   - asgiref==3.7.2
   - cryptography==41.0.7
+preflight_imports:
+- flask

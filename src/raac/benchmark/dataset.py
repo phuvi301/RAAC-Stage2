@@ -1,5 +1,6 @@
 """Stage1 dataset loader."""
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -16,8 +17,41 @@ class Task:
     base_commit: str
 
 
-def load_tasks(path: Path) -> dict[str, Task]:
+def source_dataset(path: Path) -> Path:
+    """Resolve a frozen selection without exposing evaluator artifacts to agents."""
+    path = Path(path).resolve()
     data = json.loads(path.read_text(encoding="utf-8"))
+    if data.get("kind") != "raac-task-selection":
+        return path
+    if data.get("schema_version") != 1:
+        raise ValueError("Unsupported task selection version")
+    source = (path.parent / data["source_dataset"]).resolve()
+    raw = source.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != data["source_sha256"]:
+        raise ValueError("Frozen selection source hash changed")
+    if json.loads(raw).get("kind") == "raac-task-selection":
+        raise ValueError("Nested task selections are not supported")
+    return source
+
+
+def load_tasks(path: Path) -> dict[str, Task]:
+    path = Path(path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    source = source_dataset(path)
+    if source != path.resolve():
+        tasks = load_tasks(source)
+        ids = data.get("task_ids")
+        if (
+            not isinstance(ids, list)
+            or not ids
+            or any(not isinstance(x, str) for x in ids)
+            or len(ids) != len(set(ids))
+            or set(ids) - set(tasks)
+        ):
+            raise ValueError("Invalid frozen task selection")
+        if data.get("task_count") != len(ids):
+            raise ValueError("Frozen task count mismatch")
+        return {identifier: tasks[identifier] for identifier in ids}
     tasks = {}
     for repo in data["repos"]:
         name = repo["repo"]

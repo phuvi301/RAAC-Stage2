@@ -69,6 +69,13 @@ task_overrides:
       - Cython==3.0.5
       - defusedxml==0.7.1
       - flit_core==3.9.0
+  sphinx-doc__sphinx-9218:
+    environment:
+      MPLBACKEND: Agg
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTHONPATH: /workspace/tests/roots/test-ext-autodoc
 dependency_commands:
 - - python
   - -m
@@ -103,3 +110,5 @@ dependency_commands:
   - sphinxcontrib-htmlhelp==2.0.1
   - sphinxcontrib-qthelp==1.0.3
   - sphinxcontrib-serializinghtml==1.1.5
+preflight_imports:
+- sphinx

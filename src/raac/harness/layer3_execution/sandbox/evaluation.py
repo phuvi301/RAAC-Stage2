@@ -131,6 +131,7 @@ def payload(row, profile):
         "framework": profile.get("test_framework", "pytest"),
         "command": profile["test_command"],
         "repo": row["repo"],
+        "selector_policy": profile.get("selector_policy", "unique-v1"),
     }
 
 

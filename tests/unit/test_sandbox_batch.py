@@ -89,6 +89,42 @@ def test_batch_report_resume_and_retry(setup_batch):
     )
 
 
+def test_cooperative_stop_and_resume_preserves_checkpoint(setup_batch):
+    sandbox, calls, _ = setup_batch
+    directory = sandbox.root / "results/batches/stopped"
+
+    def stop(event):
+        if event.get("event") == "batch_started":
+            (directory / "STOP").write_text("stop")
+
+    with pytest.raises(KeyboardInterrupt):
+        batch.run_batch(sandbox, test_mode="suite", batch_id="stopped", progress=stop)
+    assert not calls
+    assert (
+        json.loads((directory / "manifest.json").read_text())["status"] == "interrupted"
+    )
+    batch.run_batch(sandbox, test_mode="suite", batch_id="stopped", resume=True)
+    assert calls == ["first", "second"]
+    assert not (directory / "STOP").exists()
+
+
+def test_resume_rejects_pilot_full_and_reuse_changes(setup_batch):
+    sandbox, _, _ = setup_batch
+    batch.run_batch(sandbox, test_mode="suite", batch_id="stages")
+    with pytest.raises(ValueError, match="fingerprint"):
+        batch.run_batch(
+            sandbox, test_mode="suite", batch_id="stages", resume=True, stage="pilot"
+        )
+    with pytest.raises(ValueError, match="fingerprint"):
+        batch.run_batch(
+            sandbox,
+            test_mode="suite",
+            batch_id="stages",
+            resume=True,
+            reuse_validated=True,
+        )
+
+
 def test_fingerprint_and_selection_validation(setup_batch):
     sandbox, _, _ = setup_batch
     batch.run_batch(sandbox, test_mode="suite", batch_id="test", task_ids=["first"])
@@ -169,8 +205,8 @@ def test_all_dataset_profiles_validate():
     result = batch.check_profiles(DockerSandbox())
     assert result == {
         "status": "valid",
-        "tasks": 120,
-        "covered": 120,
+        "tasks": 105,
+        "covered": 105,
         "repos": 12,
         "errors": [],
     }
@@ -189,6 +225,7 @@ def test_profile_rejects_secret_environment(setup_batch):
 
 
 def test_versioned_source_keeps_release_ancestry(tmp_path):
+    import hashlib
     import subprocess
     import tarfile
 
@@ -223,6 +260,33 @@ def test_versioned_source_keeps_release_ancestry(tmp_path):
         archive,
         versioned=True,
     )
+    original_hash = hashlib.sha256(archive.read_bytes()).hexdigest()
+    # Repacking the mirror and changing Git's pack defaults must not invalidate
+    # image cache keys for an unchanged commit and source recipe.
+    cached_repo = tmp_path / "cache/fixture/repo.git"
+    for key, value in (
+        ("pack.window", "100"),
+        ("pack.depth", "100"),
+        ("pack.threads", "4"),
+        ("pack.writeReverseIndex", "true"),
+    ):
+        subprocess.run(
+            ["git", "--git-dir", str(cached_repo), "config", key, value], check=True
+        )
+    subprocess.run(
+        ["git", "--git-dir", str(cached_repo), "repack", "-adf"],
+        check=True,
+        capture_output=True,
+    )
+    for _ in range(3):
+        repeated = tmp_path / "repeated.tar"
+        archive_repo(
+            Task("fixture", "fixture/repo", str(repo), "t", "b", commit),
+            tmp_path / "cache",
+            repeated,
+            versioned=True,
+        )
+        assert hashlib.sha256(repeated.read_bytes()).hexdigest() == original_hash
     checkout = tmp_path / "checkout"
     checkout.mkdir()
     # This archive is produced entirely from the local test fixture.

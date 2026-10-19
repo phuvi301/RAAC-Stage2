@@ -29,38 +29,6 @@ task_overrides:
     - test_requests.py
     - -q
     - --junitxml=/workspace/pytest.xml
-  psf__requests-1723:
-    test_command:
-    - python
-    - -m
-    - pytest
-    - test_requests.py
-    - -q
-    - --junitxml=/workspace/pytest.xml
-  psf__requests-1765:
-    test_command:
-    - python
-    - -m
-    - pytest
-    - test_requests.py
-    - -q
-    - --junitxml=/workspace/pytest.xml
-  psf__requests-1920:
-    test_command:
-    - python
-    - -m
-    - pytest
-    - test_requests.py
-    - -q
-    - --junitxml=/workspace/pytest.xml
-  psf__requests-2316:
-    test_command:
-    - python
-    - -m
-    - pytest
-    - test_requests.py
-    - -q
-    - --junitxml=/workspace/pytest.xml
   psf__requests-2930:
     test_command:
     - python
@@ -97,3 +65,5 @@ dependency_commands:
   - idna==2.10
   - certifi
   - PySocks==1.7.1
+preflight_imports:
+- requests

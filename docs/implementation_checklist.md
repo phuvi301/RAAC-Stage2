@@ -1,5 +1,7 @@
 # Implementation Checklist - Tuần 8-9
 
+<!-- 2026-10-19: đang kiểm chứng sửa sau đối chứng; không thay mốc nghiệm thu. -->
+
 Checklist theo dõi tiến độ triển khai framework RAAC, gồm hai phần.
 
 - Phần A là công việc làm chung, tức bộ khung harness 4 layer bọc quanh mỗi agent.
@@ -12,7 +14,7 @@ Cách dùng file này
 - Chữ trong ngoặc cuối dòng là người phụ trách, Vũ, Vinh hoặc Tuấn, đổi lại nếu hoán đổi việc.
 - Ghi ngày cập nhật cuối mỗi khi sửa file, và ghi vấn đề phát sinh vào mục nhật ký cuối file.
 
-Cập nhật gần nhất ngày 2026-10-17
+Cập nhật gần nhất ngày 2026-10-19
 
 ---
 
@@ -85,6 +87,8 @@ Thư mục `src/raac/harness/layer3_execution/`.
 - [x] `sandbox/policy.py` tắt network, giới hạn CPU, RAM và thời gian chạy (Vinh)
 - [x] `docker/Dockerfile.sandbox` dựng image chạy code của agent (Vinh)
 - [x] Kiểm thử sandbox bằng một patch cố tình độc hại và xác nhận không ảnh hưởng máy chủ (Vinh)
+
+Ghi chú sandbox 2026-10-17: đã hiện thực preflight/pilot/full, cache builder có khóa, retention mềm30 GiB, reuse validation theo bằng chứng và cooperative stop. 80/80 tests (68 unit +12 Docker integration) qua trong lượt cuối172,32s; Requests-6027 và Matplotlib-25165 full validated với mã mới. Kiểm chứng toàn120 task còn đang thực hiện; xem docs/pilot_log.md. Không thay trạng thái benchmark/evaluator tổng hợp hoặc A5.
 - [ ] `wasm_sandbox.py` chỉ là stub có interface (Vinh)
 
 ### Guardrails và kiểm soát chi phí
@@ -421,3 +425,78 @@ Ghi mỗi dòng theo dạng ngày, vấn đề hoặc quyết định, người 
 - 2026-10-17 | Kiểm tra adapter Django sau sửa docstring alias: Docker native unittest fixture +14 unit issue evaluation đều pass (15 tests); toàn bộ49 unit cũng pass. Source/profile mặc định đã chuyển issue; suite cần chọn rõ. Triển khai được đưa lên Git theo ủy quyền, nhưng8 repo pilot mới validated và3repo native còn chạy; Pylint1548 chưa đạt. Giữ yêu cầu validation120 thực tế ở trạng thái đang thực hiện. | Agent hỗ trợ Vinh | Chưa nghiệm thu120/120.
 
 - 2026-10-17 | Matplotlib5087 pilot: baseline có P2P skip PDF (thiếu Ghostscript) và hai image comparison failure với system FreeType. Đối chiếu setupext tại base: source quy định bundled FreeType; sửa profile dùng system_freetype=false, thêm make/ghostscript. Cần image và validation mới; không sửa ảnh chuẩn hoặc bỏ test. | Agent hỗ trợ Vinh | Chưa nghiệm thu Matplotlib; full batch chưa bắt đầu.
+
+- 2026-10-17 | Tối ưu sandbox theo yêu cầu: giữ checkpoint batch cũ (60 validated/120), thêm preflight, pilot F2P, reuse full có fingerprint/image/hash report, rebuild native bảo thủ, builder persistent và retention30 GiB. 74 tests pass trong lượt chung; thêm1 Docker cache-hit pass và67 unit pass sau parser dung lượng. Requests và Matplotlib full validated; Matplotlib gold119,328→65,875s, pilot13,906s, reuse0,141s; không suy tăng tốc toàn dataset. | Agent hỗ trợ hạ tầng của Vinh | Triển khai đã có bằng chứng; kiểm chứng120 task bằng batch mới còn tiếp tục, chưa nghiệm thu120/120 hoặc A5.
+
+- 2026-10-17 | Retention sandbox thật: xóa16.283.066.986 byte cache OCI cũ và39 image ít dùng, không lỗi; upper bound giảm56,797→29,922 GiB. Giữ Git cache, log/record và hai image đo thử. | Agent hỗ trợ Vinh | Có bằng chứng results/optimization-cache-applied.json; không dùng số liệu upper bound như dung lượng VHDX thu hồi.
+
+- 2026-10-17 | Nghiệm thu framework tối ưu: full80 tests pass trong172,32s, Ruff/format/diff/profile check120 qua; khởi chạy queue issue-optimized-v1 (preflight120 →pilot12 repo →full120). Không tạo lại automation đã xóa; giữ batch cũ và log. | Agent hỗ trợ Vinh | Phần triển khai đã kiểm chứng; validation toàn dataset đang chạy, chưa đánh dấu120/120, LLM/L1–L4 hay A5.
+
+- 2026-10-17 | Theo yêu cầu người dùng, dọn22 file results rỗng/trùng (34,60 MiB): snapshot139 attempt được đối chiếu trùng hoàn toàn manifest và các log điều phối lặp summary/status; giữ mọi log build/test, record, report, checkpoint và log queue đang chạy. Bổ sung quy tắc chỉ push khi được yêu cầu rõ cho lần đó, hủy ủy quyền push cũ. | Agent hỗ trợ Vinh | Hoàn tất kiểm tra file đã xóa và bảo toàn evidence; audit results/cleanup-20261017.json. Không commit hoặc push.
+
+- 2026-10-17 | Theo yêu cầu người dùng, chuyển queue issue-optimized-v1 sang Windows Terminal riêng: cooperative STOP, xác nhận batch lock đã nhả và tiến trình cũ kết thúc; resume cùng fingerprint/manifest. PowerShell PID31940 thuộc WindowsTerminal PID31068, worker PID28732/29192, không thuộc cây tiến trình Codex. | Agent hỗ trợ Vinh | Đã xác nhận queue running và active run mới cho Astropy-7335; giữ mọi attempt/checkpoint. Không commit/push.
+
+- 2026-10-18 | Đọc log issue-optimized-v1: preflight90 pass/30 lỗi, pilot10/12 pass, full đã interrupted. Sửa profile pyparsing/Pint/appdirs/py.test, pin SCM và pytest/Python lịch sử; sửa ID Django/alias upstream, giữ lỗi selector mơ hồ và artifact không chạy được. Framework85 tests pass (73 unit+12 Docker). Django34272 đã full validated (1 F2P,9 P2P); đang kiểm chứng đại diện các nhóm còn lại. | Agent hỗ trợ hạ tầng Vinh | Đang thực hiện; xem docs/environment_repairs.md. Không sửa test/gold/base, không mở mạng test, không commit/push; chưa nghiệm thu toàn120.
+
+- 2026-10-18 | Sửa lỗi môi trường theo log: đại diện Django/Sphinx/Sympy/Pylint/Xarray4682, Astropy14507/12906, sklearn26306/24860/12972/13110/14709/25957 và Matplotlib20665 đã full validated (14 task). Framework86/86 pass trong140,42s gồm12 Docker integration; profile check120/120. Sửa source archive ổn định để cache image không bị đổi do Git pack; khởi động batch mới issue-env-repairs-v1-full cho30task lỗi, Windows Terminal riêng. | Agent hỗ trợ Vinh | Đang kiểm chứng toàn nhóm;5task vướng artifact/protocol vẫn chưa đạt, chưa nghiệm thu120/120/A5. Không commit/push.
+
+- 2026-10-18 | Ưu tiên validation_failed theo yêu cầu: dừng có kiểm soát batch issue-env-repairs-v1-full; audit26record/24task (23task chưa có validated). Sửa profile PYTHONUSERBASE cho pytester subprocess, dependency sparse/numbagg Xarray4049, fixture path Sphinx9218, PYTHONPATH Pylint7231 và leap-second local Astropy13009/13355. | Agent hỗ trợ Vinh | Đang kiểm chứng Docker từng task; không thay F2P/P2P/test/gold hoặc mở mạng; xem docs/validation_failure_repairs.md. Chưa commit/push hoặc nghiệm thu toàn dataset.
+
+- 2026-10-18 | Nhóm validation_failed: 5task pytest5819/6194/7126/7981/10060 đã full validated sau cố định PYTHONUSERBASE đúng profile compatible. Sửa adapter addSubTest, Docker regression baseline fail→fixture patch pass qua; Django33552 đủ80/80 executed/gold80pass nhưng1F2P vẫn pass baseline SQLite nên giữ validation_failed. | Agent hỗ trợ Vinh | Đang kiểm chứng Sphinx/Pylint/Xarray/Astropy; không nới grading hoặc mạng, không commit/push.
+
+- 2026-10-18 | Nhóm validation_failed đã sửa có bằng chứng: thêm Sphinx9218 và Pylint7231 (source/fixture PYTHONPATH), Xarray4049 (sparse/numba/numbagg; gold863pass không skip), tổng8task gồm5pytest. Xarray4354 rerun đủ612selector/goldpass nhưng8P2P baseline fail nên chưa đạt. | Agent hỗ trợ Vinh | Tiếp tục Astropy13009/13355 và môi trường lịch sử Xarray6597; bảo toàn artifact/chính sách, không commit/push.
+
+- 2026-10-18 | Nhóm validation_failed: Astropy13009/13355 đã full validated sau dùng leap-second local; tổng10task vừa sửa, cộng Matplotlib5087 đã đạt trước đó thành11/24task có validated mới nhất. Xarray6597 thử Dask2021.4.1 vẫn cùngP2Pfail/gold265pass; gỡ override thử, giữ record. Tiếp tục Xarray7036 theo môi trường conda-forge củaCIbase, CDMS2/Iris/Pint/NumExpr/Flox đủ thay vì bỏ29skip. | Agent hỗ trợ Vinh | Đang kiểm chứng7036; chưa nghiệm thu toàn bộ, không thay grading/mạng, không commit/push.
+
+- 2026-10-19 | Xarray7036 đã full validated với override conda-core/pip, Micromamba2.6pinSHA: preflight271,078s; full41,5s, baseline12F2Pfail/945P2Ppass, gold957pass/0skip. Tổng11task validation_failed vừa sửa (12/24task nguồn có validated gồm1đãđạttrước); còn12task mạng/baseline/selector chưa đạt. | Agent hỗ trợ Vinh | Hoàn tất sửa nhóm môi trường optional; giữ lịch sử/grade/network, đang kiểm tra cuối. Không nghiệm thu120/120, L1–L4/A5, không commit/push.
+
+- 2026-10-19 | Kiểm tra cuối các sửa validation_failed:86/86tests pass trong106,72s (74unit+12Docker), Ruff/format/diff/profile120check qua, reviewdiff/credentialpatterns không phát hiện. Queue sửa processed, không còn task test chạy nền; kết quả tổng hợp12validated/12validation_failed của24task nguồn. | Agent hỗ trợ Vinh | Bàn giao phần sửa có bằng chứng; còn12task mạng/backend/selector, không nghiệm thu120/120/A5, không commit/push.
+
+
+- 2026-10-19 | Rà toàn bộ record full mới nhất:92validated/12validation_failed/16 lỗi hoặc ngắt;12validation_failed đều thuộc nhóm đã chẩn đoán, không có trường hợp mới. Bỏ qua5task artifact (Django29834,Pylint1548/4603,pytest7517,Sympy14237); tạo batch issue-remaining-v2-full cho11task môi trường/ngắt còn lại,1800s build+1800s/phase,một task/lượt. Dọn43stdout/stderr rỗng hoặc trùng JSON record,720627byte; giữ phase log/checkpoint, audit tại results/cleanup-20261019.json. Dừng có kiểm soát rồi resume trong Windows Terminal riêng theo yêu cầu (PowerShell1472,parentWindowsTerminal20968); task đầu Astropy14355 đang build, chưa có kết quả mới. | Agent hỗ trợ Vinh | Đang chạy, chưa nghiệm thu thêm task; không commit/push.
+
+
+- 2026-10-19 | Đính chính phạm vi theo người dùng: gồm cả11task môi trường/ngắt và12validation_failed còn lại; bỏ qua5task artifact đã liệt kê. Batch validation-failed-v2-full đang chạy lại6task baseline/selector;6Requests có bằng chứng networknone giữ riêng. Terminal hàng đợi chờ batch này processed rồi resume issue-remaining-v2-full cho11task; không chạy song song workload. Django33552/Pylint7229/Matplotlib22640 đã chạy lại và vẫn validation_failed, đang đối chiếu artifact/case thay vì đổi nhãn hoặc ép pass. | Agent hỗ trợ Vinh | Đang chạy và chẩn đoán; chưa có task mới validated, không commit/push.
+
+
+- 2026-10-19 | Chạy/sửa cùng lượt: Astropy14355 và14363 fullvalidated thật (baseline3F2P/732P2P,gold735pass và1F2P/8P2P,gold9pass). Batchvalidationfailedv2 chạy đủ6task vẫn chưađạt; giữ bằng chứng mâu thuẫn baseline/alias. Sửa bug wasxfail reason rỗng: trước đó xfail→skipped/xpass→passed;2regression fail trước sửa. Sau sửa89/89tests qua trong131,50s (76unit+13Docker), Ruff/format/profile120check qua. Dừng remainingv2 trước sửaengine; tạo issue-repairs-v3-full để kiểm tra Matplotlib22640 và9task môi trường còn lại bằng terminal riêng, không đổi fingerprintbatchcũ. | Agent hỗ trợ Vinh | Tiếp tục kiểm chứng/sửa theo log; không đổi nhãn test, không bỏ5taskartifact vào queue, không commit/push.
+
+
+- 2026-10-19 | Nhóm11task đã thêm9validated thật: Astropy14355/14363/14523/14581,Matplotlib25329,sklearn10284/12650/14059/14893. Manifestbase25844 (version1.3) yêu cầu joblib>=1.1.1/numpydoc>=1.2 nhưng override cũ pin1.0.1/1.1.0; log pip xác nhận tự gỡ joblibpin cũ. Dừng batchv3 có kiểm soát, sửa riêng25844 sang joblib1.2.0/numpydoc1.5.0 và tạo batchv4 cho25844/9287. Profile120check+22unit evaluator qua sau sửa. | Agent hỗ trợ Vinh | Đang kiểm chứng2task cuối, không đổi source/tests/grading/network, không commit/push.
+
+
+- 2026-10-19 | Hoàn tất chạy/sửa nhóm11 môi trường/ngắt:11/11fullvalidated thật qua các batchv2/v3/v4; sửa wasxfail rỗng và pinjoblib/numpydoc25844 có Docker chứng minh. Toàn120record mới nhất:103validated/12validation_failed/4collection_error/1execution_error;5artifact bỏ qua đúng yêu cầu.6baseline/selector đã rerun vẫn chưađạt,6Requests networknone giữ bằng chứng. Batchv4 processed, không còn task chạy; đã dọn43logtrùng/rỗng720627byte, giữphase logs/checkpoints. | Agent hỗ trợ Vinh | Phần môi trường11task hoàn tất; chưa nghiệm thu120/120 hoặc L1–L4/A5. Không commit/push.
+
+
+- 2026-10-19 | Theo yêu cầu push trước: đã push a589606 lên origin/Vinh; sau đó triển khai fixture mạng nội bộ cho6Requests. Probe TCP thật timeout .1/chặn external+gateway;3Docker integration mới qua, full framework đang chạy. Profile120check qua; không đổi source/tests/nhãn. | Agent hỗ trợ Vinh | Đang kiểm chứng baseline/gold6task bằng batch mới; phần mạng chưa push, chưa nghiệm thu thêm task hoặc120/120/A5.
+
+
+- 2026-10-19 | Mạng nội bộ chạy thật: Requests2930 và5367 đã validated, gold85/131pass.4Requests cũ hếtDNSnhưngP2PSession.send chưa dùng CA env; bổ sung publicCA vào PEM tạm của Requests/certifi, auditSHAtrước/sau và chặn candidate sửa bundle. Batchv1 processed trước sửa; chuẩn bịv2 cho4task. Requests1723 có6F2Ppass ngaybase sau phục hồi mạng nên giữ validation_failed, không đổi nhãn. | Agent hỗ trợ Vinh | Đang kiểm traTLS/fullframework; phần mạng chưa push, không nghiệm thu120/120.
+
+- 2026-10-19 | Requests network v2 đã processed; gold1723/1765/1920pass nhưng baseline cóF2Ppass nên giữ validation_failed. Sửa selector giữ thứ tự collection và ánh xạ hostname redirect khácorigin vào sidecarisolated; thêm regressionunit/Docker. | Agent hỗ trợ Vinh | Đang kiểm chứng, không đổi nhãn/test, chưa push phầnmạng hoặc nghiệm thu120/120/A5.
+
+- 2026-10-19 | Hoàn tất fixture mạng nội bộ6Requests và sửa selector giữcollectionorder;104/104test (87unit+17Docker) qua. Batchv3 processed6/6:2930/5367validated;4taskcũP2P/goldpass toàn bộ nhưngF2Pbaselinepass một phần nên chưavalidated. Tổnglatest120:105validated/10validation_failed/4collection_error/1execution_error;5artifact giữnguyên. | Agent hỗ trợ Vinh | Phầnmạng đã kiểm chứng, còn10điềukiệnbaseline/selector; không nghiệm thu120/120/L1–L4/A5, chưapushthêm.
+
+- 2026-10-19 | Bắtđầu đối chứng Requests2316 bằng harnessofficialv3.0.0/SWEinstance2317, rawchỉđọc, imageofficial, gold/baseline tuần tự trongWSLTerminal; bằngchứng riêng vàcleanupthưmụctạm/image saukếtthúc. | Agent hỗ trợ Vinh | Đangchạy, khôngđổi nhãn hoặcstatusvalidatedRAAC, khôngpush.
+
+- 2026-10-19 | Đối chứng Requests2316/SWE2317 bằngofficialv3.0.0 hoàn tất:gold8/8F2P+133/133P2Ppass;baseline7F2Ppass/1fail+133P2Ppass, khớpRAAC. Ngoàinhómchấmconflicting_post_paramsfailcảhai. Lượtnewline-onlylỗiapplyđãrerunmarkerfile; rawkhôngđổi. Image0,95GiB+2thưmụctạmWSLđãdọn, log/provenancegiữriêng. | Agent hỗ trợ Vinh | Chỉ1taskđốichứng, giữvalidation_failedtheotiêuchíhiệntại; khôngnghiệmthu15task/A5, khôngpush.
+
+- 2026-10-19 | Người dùng yêu cầu push phần đã kiểm chứng: review fixture mạng/selector và báo cáo đối chứngofficial;87/87unit kiểmtralại qua,Ruff/diffcheckqua,104/104unit+Dockerđãqua trướcđó. Giữ105validated/15chưađạt, khôngđổitiêuchí hoặc nhãn. | Agent hỗ trợ Vinh | Chuẩnbịcommit/pushorigin/Vinh; khôngđưacache/results/logvàoGit.
+
+- 2026-10-19 | Bắtđầu đối chứngofficial9taskbaseline/selector còn lại bằnghàngđợiWSLTerminal, gold/baselineriêng, checkpoint vàcleanuptừngimage. | Agent hỗ trợ Vinh | Đangchạy;5artifactvẫnbỏqua, chưađổiquytắcgrading/validatedRAAC, khôngpush.
+
+- 2026-10-19 | Hoàn tất đối chứng official 9 task/18 phase, 9 gold resolved, không timeout; đọc output/parser để phân biệt nhãn, alias, xfail và lỗi mạng. Tính cả Requests2316 đã đối chứng đủ 10 validation_failed. Dọn 9 image và clone/venv WSL; raw không đổi. Chi tiết docs/swebench_remaining_audit.md. | Agent hỗ trợ Vinh | Vẫn 105 validated/15 chưa đạt; không đổi tiêu chí/nhãn, không nghiệm thu120/120/L1–L4/A5, không push.
+
+- 2026-10-19 | Theo yêu cầu mới, bắt đầu đối chứng 5 task artifact bằng harness official trong terminal riêng; giữ dữ liệu nguồn và tiêu chí, cleanup từng image và thư mục tạm. | Agent hỗ trợ Vinh | Đang chạy; chưa nghiệm thu thêm task hoặc thay grading, không push.
+
+- 2026-10-19 | Hoàn tất official5artifact/10phase,5goldresolved; xác nhận Pylint baselineimportAPI mới, pytestnested/metadataID, SympybareIDtrùng, Django lỗi report. Sửa in subtest khôngreprtham số:106/106test (88unit+18Docker) qua; taskDjango29834 chạy25/25baseline/gold, hếtcollectionerror, vẫnvalidation_failed vì1F2Ppass. Record69d1e48cfbdb47dfbc87005f65554e41; xem docs/swebench_artifact_audit.md. | Agent hỗ trợ Vinh | Latest105validated/11validation_failed/3collection_error/1execution_error; đãdọn5imageofficial+WSLtemp; khôngđổitiêuchí/nhãn hoặcpush, chưa120/120/L1–L4/A5.
+
+- 2026-10-19 | Theo yêu cầu sửa sau đối chứng: Requests1723 dùng Python2.7, fixture hỗ trợ Python2; Sympy14237 policy versioned chạy mọi case trùng tên trong test-patch modules, giữ outcomes từng node. 86 unit/profile120check qua; framework Docker và preflight/full hai task đang chạy tuần tự trong Windows Terminal. | Agent hỗ trợ Vinh | Đang kiểm chứng; không đổi raw/nhãn/gate strict, không push hoặc nghiệm thu120/120/L1–L4/A5.
+
+- 2026-10-19 | Kiểm chứng sửa sau đối chứng hoàn tất:105frameworkpass (86unit+19Docker),35unitqua sauUnicodefix. Sympy14237 fullfound435/gold506casepass,baseline11fail/495pass; Requests1723Python2 táihiệnUnicodeDecodeError,gold85pass. Hếtlỗimôitrường/selector nhưnggiữvalidation_failedvìrawF2P/P2Pmâu thuẫn. | Agent hỗ trợ Vinh | Latest105validated/12validation_failed/2collection_error/1execution_error; preflight2/2qua,cleanupqua,log/historygiữ,khôngpush/120of120/A5. Bằngchứng docs/evidence_repairs.md.
+
+- 2026-10-19 | Phần A/sandbox và phần B/Vinh/benchmark: theo yêu cầu cố định tập con105task từ120 (đủ12repo), manifest/exclusions versionv1 kèmhashbằngchứng, config riêng105; giữraw/evaluator và lịch sử. Loader/source/evaluatorhash và profilecheck hỗtrợsubset. 93unitliênquan qua, profilecheck105/105 và120/120qua. Dọn37filedư225415byte cóaudit,giữrecord/checkpoint/phaselog. | Agent hỗ trợ Vinh | Hoàn tất selection/dọnfile; chưa nghiệmthuL1–L4/evaluator/A5 hoặc120/120, khôngpush. docs/benchmark105.md.
+
+- 2026-10-19 | PhầnA/sandbox vàPhầnB/Vinh/benchmark: dọnsetup15tasktheoyêucầu;11overridegỡ,default3configchọn105,recipe105khôngđổi. Xóa12imageexclusive,giảmDockerlayer9,45GiB,khônglỗi;giữcachechung/log/record. 94unitqua13,51s,3profilecheck105/105,Ruff/diffqua. | Agent hỗ trợ Vinh | Hoàn tất dọn riêngnhómloại; auditresults/retired15-environments-20261019.json,khôngpushhoặcnghiệmthuL1–L4/A5.
+
+- 2026-10-19 | Người dùng yêu cầu push: reviewdiff phần đối chứng/sửaadapter,manifest105vàretire15;94unitkiểmtralạipass12,90s,Ruffqua,fetchorigin/Vinhkhôngdiverge. | Agent hỗ trợ Vinh | Chuẩn bị commit/push theo yêu cầu lần này; không đưaresults/cache/log vàoGit,khôngnghiệmthu120/120/L1–L4/A5.

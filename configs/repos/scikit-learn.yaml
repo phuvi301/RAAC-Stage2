@@ -129,7 +129,7 @@ task_overrides:
       - pandas==1.1.5
       - numpydoc==1.1.0
   scikit-learn__scikit-learn-12972:
-    base_image: python:3.8-slim-bookworm
+    base_image: python:3.7-slim-bookworm
     install_commands:
     - - python
       - -m
@@ -161,7 +161,7 @@ task_overrides:
       - pandas==1.1.5
       - numpydoc==1.1.0
   scikit-learn__scikit-learn-13110:
-    base_image: python:3.8-slim-bookworm
+    base_image: python:3.7-slim-bookworm
     install_commands:
     - - python
       - -m
@@ -314,12 +314,12 @@ task_overrides:
       - numpy==1.17.5
       - scipy==1.5.4
       - Cython==0.29.36
-      - joblib==1.0.1
+      - joblib==1.2.0
       - threadpoolctl==3.1.0
       - matplotlib==3.2.2
       - Pillow==9.5.0
       - pandas==1.1.5
-      - numpydoc==1.1.0
+      - numpydoc==1.5.0
   scikit-learn__scikit-learn-25957:
     base_image: python:3.8-slim-bookworm
     install_commands:
@@ -342,7 +342,6 @@ task_overrides:
       - -m
       - pip
       - install
-      - pytest==6.2.5
       - numpy==1.17.5
       - scipy==1.5.4
       - Cython==0.29.36
@@ -352,6 +351,7 @@ task_overrides:
       - Pillow==9.5.0
       - pandas==1.1.5
       - numpydoc==1.1.0
+      - pytest==7.4.4
   scikit-learn__scikit-learn-26306:
     base_image: python:3.8-slim-bookworm
     install_commands:
@@ -374,7 +374,6 @@ task_overrides:
       - -m
       - pip
       - install
-      - pytest==6.2.5
       - numpy==1.17.5
       - scipy==1.5.4
       - Cython==0.29.36
@@ -384,6 +383,14 @@ task_overrides:
       - Pillow==9.5.0
       - pandas==1.1.5
       - numpydoc==1.1.0
+      - pytest==7.4.4
+  scikit-learn__scikit-learn-24860:
+    environment:
+      MPLBACKEND: Agg
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      SETUPTOOLS_USE_DISTUTILS: stdlib
 dependency_commands:
 - - python
   - -m
@@ -409,8 +416,6 @@ dependency_commands:
   - matplotlib==3.6.3
   - Pillow==9.5.0
   - numpydoc==1.5.0
-  - pandas==1.5.3
-  - numpydoc==1.1.0
 post_patch_commands:
 - - python
   - -m
@@ -421,3 +426,24 @@ post_patch_commands:
   - --no-build-isolation
   - -e
   - .
+preflight_imports:
+- sklearn
+native_rebuild_paths:
+- '*.pyx'
+- '*.pxd'
+- '*.pxi'
+- '*.c'
+- '*.h'
+- '*.cpp'
+- '*setup*'
+- '*meson*'
+- '*generate*'
+- pyproject.toml
+- Makefile*
+- '*.in'
+native_safe_paths:
+- '*/tests/test_*.py'
+- '*/tests/__init__.py'
+- tests/test_*.py
+- sklearn/cluster/_kmeans.py
+- sklearn/metrics/_classification.py

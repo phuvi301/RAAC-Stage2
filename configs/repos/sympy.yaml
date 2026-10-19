@@ -30,7 +30,103 @@ test_command:
 - sympy
 - -q
 - --junitxml=/workspace/pytest.xml
-task_overrides: {}
+task_overrides:
+  sympy__sympy-16432:
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==68.2.2
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==7.4.4
+      - pytest-cov==4.1.0
+      - pytest-xdist==3.5.0
+      - packaging==23.2
+      - mpmath==1.2.1
+      - numpy==1.21.6
+      - scipy==1.7.3
+      - hypothesis==6.31.6
+      - antlr4-python3-runtime==4.7.2
+      - gmpy2==2.1.5
+      - py==1.8.2
+  sympy__sympy-16884:
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==68.2.2
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==7.4.4
+      - pytest-cov==4.1.0
+      - pytest-xdist==3.5.0
+      - packaging==23.2
+      - mpmath==1.2.1
+      - numpy==1.21.6
+      - scipy==1.7.3
+      - hypothesis==6.31.6
+      - antlr4-python3-runtime==4.7.2
+      - gmpy2==2.1.5
+      - py==1.8.2
+  sympy__sympy-17624:
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==68.2.2
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==7.4.4
+      - pytest-cov==4.1.0
+      - pytest-xdist==3.5.0
+      - packaging==23.2
+      - mpmath==1.2.1
+      - numpy==1.21.6
+      - scipy==1.7.3
+      - hypothesis==6.31.6
+      - antlr4-python3-runtime==4.7.2
+      - gmpy2==2.1.5
+      - py==1.8.2
+  sympy__sympy-18755:
+    dependency_commands:
+    - - python
+      - -m
+      - pip
+      - install
+      - pip==24.0
+      - setuptools==68.2.2
+      - wheel==0.41.3
+    - - python
+      - -m
+      - pip
+      - install
+      - pytest==7.4.4
+      - pytest-cov==4.1.0
+      - pytest-xdist==3.5.0
+      - packaging==23.2
+      - mpmath==1.2.1
+      - numpy==1.21.6
+      - scipy==1.7.3
+      - hypothesis==6.31.6
+      - antlr4-python3-runtime==4.7.2
+      - gmpy2==2.1.5
+      - py==1.8.2
 dependency_commands:
 - - python
   - -m
@@ -53,3 +149,5 @@ dependency_commands:
   - hypothesis==6.31.6
   - antlr4-python3-runtime==4.7.2
   - gmpy2==2.1.5
+preflight_imports:
+- sympy
