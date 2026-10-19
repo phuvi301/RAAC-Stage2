@@ -1,5 +1,7 @@
 # Implementation Checklist - Tuần 8-9
 
+<!-- 2026-10-19: đang kiểm chứng sửa sau đối chứng; không thay mốc nghiệm thu. -->
+
 Checklist theo dõi tiến độ triển khai framework RAAC, gồm hai phần.
 
 - Phần A là công việc làm chung, tức bộ khung harness 4 layer bọc quanh mỗi agent.
@@ -480,3 +482,21 @@ Ghi mỗi dòng theo dạng ngày, vấn đề hoặc quyết định, người 
 - 2026-10-19 | Đối chứng Requests2316/SWE2317 bằngofficialv3.0.0 hoàn tất:gold8/8F2P+133/133P2Ppass;baseline7F2Ppass/1fail+133P2Ppass, khớpRAAC. Ngoàinhómchấmconflicting_post_paramsfailcảhai. Lượtnewline-onlylỗiapplyđãrerunmarkerfile; rawkhôngđổi. Image0,95GiB+2thưmụctạmWSLđãdọn, log/provenancegiữriêng. | Agent hỗ trợ Vinh | Chỉ1taskđốichứng, giữvalidation_failedtheotiêuchíhiệntại; khôngnghiệmthu15task/A5, khôngpush.
 
 - 2026-10-19 | Người dùng yêu cầu push phần đã kiểm chứng: review fixture mạng/selector và báo cáo đối chứngofficial;87/87unit kiểmtralại qua,Ruff/diffcheckqua,104/104unit+Dockerđãqua trướcđó. Giữ105validated/15chưađạt, khôngđổitiêuchí hoặc nhãn. | Agent hỗ trợ Vinh | Chuẩnbịcommit/pushorigin/Vinh; khôngđưacache/results/logvàoGit.
+
+- 2026-10-19 | Bắtđầu đối chứngofficial9taskbaseline/selector còn lại bằnghàngđợiWSLTerminal, gold/baselineriêng, checkpoint vàcleanuptừngimage. | Agent hỗ trợ Vinh | Đangchạy;5artifactvẫnbỏqua, chưađổiquytắcgrading/validatedRAAC, khôngpush.
+
+- 2026-10-19 | Hoàn tất đối chứng official 9 task/18 phase, 9 gold resolved, không timeout; đọc output/parser để phân biệt nhãn, alias, xfail và lỗi mạng. Tính cả Requests2316 đã đối chứng đủ 10 validation_failed. Dọn 9 image và clone/venv WSL; raw không đổi. Chi tiết docs/swebench_remaining_audit.md. | Agent hỗ trợ Vinh | Vẫn 105 validated/15 chưa đạt; không đổi tiêu chí/nhãn, không nghiệm thu120/120/L1–L4/A5, không push.
+
+- 2026-10-19 | Theo yêu cầu mới, bắt đầu đối chứng 5 task artifact bằng harness official trong terminal riêng; giữ dữ liệu nguồn và tiêu chí, cleanup từng image và thư mục tạm. | Agent hỗ trợ Vinh | Đang chạy; chưa nghiệm thu thêm task hoặc thay grading, không push.
+
+- 2026-10-19 | Hoàn tất official5artifact/10phase,5goldresolved; xác nhận Pylint baselineimportAPI mới, pytestnested/metadataID, SympybareIDtrùng, Django lỗi report. Sửa in subtest khôngreprtham số:106/106test (88unit+18Docker) qua; taskDjango29834 chạy25/25baseline/gold, hếtcollectionerror, vẫnvalidation_failed vì1F2Ppass. Record69d1e48cfbdb47dfbc87005f65554e41; xem docs/swebench_artifact_audit.md. | Agent hỗ trợ Vinh | Latest105validated/11validation_failed/3collection_error/1execution_error; đãdọn5imageofficial+WSLtemp; khôngđổitiêuchí/nhãn hoặcpush, chưa120/120/L1–L4/A5.
+
+- 2026-10-19 | Theo yêu cầu sửa sau đối chứng: Requests1723 dùng Python2.7, fixture hỗ trợ Python2; Sympy14237 policy versioned chạy mọi case trùng tên trong test-patch modules, giữ outcomes từng node. 86 unit/profile120check qua; framework Docker và preflight/full hai task đang chạy tuần tự trong Windows Terminal. | Agent hỗ trợ Vinh | Đang kiểm chứng; không đổi raw/nhãn/gate strict, không push hoặc nghiệm thu120/120/L1–L4/A5.
+
+- 2026-10-19 | Kiểm chứng sửa sau đối chứng hoàn tất:105frameworkpass (86unit+19Docker),35unitqua sauUnicodefix. Sympy14237 fullfound435/gold506casepass,baseline11fail/495pass; Requests1723Python2 táihiệnUnicodeDecodeError,gold85pass. Hếtlỗimôitrường/selector nhưnggiữvalidation_failedvìrawF2P/P2Pmâu thuẫn. | Agent hỗ trợ Vinh | Latest105validated/12validation_failed/2collection_error/1execution_error; preflight2/2qua,cleanupqua,log/historygiữ,khôngpush/120of120/A5. Bằngchứng docs/evidence_repairs.md.
+
+- 2026-10-19 | Phần A/sandbox và phần B/Vinh/benchmark: theo yêu cầu cố định tập con105task từ120 (đủ12repo), manifest/exclusions versionv1 kèmhashbằngchứng, config riêng105; giữraw/evaluator và lịch sử. Loader/source/evaluatorhash và profilecheck hỗtrợsubset. 93unitliênquan qua, profilecheck105/105 và120/120qua. Dọn37filedư225415byte cóaudit,giữrecord/checkpoint/phaselog. | Agent hỗ trợ Vinh | Hoàn tất selection/dọnfile; chưa nghiệmthuL1–L4/evaluator/A5 hoặc120/120, khôngpush. docs/benchmark105.md.
+
+- 2026-10-19 | PhầnA/sandbox vàPhầnB/Vinh/benchmark: dọnsetup15tasktheoyêucầu;11overridegỡ,default3configchọn105,recipe105khôngđổi. Xóa12imageexclusive,giảmDockerlayer9,45GiB,khônglỗi;giữcachechung/log/record. 94unitqua13,51s,3profilecheck105/105,Ruff/diffqua. | Agent hỗ trợ Vinh | Hoàn tất dọn riêngnhómloại; auditresults/retired15-environments-20261019.json,khôngpushhoặcnghiệmthuL1–L4/A5.
+
+- 2026-10-19 | Người dùng yêu cầu push: reviewdiff phần đối chứng/sửaadapter,manifest105vàretire15;94unitkiểmtralạipass12,90s,Ruffqua,fetchorigin/Vinhkhôngdiverge. | Agent hỗ trợ Vinh | Chuẩn bị commit/push theo yêu cầu lần này; không đưaresults/cache/log vàoGit,khôngnghiệmthu120/120/L1–L4/A5.

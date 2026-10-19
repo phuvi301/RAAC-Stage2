@@ -14,6 +14,8 @@ data/*
 !data/tasks/
 data/tasks/*
 !data/tasks/cleaned_benchmark.json
+!data/tasks/benchmark105-v1.json
+!data/tasks/benchmark105-v1-exclusions.json
 results/*
 !results/.gitkeep
 !data/evaluation/

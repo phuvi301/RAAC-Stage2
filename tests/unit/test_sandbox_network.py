@@ -119,6 +119,16 @@ def test_candidate_cannot_replace_internal_service_trust_bundle(tmp_path):
     client = Mock()
     runner = DockerSandbox(client=client)
     runner.config["results"] = str(tmp_path / "results")
-    record = runner.run("psf__requests-1723", patch_path=patch)
+    # Fixture protection stays covered without reinstating a retired task setup.
+    profile = yaml.safe_load(
+        (runner.root / "configs/repos/requests-legacy.yaml").read_text()
+    )
+    profile["task_overrides"]["psf__requests-2930"]["network_fixture"] = (
+        "requests_httpbin"
+    )
+    profile_path = tmp_path / "fixture-profile.yaml"
+    profile_path.write_text(yaml.safe_dump(profile))
+    runner.config["profiles"]["psf/requests"] = str(profile_path)
+    record = runner.run("psf__requests-2930", patch_path=patch)
     assert record["status"] == "protected_test_error"
     client.info.assert_not_called()

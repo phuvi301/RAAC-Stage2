@@ -144,3 +144,31 @@ Adapter unittest ghi nhận cả failure từ `addSubTest`; subtest thành công
 
 
 Sandbox hỗ trợ profile `network_fixture` dạng enum (mặc định none): requests_httpbin hoặc requests_tarpit. Fixture dùng bridge internal+isolated riêng cho từng phase, không có Internet/gateway host; httpbin chạy trong sidecar từ image base, không nhận gold/candidate patch. Policy hiệu lực, hash network.py và cấu hình fixture tham gia fingerprint đánh giá; build identity giữ theo source/recipe. Cleanup thu hồi cả sidecar/network. Xem network_fixture_repairs.md.
+
+Adapter unittest giữ ID parent khi in lỗi subtest và không đánh giá giá trị
+tham số chỉ để định dạng báo cáo. Điều này tránh `repr(QuerySet)` chạy lại SQL
+đang lỗi, giữ nguyên kết quả/traceback gốc và không thay đổi test hoặc tiêu chí
+chấm. Xem [đối chứng artifact và sửa reporting](swebench_artifact_audit.md).
+# Sửa sau đối chứng official
+
+Profile có `selector_policy` versioned, mặc định `unique-v1`. Override riêng
+Sympy-14237 dùng `sympy-all-matches-v1`: chạy mọi case tên bare khớp trong
+test-patch modules, giữ đầy đủ node IDs và outcomes; tất cả phải pass để alias
+pass. Policy thuộc fingerprint đánh giá, không recipe build. Không đổi nhãn
+raw hoặc gate strict. Chi tiết và bằng chứng: [evidence_repairs.md](evidence_repairs.md).
+
+## Tập benchmark cố định105task
+
+`data/tasks/benchmark105-v1.json` là manifest chọn task từ dataset gốc120task;
+không sao chép gold/test patch vào agentTask. Loader kiểm tra sourceSHA,
+membership vàcount; profilecheck xét override theo nguồn120task nhưng chỉ
+báo coverage của tập105. Batch fingerprint bao gồm manifest và nguồn; issue
+runner kiểm tra evaluatorSHA theo manifest. Record ghi benchmarkID và hash
+selection. Bằng chứng validation lịch sử có nhiều fingerprint, nên cần đóng
+băng môi trường thực thi chung trước so sánhL1–L4. Xem [quy tắc105task](benchmark105.md).
+
+Sau yêu cầu dọn môi trường15task, config mặc định và compatibility cũng chọn
+manifest105. Các override dành riêng cho nhóm loại được gỡ; profile repo,
+Gitcache và buildlayer chung vẫn giữ. RecipeDocker105task đã so sánh không đổi;
+image riêng của task bị loại đã xóa, record/log không đổi. Muốn dựng lại task
+bị loại phải chủ động khôi phục setup lịch sử; không nằm trong batch mặc định.

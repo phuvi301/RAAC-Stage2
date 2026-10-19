@@ -501,6 +501,44 @@ def test_native_patch_is_rebuilt_before_tests(environment):
     )
 
 
+def test_expanded_sympy_selectors_run_every_concrete_case(environment):
+    runner, image, root = environment
+    patch = ""
+    for path, value in [("test_printer_a.py", "False"), ("test_printer_b.py", "True")]:
+        patch += (
+            "--- /dev/null\n+++ b/"
+            + path
+            + "\n@@ -0,0 +1,2 @@\n+def test_shared():\n+    assert "
+            + value
+            + "\n"
+        )
+    evaluation = {
+        "test_patch": patch,
+        "selectors": {
+            "repo": "sympy/sympy",
+            "selector_policy": "sympy-all-matches-v1",
+            "ids": ["test_shared"],
+            "roots": ["test_printer_a.py", "test_printer_b.py"],
+            "framework": "pytest",
+        },
+    }
+    result = runner.execute(
+        image,
+        ["python", "/tmp/raac-issue-runner.py", "/tmp/raac-selectors.json"],
+        root,
+        "sympy-expansion",
+        evaluation=evaluation,
+    )
+    assert result["status"] == "test_failed"
+    test = result["test_results"]["test_shared"]
+    assert test["outcome"] == "mixed"
+    assert {case["outcome"] for case in test["cases"].values()} == {"failed", "passed"}
+    assert set(test["nodeids"]) == {
+        "test_printer_a.py::test_shared",
+        "test_printer_b.py::test_shared",
+    }
+
+
 def test_issue_baseline_gold_candidate_and_missing_selector(environment):
     from raac.harness.layer3_execution.sandbox.evaluation import grade
 
@@ -697,6 +735,71 @@ def test_issue_native_rebuild_and_timeout(environment):
         assert result["status"] == "timeout"
     finally:
         runner.policy = previous
+
+
+def test_python39_subtest_parameter_repr_cannot_crash_reporting(tmp_path):
+    import base64
+    from pathlib import Path
+
+    client = docker.from_env(timeout=30)
+    tag = "python:3.9-slim-bookworm"
+    try:
+        image = client.images.get(tag)
+        existed = True
+    except docker.errors.ImageNotFound:
+        image = client.images.pull(tag)
+        existed = False
+    source = (
+        Path(__file__).parents[2]
+        / "src/raac/harness/layer3_execution/sandbox/issue_runner.py"
+    )
+    encoded = base64.b64encode(source.read_bytes()).decode()
+    code = """import base64, io, types, unittest
+module = types.ModuleType('trusted_runner')
+exec(compile(base64.b64decode(SOURCE), 'trusted_runner.py', 'exec'), module.__dict__)
+class Unprintable:
+    calls = 0
+    def __repr__(self):
+        Unprintable.calls += 1
+        raise RuntimeError('lazy query failed while reporting')
+class Sample(unittest.TestCase):
+    def test_issue(self):
+        with self.subTest(query=Unprintable()):
+            self.assertEqual(0, 1)
+    def test_stable(self):
+        self.assertEqual(1, 1)
+ids = [Sample(name).id() for name in ('test_issue', 'test_stable')]
+module.REPORT = '/tmp/subtest-report.json'
+module.spec = {'ids': ids, 'command': ['python', 'fixture.py']}
+stream = io.StringIO()
+def fixture(*args, **kwargs):
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(Sample)
+    result = unittest.TextTestRunner(stream=stream, verbosity=1).run(suite)
+    assert len(result.failures) == 1
+    assert not result.errors
+module.runpy.run_path = fixture
+module.run_django()
+assert module.results[ids[0]]['outcome'] == 'failed'
+assert module.results[ids[1]]['outcome'] == 'passed'
+assert 'AssertionError' in stream.getvalue()
+assert Unprintable.calls == 0
+print('Original assertion preserved; reporting completed')
+""".replace("SOURCE", repr(encoded))
+    try:
+        result = DockerSandbox(client=client).execute(
+            image,
+            ["python", "-c", code],
+            tmp_path,
+            "python39-subtest",
+            profile={"report_format": "none"},
+        )
+        assert result["status"] == "passed", (
+            tmp_path / "python39-subtest.log"
+        ).read_text()
+    finally:
+        if not existed:
+            client.images.remove(tag)
+        client.close()
 
 
 def test_native_unittest_selector_recording(environment):

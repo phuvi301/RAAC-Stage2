@@ -205,8 +205,8 @@ def test_all_dataset_profiles_validate():
     result = batch.check_profiles(DockerSandbox())
     assert result == {
         "status": "valid",
-        "tasks": 120,
-        "covered": 120,
+        "tasks": 105,
+        "covered": 105,
         "repos": 12,
         "errors": [],
     }

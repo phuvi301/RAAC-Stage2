@@ -13,6 +13,7 @@ results = {}
 found = []
 errors = []
 selection_errors = {}
+selected_nodes = {}
 spec = {}
 
 
@@ -24,6 +25,8 @@ def save():
                 "found": found,
                 "errors": errors,
                 "selection_errors": selection_errors,
+                "selector_policy": spec.get("selector_policy", "unique-v1"),
+                "selected_nodes": selected_nodes,
             },
             output,
         )
@@ -80,7 +83,13 @@ class SelectorPlugin:
                 matches = [
                     item for item in items if upstream_alias(item.nodeid) == wanted
                 ]
-            if not matches or ("::" not in wanted and len(matches) != 1):
+            expand_all = (
+                spec.get("repo") == "sympy/sympy"
+                and spec.get("selector_policy") == "sympy-all-matches-v1"
+            )
+            if not matches or (
+                "::" not in wanted and len(matches) != 1 and not expand_all
+            ):
                 errors.append("selector missing or ambiguous: " + wanted)
                 selection_errors[wanted] = {
                     "reason": "ambiguous" if matches else "missing",
@@ -88,6 +97,7 @@ class SelectorPlugin:
                 }
                 continue
             found.append(wanted)
+            selected_nodes[wanted] = [item.nodeid for item in matches]
             self.outcomes[wanted] = {}
             for item in matches:
                 self.node_map.setdefault(item.nodeid, []).append(wanted)
@@ -159,6 +169,17 @@ def run_django():
     identities = {}
     outcomes = {}
     original_run = unittest.TextTestRunner.run
+    original_description = unittest.TextTestResult.getDescription
+
+    def safe_description(self, test):
+        # repr() of a lazy QuerySet can execute the failing query again.
+        # Keep the parent identity, never evaluate subtest parameter values
+        # merely to print a failure. Python 2 has no _SubTest class.
+        if isinstance(test, getattr(unittest.case, "_SubTest", ())):
+            return test.test_case.id() + " [subtest parameter values omitted]"
+        return original_description(self, test)
+
+    unittest.TextTestResult.getDescription = safe_description
 
     def flatten(suite):
         for test in suite:

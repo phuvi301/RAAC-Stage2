@@ -217,6 +217,81 @@ def test_missing_collection_root_is_explicit(tmp_path, monkeypatch):
     assert "collection root missing" in runner.errors[0]
 
 
+def test_sympy_expansion_retains_all_cases_and_cannot_hide_failure(
+    tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from raac.harness.layer3_execution.sandbox import issue_runner as runner
+
+    monkeypatch.setattr(runner, "REPORT", str(tmp_path / "report.json"))
+    monkeypatch.setattr(
+        runner,
+        "spec",
+        {
+            "repo": "sympy/sympy",
+            "ids": ["test_shared"],
+            "selector_policy": "sympy-all-matches-v1",
+        },
+    )
+    for name, value in [
+        ("errors", []),
+        ("selection_errors", {}),
+        ("found", []),
+        ("results", {}),
+    ]:
+        monkeypatch.setattr(runner, name, value)
+    items = [
+        SimpleNamespace(nodeid=p + "::test_shared", name="test_shared")
+        for p in ["a.py", "b.py"]
+    ]
+    plugin = runner.SelectorPlugin()
+    plugin.pytest_collection_modifyitems(None, Mock(), items)
+    assert len(items) == 2
+    for item, failed in zip(items, [True, False], strict=True):
+        plugin.pytest_runtest_logreport(
+            SimpleNamespace(
+                nodeid=item.nodeid,
+                when="call",
+                longrepr="assertion" if failed else "",
+                failed=failed,
+                skipped=False,
+            )
+        )
+    result = runner.results["test_shared"]
+    assert result["outcome"] == "mixed"
+    assert len(result["cases"]) == 2
+    assert not grade(
+        {"FAIL_TO_PASS": ["test_shared"], "PASS_TO_PASS": []},
+        {"status": "test_failed", "test_results": runner.results},
+    )["valid"]
+
+
+def test_expansion_policy_changes_only_evaluation_and_retired_override_is_removed():
+    from raac.harness.layer3_execution.sandbox.docker_sandbox import (
+        dockerfile,
+        load_profile,
+    )
+
+    tasks = load_tasks(ROOT / "data/tasks/cleaned_benchmark.json")
+    profile = load_profile(
+        ROOT / "configs/repos/sympy.yaml", tasks["sympy__sympy-14237"]
+    )
+    row = load_evaluation(ROOT / DEFAULT_ARTIFACTS, tasks["sympy__sympy-14237"])
+    assert payload(row, profile)["selector_policy"] == "unique-v1"
+    profile = dict(profile, selector_policy="sympy-all-matches-v1")
+    unique = dict(profile, selector_policy="unique-v1")
+    assert dockerfile(profile) == dockerfile(unique)
+    other = next(
+        t
+        for t in tasks.values()
+        if t.repo == "sympy/sympy" and t.id != "sympy__sympy-14237"
+    )
+    assert "selector_policy" not in load_profile(
+        ROOT / "configs/repos/sympy.yaml", other
+    )
+
+
 def test_all_effective_profiles_have_consistent_pip_pins():
     from raac.harness.layer3_execution.sandbox.docker_sandbox import (
         load_profile,

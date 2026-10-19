@@ -19,7 +19,7 @@ from pathlib import Path
 import yaml
 
 import docker
-from raac.benchmark.dataset import load_tasks
+from raac.benchmark.dataset import load_tasks, source_dataset
 
 from .build import BuildTimeout, build_image
 from .policy import SandboxPolicy
@@ -348,6 +348,7 @@ def load_profile(path, task):
         "build_timeout",
         "test_timeout",
         "network_fixture",
+        "selector_policy",
     }
     if set(profile) - allowed:
         raise ValueError("Unknown profile fields")
@@ -381,6 +382,16 @@ def load_profile(path, task):
         raise ValueError("Overrides cannot change the repo")
     if profile.get("source_history", "snapshot") not in {"snapshot", "versioned"}:
         raise ValueError("Unknown source_history")
+    if profile.get("selector_policy", "unique-v1") not in {
+        "unique-v1",
+        "sympy-all-matches-v1",
+    }:
+        raise ValueError("Unknown selector policy")
+    if (
+        profile.get("selector_policy") == "sympy-all-matches-v1"
+        and task.repo != "sympy/sympy"
+    ):
+        raise ValueError("Sympy selector policy requires sympy/sympy")
     if profile.get("network_fixture", "none") not in {
         "none",
         "requests_httpbin",
@@ -816,6 +827,13 @@ class DockerSandbox:
             dataset_path = resolve_path(self.root, dataset or self.config["dataset"])
             task = load_tasks(dataset_path)[task_id]
             record["task"] = asdict(task)
+            dataset_metadata = json.loads(dataset_path.read_text(encoding="utf-8"))
+            if dataset_metadata.get("kind") == "raac-task-selection":
+                record["benchmark"] = {
+                    "id": dataset_metadata["benchmark_id"],
+                    "task_count": dataset_metadata["task_count"],
+                    "selection_sha256": digest(dataset_path.read_bytes()),
+                }
             if test_mode not in {"suite", "issue"}:
                 raise ValueError("Unknown test mode")
             record["test_mode"] = test_mode
@@ -869,6 +887,9 @@ class DockerSandbox:
                     for p in (self.config_path, profile_path)
                 },
                 "dataset_sha256": digest(dataset_path.read_bytes()),
+                "source_dataset_sha256": digest(
+                    source_dataset(dataset_path).read_bytes()
+                ),
                 "sandbox_code_hashes": {
                     name: digest(Path(__file__).with_name(name).read_bytes())
                     for name in (
@@ -900,6 +921,12 @@ class DockerSandbox:
                 artifact_path = resolve_path(
                     self.root, self.config.get("evaluation", DEFAULT_ARTIFACTS)
                 )
+                expected_evaluator = dataset_metadata.get("evaluation_sha256")
+                if (
+                    expected_evaluator
+                    and digest(artifact_path.read_bytes()) != expected_evaluator
+                ):
+                    raise ValueError("Frozen benchmark evaluator hash changed")
                 row = load_evaluation(artifact_path, task)
                 record["evaluation"] = {
                     k: row[k]

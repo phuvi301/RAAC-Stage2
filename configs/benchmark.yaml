@@ -1,5 +1,5 @@
 version: 2
-dataset: data/tasks/cleaned_benchmark.json
+dataset: data/tasks/benchmark105-v1.json
 repo_cache: data/repos
 results: results
 profiles:

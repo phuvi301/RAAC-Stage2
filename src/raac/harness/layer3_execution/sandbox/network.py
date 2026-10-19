@@ -16,11 +16,13 @@ from werkzeug.serving import make_server
 
 ca = trustme.CA()
 ca.cert_pem.write_to_path('/tmp/raac-httpbin-ca.pem')
-certificate = ca.issue_cert('httpbin.org', 'www.google.co.uk')
-context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+certificate = ca.issue_cert(u'httpbin.org', u'www.google.co.uk')
+context = ssl.SSLContext(getattr(ssl, 'PROTOCOL_TLS_SERVER', ssl.PROTOCOL_TLSv1_2))
 certificate.configure_cert(context)
 https = make_server('0.0.0.0', 443, app, threaded=True, ssl_context=context)
-threading.Thread(target=https.serve_forever, daemon=True).start()
+thread = threading.Thread(target=https.serve_forever)
+thread.daemon = True
+thread.start()
 make_server('0.0.0.0', 80, app, threaded=True).serve_forever()
 """
 
@@ -144,7 +146,7 @@ class NetworkFixture:
                 [
                     "python",
                     "-c",
-                    "from urllib.request import urlopen; urlopen('http://127.0.0.1/get', timeout=.5).read()",
+                    "try:\n from urllib.request import urlopen\nexcept ImportError:\n from urllib2 import urlopen\nurlopen('http://127.0.0.1/get', timeout=.5).read()",
                 ],
                 workdir="/tmp",
             )

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import yaml
 
-from raac.benchmark.dataset import load_tasks
+from raac.benchmark.dataset import load_tasks, source_dataset
 
 from .docker_sandbox import (
     ROOT,
@@ -50,6 +50,8 @@ def atomic_json(path, data):
 def check_profiles(sandbox, dataset=None):
     dataset_path = resolve_path(sandbox.root, dataset or sandbox.config["dataset"])
     tasks = load_tasks(dataset_path)
+    # Overrides may reference excluded tasks that still belong to the source dataset.
+    universe = load_tasks(source_dataset(dataset_path))
     errors = []
     covered = 0
     for repo in sorted({t.repo for t in tasks.values()}):
@@ -61,7 +63,7 @@ def check_profiles(sandbox, dataset=None):
         try:
             raw = yaml.safe_load(path.read_text(encoding="utf-8"))
             for task_id in raw.get("task_overrides", {}):
-                if task_id not in tasks or tasks[task_id].repo != repo:
+                if task_id not in universe or universe[task_id].repo != repo:
                     errors.append(f"{repo}: unknown override {task_id}")
             for task in tasks.values():
                 if task.repo == repo:
@@ -82,6 +84,7 @@ def fingerprint(sandbox, dataset, selection, budget):
     paths = {
         sandbox.config_path,
         dataset,
+        source_dataset(dataset),
         sandbox.root / "registry/VERSION",
         ROOT / "docker/Dockerfile.sandbox",
         Path(__file__),

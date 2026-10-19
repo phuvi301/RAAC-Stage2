@@ -1,0 +1,308 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "swebench-verified-raac-105-v1",
+  "source_sha256": "51167ba7e455d8fa8682784bad772ac575aa1bc1e8c295a9dab7d7617eefadb6",
+  "excluded_count": 15,
+  "tasks": [
+    {
+      "task_id": "django__django-29834",
+      "repo": "django/django",
+      "instance_id": "django__django-10554",
+      "status_at_freeze": "validation_failed",
+      "reason": "One F2P passes at baseline; reporting crash repaired.",
+      "evidence": {
+        "record": "results/69d1e48cfbdb47dfbc87005f65554e41/record.json",
+        "record_sha256": "a5d944091c3d533c38f2f9260f91f31b26879ff4b7bb695a907ff0a2b6e0df19",
+        "evaluation_identity": "591d8e3e2fbe5d61c144f33d14446d951314d5b669694c0028c7b581329dd142",
+        "image_id": "sha256:226fb2fb2e83440c6e13cfbc5fb858ab60400a208ef359cfdbc276f3c85de07d",
+        "base_commit": "14d026cccb144c6877294ba4cd4e03ebf0842498"
+      },
+      "audit_documents": [
+        "docs/swebench_remaining_audit.md",
+        "docs/swebench_artifact_audit.md",
+        "docs/swebench_reference.md",
+        "docs/evidence_repairs.md"
+      ]
+    },
+    {
+      "task_id": "django__django-33552",
+      "repo": "django/django",
+      "instance_id": "django__django-15503",
+      "status_at_freeze": "validation_failed",
+      "reason": "One F2P passes at baseline; official parser loses concatenated subtest IDs.",
+      "evidence": {
+        "record": "results/d5908d385d7d48b7a570a05e786f585e/record.json",
+        "record_sha256": "aee9eb3a1d6e64e22f7df2c66a21c07c1ac4ae5bb9d9cc0b4597ab1e3df1b782",
+        "evaluation_identity": "270532fef435ec02fb280c893e618d080e1c39ece2d8650cacdf2750e3acd83a",
+        "image_id": "sha256:cf492749d9088011866a02ad36cfef04b9da449d70cfb83ed17be8d7df554ec7",
+        "base_commit": "859a87d873ce7152af73ab851653b4e1c3ffea4c"
+      },
+      "audit_documents": [
+        "docs/swebench_remaining_audit.md",
+        "docs/swebench_artifact_audit.md",
+        "docs/swebench_reference.md",
+        "docs/evidence_repairs.md"
+      ]
+    },
+    {
+      "task_id": "matplotlib__matplotlib-22640",
+      "repo": "matplotlib/matplotlib",
+      "instance_id": "matplotlib__matplotlib-22719",
+      "status_at_freeze": "validation_failed",
+      "reason": "Truncated P2P aliases include xfail; strict pass policy is not met.",
+      "evidence": {
+        "record": "results/9d76b58d604e4e8a8bbb0f49b1fc1322/record.json",
+        "record_sha256": "bda0bcd05c93f3cdd60b017e2a1d7b4fe755e58086a42e25c3ca3824bbabb709",
+        "evaluation_identity": "271a63307595076dd8373777263f7fab64c88f9e2dbd9fccde8ac547b5fd6149",
+        "image_id": "sha256:8284a8b1b1e8e65b8d88ec8fbe778b7dca5e8fbb6bb8237386ecec3c0276807f",
+        "base_commit": "a2a1b0a11b993fe5f8fab64b6161e99243a6393c"
+      },
+      "audit_documents": [
+        "docs/swebench_remaining_audit.md",
+        "docs/swebench_artifact_audit.md",
+        "docs/swebench_reference.md",
+        "docs/evidence_repairs.md"
+      ]
+    },
+    {
+      "task_id": "psf__requests-1723",
+      "repo": "psf/requests",
+      "instance_id": "psf__requests-1724",
+      "status_at_freeze": "validation_failed",
+      "reason": "Python2 reproducer is labelled P2P; all raw F2P pass at baseline.",
+      "evidence": {
+        "record": "results/115a953d3dbc4246a44d960546e429af/record.json",
+        "record_sha256": "b0ce97194b9ebdd8c9af03ae93be72726855f9975ff61ac87e1723b874f55931",
+        "evaluation_identity": "7c7df4e34a419111bbdb9b0738d8fbfa0587e13d8d8c334894dda36a63dfb647",
+        "image_id": "sha256:b58014284897f8125c2e517a965bcd31ae2a9edbbe03540a20f73b93559278ee",
+        "base_commit": "1ba83c47ce7b177efe90d5f51f7760680f72eda0"
+      },
+      "audit_documents": [
+        "docs/swebench_remaining_audit.md",
+        "docs/swebench_artifact_audit.md",
+        "docs/swebench_reference.md",
+        "docs/evidence_repairs.md"
+      ]
+    },
+    {
+      "task_id": "psf__requests-1765",
+      "repo": "psf/requests",
+      "instance_id": "psf__requests-1766",
+      "status_at_freeze": "validation_failed",
+      "reason": "Five of six F2P pass at baseline.",
+      "evidence": {
+        "record": "results/b38c663e97ae4c018c93fa3e8baa0589/record.json",
+        "record_sha256": "0ff620f726af27325c82d215c9f6756306fafd769d81981a9b26c36c62c3fac4",
+        "evaluation_identity": "5764794ae3115891b5d36afccf68c608c610e3cdffc71162380ebc5ebe6229f1",
+        "image_id": "sha256:6895a25792ad4384d0ae68b3f4d5b5c585295ac84e03ebd0d1483eca69518d13",
+        "base_commit": "847735553aeda6e6633f2b32e14ba14ba86887a4"
+      },
+      "audit_documents": [
+        "docs/swebench_remaining_audit.md",
+        "docs/swebench_artifact_audit.md",
+        "docs/swebench_reference.md",
+        "docs/evidence_repairs.md"
+      ]
+    },
+    {
+      "task_id": "psf__requests-1920",
+      "repo": "psf/requests",
+      "instance_id": "psf__requests-1921",
+      "status_at_freeze": "validation_failed",
+      "reason": "Several F2P pass at baseline; external HTTP502 is not issue evidence.",
+      "evidence": {
+        "record": "results/86085bcf9df44042aebe3a91b0e6fdbb/record.json",
+        "record_sha256": "6d24310ae2b9347fed069ab7098a32f44731f19bcc451ca00b447c4354343c4a",
+        "evaluation_identity": "98731fec670f07aa3c1116f04cde973a4801acb9f15c64ccbb237fd16a952c1c",
+        "image_id": "sha256:25b27b36149d17ff22e6e39450badc1d8b73a0946a7bef0bd2994a0f8b474c4d",
+        "base_commit": "3c88e520da24ae6f736929a750876e7654accc3d"
+      },
+      "audit_documents": [
+        "docs/swebench_remaining_audit.md",
+        "docs/swebench_artifact_audit.md",
+        "docs/swebench_reference.md",
+        "docs/evidence_repairs.md"
+      ]
+    },
+    {
+      "task_id": "psf__requests-2316",
+      "repo": "psf/requests",
+      "instance_id": "psf__requests-2317",
+      "status_at_freeze": "validation_failed",
+      "reason": "Seven of eight F2P pass at baseline.",
+      "evidence": {
+        "record": "results/3b32c36b4c184c5092473635b3deb6b3/record.json",
+        "record_sha256": "cc1bfecf3b9394044049e66ca0c7fca1a75f582f8e816577b3b6b8cd7efa3281",
+        "evaluation_identity": "b528e439dd7c803be172a06fe90cc6579f71acac68454fe170968e062155668d",
+        "image_id": "sha256:c7e214ef1781152e0afcf1967d3f7a3c55c930f4d971de7630a3abaca6439405",
+        "base_commit": "091991be0da19de9108dbe5e3752917fea3d7fdc"
+      },
+      "audit_documents": [
+        "docs/swebench_remaining_audit.md",
+        "docs/swebench_artifact_audit.md",
+        "docs/swebench_reference.md",
+        "docs/evidence_repairs.md"
+      ]
+    },
+    {
+      "task_id": "pydata__xarray-3992",
+      "repo": "pydata/xarray",
+      "instance_id": "pydata__xarray-3993",
+      "status_at_freeze": "validation_failed",
+      "reason": "Four P2P require API behavior introduced by gold and fail at baseline.",
+      "evidence": {
+        "record": "results/8c2d94d97897438190d8628fae812446/record.json",
+        "record_sha256": "f8fedbd86463dfd5c99dfa2097575d173c690a91bdf19de4141033bf36f4efc0",
+        "evaluation_identity": "25658fe0f8e84d2d50762572927f6de0f6ae8276db05a65fc2e7c9f5d53374ad",
+        "image_id": "sha256:c701eb805c7225895acda063764d72342ca3389c32711a9d964c2daec84eb0fa",
+        "base_commit": "8cc34cb412ba89ebca12fc84f76a9e452628f1bc"
+      },
+      "audit_documents": [
+        "docs/swebench_remaining_audit.md",
+        "docs/swebench_artifact_audit.md",
+        "docs/swebench_reference.md",
+        "docs/evidence_repairs.md"
+      ]
+    },
+    {
+      "task_id": "pydata__xarray-4354",
+      "repo": "pydata/xarray",
+      "instance_id": "pydata__xarray-4356",
+      "status_at_freeze": "validation_failed",
+      "reason": "Eight P2P require gold behavior and fail at baseline.",
+      "evidence": {
+        "record": "results/e17aeaa50f3347038d6c6c54ebc907f1/record.json",
+        "record_sha256": "b3b3d658a2129cbd4f84087795dd458237210cba2c0f5a0600792468e40908f0",
+        "evaluation_identity": "70e5e4050d0c8eb0c6b4c3627fdb6a83b45e7794ae54b68cc0a5a6435d2cfd0d",
+        "image_id": "sha256:9703f2d28ef69b9eb51691e1f46aa60b130b4ac884471284edfa805fcff7b33c",
+        "base_commit": "e05fddea852d08fc0845f954b79deb9e9f9ff883"
+      },
+      "audit_documents": [
+        "docs/swebench_remaining_audit.md",
+        "docs/swebench_artifact_audit.md",
+        "docs/swebench_reference.md",
+        "docs/evidence_repairs.md"
+      ]
+    },
+    {
+      "task_id": "pydata__xarray-6597",
+      "repo": "pydata/xarray",
+      "instance_id": "pydata__xarray-6599",
+      "status_at_freeze": "validation_failed",
+      "reason": "A P2P timedelta polyval case fails at baseline and passes with gold.",
+      "evidence": {
+        "record": "results/985bade7ba8347ffa6f15aaa6be08fa4/record.json",
+        "record_sha256": "effbe16bc03e5525d3ba81dd63a5e03b3fa95b3f0500fd9b144c23fd56e29481",
+        "evaluation_identity": "72391a7e6e11e9d2675ddabe15ed5fb4d278447965e82bdc47cda0d41ef8b449",
+        "image_id": "sha256:ac83f1405494b3a4f8ad758139b8a63efdfa79f8735fb1c9372e7229dde00db9",
+        "base_commit": "6bb2b855498b5c68d7cca8cceb710365d58e6048"
+      },
+      "audit_documents": [
+        "docs/swebench_remaining_audit.md",
+        "docs/swebench_artifact_audit.md",
+        "docs/swebench_reference.md",
+        "docs/evidence_repairs.md"
+      ]
+    },
+    {
+      "task_id": "pylint-dev__pylint-1548",
+      "repo": "pylint-dev/pylint",
+      "instance_id": "pylint-dev__pylint-4551",
+      "status_at_freeze": "collection_error",
+      "reason": "Test patch imports get_annotation, absent at base; baseline cannot collect.",
+      "evidence": {
+        "record": "results/4a42527a16bf43b4a70507fe9404695f/record.json",
+        "record_sha256": "e29b30cd2dcf4183a4180aae4cc2c6f3a65bf47f179c15910d449e070e923f33",
+        "evaluation_identity": null,
+        "image_id": "sha256:937ca48048e016fb7434e6dcf44c2ad34eb0613ec56b16ee0fe0968f67dc2137",
+        "base_commit": "99589b08de8c5a2c6cc61e13a37420a868c80599"
+      },
+      "audit_documents": [
+        "docs/swebench_remaining_audit.md",
+        "docs/swebench_artifact_audit.md",
+        "docs/swebench_reference.md",
+        "docs/evidence_repairs.md"
+      ]
+    },
+    {
+      "task_id": "pylint-dev__pylint-4603",
+      "repo": "pylint-dev/pylint",
+      "instance_id": "pylint-dev__pylint-4604",
+      "status_at_freeze": "collection_error",
+      "reason": "Test patch imports IS_PYPY, absent at base; baseline cannot collect.",
+      "evidence": {
+        "record": "results/9f16ff0b35874c8e86dbacfe65bb9bb6/record.json",
+        "record_sha256": "db9d5fdb6bde8e32d58e9037ca258e612eaf8a21655601fe72bc6da6304cc25c",
+        "evaluation_identity": null,
+        "image_id": "sha256:27bf210fcc5297d7277cd8d48180c2374f8df405c04e7df79807443300190055",
+        "base_commit": "1e55ae64624d28c5fe8b63ad7979880ee2e6ef3f"
+      },
+      "audit_documents": [
+        "docs/swebench_remaining_audit.md",
+        "docs/swebench_artifact_audit.md",
+        "docs/swebench_reference.md",
+        "docs/evidence_repairs.md"
+      ]
+    },
+    {
+      "task_id": "pylint-dev__pylint-7229",
+      "repo": "pylint-dev/pylint",
+      "instance_id": "pylint-dev__pylint-8898",
+      "status_at_freeze": "validation_failed",
+      "reason": "Truncated P2P alias includes passing and failing parameter cases.",
+      "evidence": {
+        "record": "results/cfadbb4a8c184685826646ca818ac0a6/record.json",
+        "record_sha256": "81e367ae828b224fac82d967ddb50818b687a7e2e3e03fa447531bee77ffe950",
+        "evaluation_identity": "b5b5f0fd5ad2ba83e61bfcead5bec87117a4cc2f02bf56813c7297b8dbebf39c",
+        "image_id": "sha256:e6dc2edb3cd8e38f1f8de3a8b6ffd3d1e8157ed0ec59156c1675bfc0fa89bce3",
+        "base_commit": "1f8c4d9eb185c16a2c1d881c054f015e1c2eb334"
+      },
+      "audit_documents": [
+        "docs/swebench_remaining_audit.md",
+        "docs/swebench_artifact_audit.md",
+        "docs/swebench_reference.md",
+        "docs/evidence_repairs.md"
+      ]
+    },
+    {
+      "task_id": "pytest-dev__pytest-7517",
+      "repo": "pytest-dev/pytest",
+      "instance_id": "pytest-dev__pytest-7521",
+      "status_at_freeze": "execution_error",
+      "reason": "Raw selectors include a nested generated test and the non-test progress marker [100%].",
+      "evidence": {
+        "record": "results/0986cc4bc0524df7b5499805cb431a98/record.json",
+        "record_sha256": "c197a313a0c66bda3555a7f7652dd972d65c690829ed0ccd40592a72c90a2b78",
+        "evaluation_identity": null,
+        "image_id": "sha256:15f19441b1eaad6c0eeabb921f0ecb5b0576dffb286ff64d37bd261bdb89bb87",
+        "base_commit": "41d211c24a6781843b174379d6d6538f5c17adb9"
+      },
+      "audit_documents": [
+        "docs/swebench_remaining_audit.md",
+        "docs/swebench_artifact_audit.md",
+        "docs/swebench_reference.md",
+        "docs/evidence_repairs.md"
+      ]
+    },
+    {
+      "task_id": "sympy__sympy-14237",
+      "repo": "sympy/sympy",
+      "instance_id": "sympy__sympy-14248",
+      "status_at_freeze": "validation_failed",
+      "reason": "Expanded bare-name F2P contains passing and failing cases at baseline; gold all pass.",
+      "evidence": {
+        "record": "results/c90aac7b3f154f1a82e73409ef469931/record.json",
+        "record_sha256": "c8884a5514c122a4eba609dfefa7e6ed2f1b10070be81ec52f01764536f98e6d",
+        "evaluation_identity": "67f5dcba89952bd6314f2b905b6bd0e5845d7c3c858c9a1e9496e765aa5d13f4",
+        "image_id": "sha256:78ae782908611a0bf85b06f007a1c955cbbffa73e060f5a2e842ace76cd556cd",
+        "base_commit": "9986b38181cdd556a3f3411e553864f11912244e"
+      },
+      "audit_documents": [
+        "docs/swebench_remaining_audit.md",
+        "docs/swebench_artifact_audit.md",
+        "docs/swebench_reference.md",
+        "docs/evidence_repairs.md"
+      ]
+    }
+  ]
+}

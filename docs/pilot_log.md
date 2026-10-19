@@ -232,3 +232,77 @@ Theo yêu cầu người dùng, chạy taskRAAC psf__requests-2316 / SWE-bench p
 Harnessofficialv3.0.0/SWEinstance2317: goldresolvedtrue,8/8F2P+133/133P2Ppass. Baseline-v2resolvedfalse,7F2Ppass/1fail(test_encoded_methods),133/133P2Ppass. Hiện tượng F2Ppass mộtphần cũng tồn tại ởharnessofficial; không ép fail bằng đổi môi trường/nhãn. Filetest chạy143case: gold142pass/1fail vàbaseline141pass/2fail; test_conflicting_post_paramsfail cảhai nhưngngoàinhómchấm. Khôngcoi goldlàtoànsuitepass. Newline-onlybaseline lầnđầu lỗiapply, đãghi nhận và chạy lại bằng markerfilekhôngđụngcode/test. Giữvalidation_failedRAAC theoquytắcbaselinehiệntại; chưađốichứng14taskkhác.
 
 Evidence/log/provenance: results/official-reference-requests2316-20261019; hướngdẫn/kếtluận docs/swebench_reference.md. Đãxóa imageofficialmớitải0,95GiB và cả2thưmụctạmWSL (clone+venv), xácnhận khôngcòncontainer/image. Khôngprunechung, khôngđụngcacheRAAC; rawStage1hashkhôngđổi. Scriptstáihiện gom vàoevidence, khôngđểfiletạmởgốcresults. Khôngcommit/push.
+
+### 2026-10-19 — Đối chứng9task còn lại
+Theo yêu cầu tiếp tục, hàngđợiWSLTerminal officialv3.0.0 chín task:Requests1723/1765/1920,Django33552,Pylint7229,Matplotlib22640,Xarray3992/4354/6597. Requests2316 đãđốichứng,5artifactvẫnbỏqua. Mỗi task pullimageofficial, gold/baseline marker riêng,timeout1800sphase, checkpoint/evidence results/official-reference-remaining-20261019. Dọnimagekhôngcótrước sau từngtask, dọnclone/venvWSLtạm khixong. Khôngđổifingerprint/nhãn/statusRAAC hoặcpush. Đangchạy, chưakếtluận.
+
+### 2026-10-19 — Đối chứng 9 task còn lại hoàn tất
+
+Official v3.0.0 đã chạy đủ 9 task/18 phase trong 32,51 phút: 9 gold resolved,
+9 baseline unresolved, không timeout hoặc thiếu report. Requests-1723 dùng
+Python2 tái hiện issue nhưng test nằm trong P2P; 1765/1920 còn F2P pass ở base
+(1920 có thêm HTTP502 từ dịch vụ ngoài). Django baseline report 2 failure vì
+parser mất ID ở dòng ghép; test_has_keys thực tế pass. Pylint có P2P alias
+trộn pass/fail; Matplotlib có P2P chứa xfail được official tính pass. Xarray
+3992/4354/6597 có P2P fail tại base giống RAAC và gold pass. Không có cơ sở
+sửa môi trường để ép đạt tiêu chí. Xem docs/swebench_remaining_audit.md và
+evidence results/official-reference-remaining-20261019.
+
+Đã dọn 9 image mới và clone/venv WSL tạm; Docker trở về 25,09GB; raw hash
+không đổi. Giữ 105 validated/10 validation_failed/4 collection_error/1
+execution_error; nhóm 5 artifact không đụng. Chỉ cập nhật docs/evidence,
+không đổi grading, nhãn hoặc trạng thái RAAC; không push.
+
+### 2026-10-19 — Đối chứng nhóm 5 artifact
+Người dùng yêu cầu chạy nhóm trước đây bỏ qua: Django29834, Pylint1548/4603, pytest7517, Sympy14237. Hàng đợi officialv3.0.0 trong WSL/WindowsTerminal, một task/lượt, gold/baseline riêng, timeout1800s/phase, dọn image mới sau từng task và clone/venv khi xong. Evidence results/official-reference-artifacts-20261019. Chưa đổi raw, nhãn hoặc tiêu chí RAAC; chưa có kết luận, không push.
+
+### 2026-10-19 — Hoàn tất 5 artifact và sửa lỗi reporting Django
+
+Official v3.0.0 đã chạy5task/10phase trong13,42phút, có đủreport, khôngtimeout;
+5goldresolved. Pylint1548/4603baselinecollectionerror vìimportAPI mới chỉ có
+saugold; không coi missingID làtestđãchạyfail. Pytest7517 chứa childtest sinh
+tạm và `[100%]` bịparsernhầmID. Sympy14237bareID trùng giữa nhiềuprinter;
+MatrixElement_printing có ở9file. Django29834reportbaselinecrash doQuerySet
+repr và dòngghép khiếnparser báoF2Pfailurekhác kếtquảthực. Xem
+docs/swebench_artifact_audit.md vàevidence results/official-reference-artifacts-20261019.
+
+Sửa runner chỉinIDparent cho subtest, khôngreprtham số đểreportkhôngchạySQL
+lầnnữa. Unitđãfailtrướcsửa;106/106testqua trong159,20s gồm88unit+18Docker,
+cóPython3.9thật. Batchdjango-subtest-reporting-v1-full/record69d1e48cfbdb47dfbc87005f65554e41
+chạyđủ25/25baseline/gold:baseline1F2Pfail/1F2Ppass+23P2Ppass,gold25pass.
+Hếtcollectionerror nhưnggiữvalidation_failed đúngtiêuchí. Profile120/Ruff/diffqua.
+Tổnglatest105validated/11validation_failed/3collection_error/1execution_error.
+
+Đãdọn5imageofficialmớivàclone/venvWSLtạm;rawhashkhôngđổi. Không đổi nhãn,
+không nới grading, không nghiệm thu120/120/L1–L4/A5. Hướng xử lý protocol tiếp
+đã ghi riêng trong báo cáo; chưa áp dụng, không push.
+# 2026-10-19 — sửa sau đối chứng đang kiểm chứng
+
+Theo yêu cầu sửa task có bằng chứng: Requests1723 override Python2.7 đúng image
+official; fixture HTTPbin hỗ trợ Python2 nhưng giữ mạng isolated. Sympy14237
+khai báo policy sympy-all-matches-v1, chạy mọi case bare-name khớp trong các
+module test patch và giữ từng full node ID; không chọn case pass hoặc thay nhãn.
+86 unit test qua, profilecheck120/120 qua. FrameworkDocker rồi preflight/full
+hai task đang chạy tuần tự trong WindowsTerminal riêng, batch evidence-repairs-v1.
+Chưa có kết quả task mới; không push, không nghiệm thu120/120/L1–L4/A5.
+Chi tiết: docs/evidence_repairs.md.
+
+2026-10-19: Hoàn tất kiểm chứng sửa có bằng chứng:105/105framework (86unit+19Docker) qua;35unit liên quan qua sau Unicodefixturefix. Sympy record c90aac7b3f154f1a82e73409ef469931 hết lỗi bareselector,435alias/506casegoldpass,baseline11fail/495pass;44aliastrùng được mởrộng,giữvalidation_failed vìF2Pmixed. Requests1723 Python2/fixtureisolated v2 record115a953d3dbc4246a44d960546e429af baselineUnicodeDecodeError đúngissue,84pass/1fail,gold85pass;rawP2Pmislabelgiữnguyên nênvalidation_failed. Preflightcảhaiqua;container/volume/networkđãdọn,cachegiữ. Latest105validated/12validation_failed/2collection_error/1execution_error. Khôngpush,khôngnghiệmthu120/120/L1–L4/A5. Xem docs/evidence_repairs.md.
+# 2026-10-19 — cố định tập benchmark105 và dọn kết quả dư
+
+Theo yêu cầu người dùng, giữ dataset120task và tạo manifest105task fullstrict
+validated,12repo;15task loại có lý do và link/hashrecord tại
+data/tasks/benchmark105-v1-exclusions.json. Không chọn dựa trênmodelcandidate.
+Hashlog/per-testJSON của bằng chứng gốc đã kiểm tra, kể cả recordreuse.
+Membershipv1 cố định, không tự cập nhật từ các lần chạy tiếp theo.
+Configconfigs/benchmark105.yaml chọn105; defaultconfig120giữlại choaudit.
+Loaderhash/count/IDs, evaluatorhashguard và batchfingerprintsource được bổ sung.
+
+Dọn37file/rootresults cũ đã kết thúc,225415byte: script tạm, consoleexport,
+snapshotterminal và trạng thái driver lỗi thời. Giữmọirecord/checkpoint,
+baseline/gold/buildlog,per-testJSON/JUnit,đốichứngofficial và frameworkevidence.
+Auditresults/cleanup-benchmark105-20261019.json. KhôngdọnDocker/Gitcache.
+Quy tắc điểm100*resolved/105,coverage105/120=87,5%; chưa nghiệm thu120/120,
+L1–L4 hoặcA5. Khôngpush. Hướngdẫn docs/benchmark105.md.
+
+2026-10-19 — Dọnsetup15task theo yêu cầu: gỡ11override riêng trong4profile; defaultbenchmark/compatibility chuyểnmanifest105. So sánhrecipeDocker105tasktrước/saukhôngđổi. Xóa12image chỉ thuộcnhómloại,khôngforce/khôngshared, DockerLayersSizegiảm10145152134byte (9,45GiB),khônglỗi. GiữGitcache12repo/buildcachechung,Python2basechoRequests1051,record/log/frozenmanifest. Auditresults/retired15-environments-20261019.json. 94unitpass13,51s;3configprofilecheck105/105qua,Ruff/diffqua. Khôngpush,khôngrerun105validationhoặcnghiệmthuL1–L4/A5.
