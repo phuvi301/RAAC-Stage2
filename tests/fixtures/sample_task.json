@@ -1,0 +1,8 @@
+{
+  "task_id": "sample-001",
+  "note": "Hand-written placeholder task for role unit tests. Replace with a real dataset task when available.",
+  "repo": "example/textutils",
+  "base_commit": "0000000",
+  "issue": "slugify() keeps leading and trailing spaces as hyphens.\n\nslugify('  Hello World ') returns '--hello-world-' but should return 'hello-world'.",
+  "tests_that_should_pass": ["tests/test_text.py::test_slugify_strips_whitespace"]
+}

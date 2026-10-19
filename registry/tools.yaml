@@ -1,0 +1,15 @@
+# Tool catalog. Roles may only reference tool names defined here.
+# The harness (layer3_execution/tools/) implements these; the registry only declares them.
+tools:
+  - name: read_file
+    description: Read a file from the task repository checkout.
+    read_only: true
+  - name: search_repo
+    description: Search the repository (text / symbol search) and return matching locations.
+    read_only: true
+  - name: edit_file
+    description: Edit a file in the sandbox working copy. Not granted to any core role; patches are applied by the sandbox.
+    read_only: false
+  - name: run_tests
+    description: Run the test suite (or a subset) inside the sandbox and return the results.
+    read_only: false

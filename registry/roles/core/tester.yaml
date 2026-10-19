@@ -1,0 +1,13 @@
+id: tester
+role: Tester
+group: core
+description: "Selects the tests to run, runs them, and reports observed results."
+prompt_version: v1
+tools:
+  - read_file
+  - search_repo
+  - run_tests
+model:
+  ref: default            # placeholder: resolved from configs/llm.yaml
+cost_weight: 1.0          # TODO: calibrate cost weight (default 1.0 until pilot data exists)
+output_format: json

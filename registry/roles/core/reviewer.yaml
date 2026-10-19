@@ -1,0 +1,12 @@
+id: reviewer
+role: Reviewer
+group: core
+description: "Reviews the patch against the requirements and decides approve or reject."
+prompt_version: v1
+tools:
+  - read_file
+  - search_repo
+model:
+  ref: default            # placeholder: resolved from configs/llm.yaml
+cost_weight: 1.0          # TODO: calibrate cost weight (default 1.0 until pilot data exists)
+output_format: json

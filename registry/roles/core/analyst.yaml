@@ -1,0 +1,12 @@
+id: analyst
+role: Analyst
+group: core
+description: "Turns the raw issue into a structured specification: requirements, constraints, acceptance criteria."
+prompt_version: v1
+tools:
+  - read_file
+  - search_repo
+model:
+  ref: default            # placeholder: resolved from configs/llm.yaml
+cost_weight: 1.0          # TODO: calibrate cost weight (default 1.0 until pilot data exists)
+output_format: json
