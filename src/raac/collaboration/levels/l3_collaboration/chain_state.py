@@ -165,11 +165,17 @@ class RoleHandoff:
     runtime: dict[str, Any] = field(default_factory=dict)
 
 
+class RepositoryChange(StructuredOutput):
+    path: Text
+    deleted: bool
+
+
 class CodeOutput(StructuredOutput):
     """Framework artifact, not the Coder's wire format."""
     patch: str = ""
     summary: Text
     execution_evidence: list[dict[str, Any]] = Field(default_factory=list, max_length=8)
+    repository_changes: list[RepositoryChange] = Field(default_factory=list)
 
 
 class TestReport(TesterOutput):
@@ -257,6 +263,7 @@ class ChainState(TypedDict):
     patch: str | None
     patch_hash: str | None
     coder_evidence: list[dict[str, Any]]
+    repository_changes: list[dict[str, Any]]
     coder_summary: str | None
     test_report: dict[str, Any] | None
     review_report: dict[str, Any] | None
@@ -276,7 +283,7 @@ def initial_chain_state(work: WorkItem, limits: ChainLimits) -> ChainState:
         "deadline_at": time.time() + limits.timeout_seconds,
         "round_number": 0, "rounds_completed": 0, "ac_catalog": {},
         "spec": None, "plan": None, "patch": None, "patch_hash": None,
-        "coder_evidence": [], "coder_summary": None,
+        "coder_evidence": [], "coder_summary": None, "repository_changes": [],
         "test_report": None, "review_report": None, "tests_passed": False,
         "verdict": None, "stop_reason": None, "error": None,
         "next_node": "analyst", "events": [], "result": None,

@@ -1,65 +1,553 @@
-BÀI 15 — 2813. Maximum Elegance of a K-Length Subsequence — Hard
-class Solution(object):    def findMaximumElegance(self, items, k):        """        :type items: List[List[int]]        :type k: int        :rtype: int        """        pass
 
+Đây là 20 bài LeetCode Hard mới, không trùng những bài đã gửi trong cuộc trò chuyện này. Mình ưu tiên bài khó tìm ý tưởng, dễ sai ở trường hợp biên hoặc cần tối ưu mạnh. Các bài 1–8 là nhóm mình ưu tiên nếu muốn thử thách nặng nhất.
 
-Cho các phần tử:
-items[i] = [profit_i, category_i]
+BÀI 1 — 2851. String Transformation — Hard
 
-Chọn một dãy con gồm đúng k phần tử. Điểm của dãy được chọn là:
-Tổng lợi nhuận + (số loại category khác nhau)^2
+class Solution(object):
+    def numberOfWays(self, s, t, k):
+        """
+        :type s: str
+        :type t: str
+        :type k: int
+        :rtype: int
+        """
+        pass
 
-Trả về điểm lớn nhất có thể đạt được. LeetCode
+Cho hai chuỗi s, t có cùng độ dài n.
+
+Mỗi thao tác, chọn một hậu tố của s có độ dài l, với 0 < l < n, rồi chuyển hậu tố đó lên đầu chuỗi.
+
+Ví dụ: "abcd" có thể biến thành "cdab" bằng cách chuyển "cd" lên đầu.
+
+Đếm số cách biến s thành t sau đúng k thao tác. Hai cách khác nhau nếu dãy độ dài hậu tố được chọn khác nhau. Trả về kết quả modulo 10^9 + 7. 
 
 Ví dụ:
-Input: items = [[3,2],[5,1],[10,1]], k = 2
+
+Input: s = "abcd", t = "cdab", k = 2
+Output: 2
+
+Input: s = "ababab", t = "ababab", k = 1
+Output: 2
+Ràng buộc:
+
+2 <= s.length == t.length <= 5 * 10^5
+1 <= k <= 10^15
+s và t chỉ chứa chữ cái tiếng Anh viết thường.
+BÀI 2 — 1923. Longest Common Subpath — Hard
+
+class Solution(object):
+    def longestCommonSubpath(self, n, paths):
+        """
+        :type n: int
+        :type paths: List[List[int]]
+        :rtype: int
+        """
+        pass
+
+Có n thành phố, đánh số từ 0 đến n - 1. Mỗi mảng paths[i] mô tả thứ tự các thành phố mà một người đã đi qua.
+
+Tìm độ dài lớn nhất của một đoạn liên tiếp xuất hiện trong tất cả các đường đi, theo cùng thứ tự.
+
+Một thành phố có thể xuất hiện nhiều lần trong một đường đi, nhưng không xuất hiện ở hai vị trí liền nhau. Nếu không có đoạn chung, trả về 0. 
+
+Ví dụ:
+
+Input:
+n = 5
+paths = [[0,1,2,3,4],[2,3,4],[4,0,1,2,3]]
+Output: 2
+Giải thích: Đoạn chung dài nhất là [2,3].
+
+Input: n = 3, paths = [[0],[1],[2]]
+Output: 0
+Ràng buộc:
+
+1 <= n <= 10^5
+2 <= paths.length <= 10^5
+Tổng độ dài của các paths[i] <= 10^5
+0 <= paths[i][j] < n
+BÀI 3 — 1982. Find Array Given Subset Sums — Hard
+
+class Solution(object):
+    def recoverArray(self, n, sums):
+        """
+        :type n: int
+        :type sums: List[int]
+        :rtype: List[int]
+        """
+        pass
+
+Có một mảng số nguyên chưa biết gồm n phần tử.
+
+Bạn được cung cấp mảng sums chứa toàn bộ 2^n tổng của các tập con theo vị trí của mảng đó, không theo thứ tự nào. Tổng của tập rỗng bằng 0; các tổng trùng nhau vẫn được giữ đủ số lần xuất hiện.
+
+Khôi phục một mảng có thể tạo ra chính xác các tổng đã cho. Phần tử có thể âm, dương hoặc bằng 0.
+
+Đề bảo đảm có ít nhất một đáp án. Nếu có nhiều đáp án, trả về bất kỳ đáp án nào. 
+
+Ví dụ:
+
+Input: n = 3, sums = [-3,-2,-1,0,0,1,2,3]
+Output: [1,2,-3]
+
+Input: n = 2, sums = [0,0,0,0]
+Output: [0,0]
+Ràng buộc:
+
+1 <= n <= 15
+sums.length == 2^n
+-10^4 <= sums[i] <= 10^4
+BÀI 4 — 1397. Find All Good Strings — Hard
+
+class Solution(object):
+    def findGoodStrings(self, n, s1, s2, evil):
+        """
+        :type n: int
+        :type s1: str
+        :type s2: str
+        :type evil: str
+        :rtype: int
+        """
+        pass
+
+Cho hai chuỗi s1, s2 cùng độ dài n và chuỗi evil.
+
+Một chuỗi hợp lệ phải:
+
+Có đúng n ký tự tiếng Anh viết thường.
+Lớn hơn hoặc bằng s1 theo thứ tự từ điển.
+Nhỏ hơn hoặc bằng s2 theo thứ tự từ điển.
+Không chứa evil dưới dạng chuỗi con liên tiếp.
+Đếm số chuỗi hợp lệ, trả về modulo 10^9 + 7. 
+
+Ví dụ:
+
+Input: n = 2, s1 = "aa", s2 = "da", evil = "b"
+Output: 51
+
+Input: n = 8, s1 = "leetcode", s2 = "leetgoes", evil = "leet"
+Output: 0
+Ràng buộc:
+
+1 <= n <= 500
+s1.length == s2.length == n
+s1 <= s2 theo thứ tự từ điển
+1 <= evil.length <= 50
+Các chuỗi chỉ chứa chữ cái tiếng Anh viết thường.
+BÀI 5 — 730. Count Different Palindromic Subsequences — Hard
+
+class Solution(object):
+    def countPalindromicSubsequences(self, s):
+        """
+        :type s: str
+        :rtype: int
+        """
+        pass
+
+Cho chuỗi s. Đếm số dãy con đối xứng khác nhau và không rỗng.
+
+Dãy con được tạo bằng cách xóa một số ký tự, giữ nguyên thứ tự các ký tự còn lại. Dãy đối xứng đọc xuôi và ngược giống nhau.
+
+Hai dãy con có nội dung giống nhau chỉ được đếm một lần, dù được lấy từ các vị trí khác nhau.
+
+Trả về kết quả modulo 10^9 + 7. 
+
+Ví dụ:
+
+Input: s = "bccb"
+Output: 6
+Sáu dãy khác nhau:
+
+"b", "c", "bb", "cc", "bcb", "bccb"
+Ràng buộc:
+
+1 <= s.length <= 1000
+s chỉ chứa các ký tự 'a', 'b', 'c', 'd'.
+BÀI 6 — 1681. Minimum Incompatibility — Hard
+
+class Solution(object):
+    def minimumIncompatibility(self, nums, k):
+        """
+        :type nums: List[int]
+        :type k: int
+        :rtype: int
+        """
+        pass
+
+Chia toàn bộ phần tử của nums vào đúng k nhóm sao cho:
+
+Các nhóm có cùng số phần tử.
+Trong một nhóm không được có hai phần tử bằng nhau.
+Mỗi phần tử của mảng được sử dụng đúng một lần.
+Chi phí của một nhóm bằng giá trị lớn nhất trừ giá trị nhỏ nhất trong nhóm.
+
+Tìm tổng chi phí nhỏ nhất. Nếu không thể chia hợp lệ, trả về -1. Các nhóm không cần là đoạn liên tiếp. 
+
+Ví dụ:
+
+Input: nums = [1,2,1,4], k = 2
+Output: 4
+Giải thích: Chia thành [1,2] và [1,4], tổng chi phí bằng 1 + 3.
+
+Input: nums = [6,3,8,1,3,1,2,2], k = 4
+Output: 6
+
+Input: nums = [5,3,3,6,3,3], k = 3
+Output: -1
+Ràng buộc:
+
+1 <= k <= nums.length <= 16
+nums.length chia hết cho k
+1 <= nums[i] <= nums.length
+BÀI 7 — 2040. Kth Smallest Product of Two Sorted Arrays — Hard
+
+class Solution(object):
+    def kthSmallestProduct(self, nums1, nums2, k):
+        """
+        :type nums1: List[int]
+        :type nums2: List[int]
+        :type k: int
+        :rtype: int
+        """
+        pass
+
+Cho hai mảng số nguyên nums1, nums2 đã sắp xếp không giảm.
+
+Xét tất cả tích:
+
+nums1[i] * nums2[j]
+Trả về tích nhỏ thứ k, đánh số từ 1. Những tích có cùng giá trị nhưng thuộc các cặp chỉ số khác nhau vẫn được tính riêng.
+
+Hai mảng có thể chứa số âm, số dương và số 0. 
+
+Ví dụ:
+
+Input: nums1 = [2,5], nums2 = [3,4], k = 2
+Output: 8
+
+Input: nums1 = [-4,-2,0,3], nums2 = [2,4], k = 6
+Output: 0
+Ràng buộc:
+
+1 <= nums1.length, nums2.length <= 5 * 10^4
+-10^5 <= nums1[i], nums2[j] <= 10^5
+1 <= k <= nums1.length * nums2.length
+Hai mảng đã được sắp xếp không giảm.
+BÀI 8 — 2188. Minimum Time to Finish the Race — Hard
+
+class Solution(object):
+    def minimumFinishTime(self, tires, changeTime, numLaps):
+        """
+        :type tires: List[List[int]]
+        :type changeTime: int
+        :type numLaps: int
+        :rtype: int
+        """
+        pass
+
+Cho các loại lốp xe:
+
+tires[i] = [f_i, r_i]
+Nếu dùng liên tiếp cùng một chiếc lốp loại i, thời gian hoàn thành vòng thứ x kể từ lúc lắp lốp là:
+
+f_i * r_i^(x - 1)
+Bạn cần hoàn thành numLaps vòng:
+
+Có vô hạn lốp mới của mỗi loại.
+Được chọn lốp bắt đầu mà không mất thời gian thay.
+Sau mỗi vòng, có thể thay lốp mới với chi phí changeTime.
+Có thể thay bằng lốp mới cùng loại; số vòng sử dụng liên tiếp được tính lại từ đầu.
+Tìm tổng thời gian ít nhất để hoàn thành cuộc đua. 
+
+Ví dụ:
+
+Input: tires = [[2,3],[3,4]], changeTime = 5, numLaps = 4
+Output: 21
+Giải thích: Dùng lốp thứ nhất hai vòng, thay lốp mới cùng loại rồi chạy hai vòng:
+
+2 + 6 + 5 + 2 + 6 = 21
+Input: tires = [[1,10],[2,2],[3,4]], changeTime = 6, numLaps = 5
+Output: 25
+Ràng buộc:
+
+1 <= tires.length <= 10^5
+1 <= f_i, changeTime <= 10^5
+2 <= r_i <= 10^5
+1 <= numLaps <= 1000
+BÀI 9 — 943. Find the Shortest Superstring — Hard
+
+class Solution(object):
+    def shortestSuperstring(self, words):
+        """
+        :type words: List[str]
+        :rtype: str
+        """
+        pass
+
+Cho danh sách chuỗi words. Tìm một chuỗi có độ dài ngắn nhất chứa mọi phần tử của words dưới dạng chuỗi con liên tiếp.
+
+Đề bảo đảm không có chuỗi nào trong words là chuỗi con của một chuỗi khác trong danh sách.
+
+Nếu có nhiều đáp án ngắn nhất, trả về bất kỳ đáp án nào. 
+
+Ví dụ:
+
+Input: words = ["alex","loves","leetcode"]
+Output: "alexlovesleetcode"
+
+Input: words = ["catg","ctaagt","gcta","ttca","atgcatc"]
+Output: "gctaagttcatgcatc"
+Ràng buộc:
+
+1 <= words.length <= 12
+1 <= words[i].length <= 20
+Các chuỗi đôi một khác nhau và chỉ chứa chữ cái viết thường.
+Không chuỗi nào là chuỗi con của chuỗi khác trong danh sách.
+BÀI 10 — 1000. Minimum Cost to Merge Stones — Hard
+
+class Solution(object):
+    def mergeStones(self, stones, k):
+        """
+        :type stones: List[int]
+        :type k: int
+        :rtype: int
+        """
+        pass
+
+Có các đống đá xếp thành hàng, đống thứ i chứa stones[i] viên.
+
+Mỗi thao tác phải gộp đúng k đống liên tiếp thành một đống. Chi phí thao tác bằng tổng số viên đá trong các đống được gộp.
+
+Tìm tổng chi phí nhỏ nhất để chỉ còn một đống. Nếu không thể, trả về -1. 
+
+Ví dụ:
+
+Input: stones = [3,2,4,1], k = 2
+Output: 20
+
+Input: stones = [3,2,4,1], k = 3
+Output: -1
+
+Input: stones = [3,5,1,2,6], k = 3
+Output: 25
+Ràng buộc:
+
+1 <= stones.length <= 30
+1 <= stones[i] <= 100
+2 <= k <= 30
+BÀI 11 — 1595. Minimum Cost to Connect Two Groups of Points — Hard
+
+class Solution(object):
+    def connectTwoGroups(self, cost):
+        """
+        :type cost: List[List[int]]
+        :rtype: int
+        """
+        pass
+
+Có hai nhóm điểm với số lượng lần lượt là size1 và size2, trong đó size1 >= size2.
+
+Ma trận cost[i][j] cho biết chi phí nối điểm i ở nhóm thứ nhất với điểm j ở nhóm thứ hai.
+
+Chọn các kết nối sao cho mọi điểm ở cả hai nhóm đều có ít nhất một kết nối sang nhóm đối diện. Một điểm được phép nối với nhiều điểm khác.
+
+Trả về tổng chi phí nhỏ nhất. 
+
+Ví dụ:
+
+Input: cost = [[15,96],[36,2]]
 Output: 17
 
-Giải thích: Chọn [3,2] và [10,1], điểm bằng 3 + 10 + 2² = 17.
-Input: items = [[3,1],[3,1],[2,2],[5,3]], k = 3
-Output: 19
+Input: cost = [[1,3,5],[4,1,1],[1,5,3]]
+Output: 4
+Ràng buộc:
+
+1 <= size2 <= size1 <= 12
+cost có kích thước size1 × size2
+0 <= cost[i][j] <= 100
+BÀI 12 — 2954. Count the Number of Infection Sequences — Hard
+
+class Solution(object):
+    def numberOfSequence(self, n, sick):
+        """
+        :type n: int
+        :type sick: List[int]
+        :rtype: int
+        """
+        pass
+
+Có n người đứng thành hàng, đánh số từ 0 đến n - 1. Các vị trí trong sick đã nhiễm bệnh từ đầu.
+
+Mỗi bước, chọn đúng một người chưa nhiễm đứng ngay cạnh một người đã nhiễm, rồi làm người đó nhiễm bệnh. Tiếp tục đến khi tất cả đều nhiễm.
+
+Một chuỗi lây nhiễm là thứ tự những người mới nhiễm, không bao gồm người đã nhiễm ban đầu.
+
+Đếm số chuỗi lây nhiễm khác nhau, modulo 10^9 + 7. 
+
+Ví dụ:
+
+Input: n = 5, sick = [0,4]
+Output: 4
+Các thứ tự hợp lệ:
+
+[1,2,3], [1,3,2], [3,2,1], [3,1,2]
+Input: n = 4, sick = [1]
+Output: 3
+Ràng buộc:
+
+2 <= n <= 10^5
+1 <= sick.length <= n - 1
+0 <= sick[i] < n
+sick được sắp xếp tăng nghiêm ngặt.
+BÀI 13 — 664. Strange Printer — Hard
+
+class Solution(object):
+    def strangePrinter(self, s):
+        """
+        :type s: str
+        :rtype: int
+        """
+        pass
+
+Một máy in hoạt động theo quy tắc:
+
+Mỗi lượt chỉ in một ký tự lặp lại trên một đoạn liên tiếp tùy chọn.
+Có thể in đè lên các ký tự đã có.
+Bắt đầu từ một vùng trống.
+Tìm số lượt in ít nhất để thu được chính xác chuỗi s. 
+
+Ví dụ:
+
+Input: s = "aaabbb"
+Output: 2
+
+Input: s = "aba"
+Output: 2
+Giải thích ví dụ thứ hai: In "aaa", sau đó in đè 'b' lên vị trí giữa.
 
 Ràng buộc:
+
+1 <= s.length <= 100
+s chỉ chứa chữ cái tiếng Anh viết thường.
+BÀI 14 — 1617. Count Subtrees With Max Distance Between Cities — Hard
+
+class Solution(object):
+    def countSubgraphsForEachDiameter(self, n, edges):
+        """
+        :type n: int
+        :type edges: List[List[int]]
+        :rtype: List[int]
+        """
+        pass
+
+Cho cây vô hướng gồm n đỉnh, đánh số từ 1 đến n, với các cạnh trong edges.
+
+Xét mỗi tập đỉnh tạo thành một cây con liên thông. Khoảng cách giữa hai đỉnh là số cạnh trên đường đi giữa chúng.
+
+Với mỗi d từ 1 đến n - 1, đếm số tập đỉnh liên thông có khoảng cách lớn nhất giữa hai đỉnh bằng d.
+
+Trả về mảng answer có độ dài n - 1, trong đó answer[d - 1] là số lượng tương ứng. Hai cây con khác nhau nếu tập đỉnh khác nhau. 
+
+Ví dụ:
+
+Input: n = 4, edges = [[1,2],[2,3],[2,4]]
+Output: [3,4,0]
+
+Input: n = 3, edges = [[1,2],[2,3]]
+Output: [2,1]
+Ràng buộc:
+
+2 <= n <= 15
+edges.length == n - 1
+1 <= u, v <= n
+Các cạnh tạo thành một cây hợp lệ.
+BÀI 15 — 2813. Maximum Elegance of a K-Length Subsequence — Hard
+
+class Solution(object):
+    def findMaximumElegance(self, items, k):
+        """
+        :type items: List[List[int]]
+        :type k: int
+        :rtype: int
+        """
+        pass
+
+Cho các phần tử:
+
+items[i] = [profit_i, category_i]
+Chọn một dãy con gồm đúng k phần tử. Điểm của dãy được chọn là:
+
+Tổng lợi nhuận + (số loại category khác nhau)^2
+Trả về điểm lớn nhất có thể đạt được. 
+
+Ví dụ:
+
+Input: items = [[3,2],[5,1],[10,1]], k = 2
+Output: 17
+Giải thích: Chọn [3,2] và [10,1], điểm bằng 3 + 10 + 2² = 17.
+
+Input: items = [[3,1],[3,1],[2,2],[5,3]], k = 3
+Output: 19
+Ràng buộc:
+
 1 <= items.length == n <= 10^5
 1 <= profit_i <= 10^9
 1 <= category_i <= n
 1 <= k <= n
-
 BÀI 16 — 2407. Longest Increasing Subsequence II — Hard
-class Solution(object):    def lengthOfLIS(self, nums, k):        """        :type nums: List[int]        :type k: int        :rtype: int        """        pass
 
+class Solution(object):
+    def lengthOfLIS(self, nums, k):
+        """
+        :type nums: List[int]
+        :type k: int
+        :rtype: int
+        """
+        pass
 
 Cho mảng nums và số nguyên k.
 
 Tìm độ dài dãy con dài nhất thỏa mãn:
-- Các phần tử tăng nghiêm ngặt.
-- Hiệu giữa hai phần tử kề nhau trong dãy con không vượt quá k.
-Dãy con giữ nguyên thứ tự xuất hiện trong mảng, không cần liên tiếp. LeetCode
+
+Các phần tử tăng nghiêm ngặt.
+Hiệu giữa hai phần tử kề nhau trong dãy con không vượt quá k.
+Dãy con giữ nguyên thứ tự xuất hiện trong mảng, không cần liên tiếp. 
 
 Ví dụ:
+
 Input: nums = [4,2,1,4,3,4,5,8,15], k = 3
 Output: 5
-
 Một đáp án là [1,3,4,5,8].
+
 Input: nums = [7,4,5,1,8,12,4,7], k = 5
 Output: 4
 
 Input: nums = [1,5], k = 1
 Output: 1
-
 Ràng buộc:
+
 1 <= nums.length <= 10^5
 1 <= nums[i], k <= 10^5
-
 BÀI 17 — 920. Number of Music Playlists — Hard
-class Solution(object):    def numMusicPlaylists(self, n, goal, k):        """        :type n: int        :type goal: int        :type k: int        :rtype: int        """        pass
 
+class Solution(object):
+    def numMusicPlaylists(self, n, goal, k):
+        """
+        :type n: int
+        :type goal: int
+        :type k: int
+        :rtype: int
+        """
+        pass
 
 Có n bài hát khác nhau. Tạo playlist gồm đúng goal lượt phát sao cho:
-- Mỗi bài hát xuất hiện ít nhất một lần.
-- Chỉ được phát lại một bài sau khi đã phát ít nhất k bài khác kể từ lần phát gần nhất của bài đó.
-Đếm số playlist hợp lệ, modulo 10^9 + 7. Thứ tự phát khác nhau được tính là playlist khác nhau. LeetCode
+
+Mỗi bài hát xuất hiện ít nhất một lần.
+Chỉ được phát lại một bài sau khi đã phát ít nhất k bài khác kể từ lần phát gần nhất của bài đó.
+Đếm số playlist hợp lệ, modulo 10^9 + 7. Thứ tự phát khác nhau được tính là playlist khác nhau. 
 
 Ví dụ:
+
 Input: n = 3, goal = 3, k = 1
 Output: 6
 
@@ -68,24 +556,33 @@ Output: 6
 
 Input: n = 2, goal = 3, k = 1
 Output: 2
-
 Ví dụ cuối chỉ có [1,2,1] và [2,1,2].
 
 Ràng buộc:
+
 0 <= k < n <= goal <= 100
-
 BÀI 18 — 1610. Maximum Number of Visible Points — Hard
-class Solution(object):    def visiblePoints(self, points, angle, location):        """        :type points: List[List[int]]        :type angle: int        :type location: List[int]        :rtype: int        """        pass
 
+class Solution(object):
+    def visiblePoints(self, points, angle, location):
+        """
+        :type points: List[List[int]]
+        :type angle: int
+        :type location: List[int]
+        :rtype: int
+        """
+        pass
 
 Bạn đứng tại tọa độ location, có góc nhìn rộng angle độ. Bạn có thể xoay tùy ý nhưng không được di chuyển.
 
 Cho các điểm points, tìm số điểm lớn nhất có thể nhìn thấy cùng lúc.
-- Điểm nằm trên biên góc nhìn vẫn được tính.
-- Các điểm không che khuất nhau.
-- Nhiều điểm có thể trùng tọa độ và vẫn được tính riêng.
-- Điểm trùng vị trí của bạn luôn nhìn thấy, bất kể hướng nhìn. LeetCode
+
+Điểm nằm trên biên góc nhìn vẫn được tính.
+Các điểm không che khuất nhau.
+Nhiều điểm có thể trùng tọa độ và vẫn được tính riêng.
+Điểm trùng vị trí của bạn luôn nhìn thấy, bất kể hướng nhìn. 
 Ví dụ:
+
 Input:
 points = [[2,1],[2,2],[3,3]]
 angle = 90
@@ -97,69 +594,85 @@ points = [[1,0],[2,1]]
 angle = 13
 location = [1,1]
 Output: 1
-
 Ràng buộc:
+
 1 <= points.length <= 10^5
 0 <= angle < 360
 Mọi tọa độ là số nguyên trong [0,100].
-
 BÀI 19 — 1568. Minimum Number of Days to Disconnect Island — Hard
-class Solution(object):    def minDays(self, grid):        """        :type grid: List[List[int]]        :rtype: int        """        pass
 
+class Solution(object):
+    def minDays(self, grid):
+        """
+        :type grid: List[List[int]]
+        :rtype: int
+        """
+        pass
 
 Cho lưới nhị phân grid:
-- 1 là đất.
-- 0 là nước.
+
+1 là đất.
+0 là nước.
 Một đảo là một nhóm ô đất liên thông theo bốn hướng. Lưới được coi là liên thông chỉ khi có đúng một đảo; có 0 đảo hoặc nhiều hơn một đảo đều được coi là không liên thông.
 
 Mỗi ngày được đổi một ô đất thành nước.
 
-Tìm số ngày ít nhất để lưới không còn liên thông. Nếu ban đầu đã không liên thông, trả về 0. LeetCode
+Tìm số ngày ít nhất để lưới không còn liên thông. Nếu ban đầu đã không liên thông, trả về 0. 
 
 Ví dụ:
+
 Input: grid = [[0,1,1,0],[0,1,1,0],[0,0,0,0]]
 Output: 2
 
 Input: grid = [[1,1]]
 Output: 2
-
 Ví dụ thứ hai cần xóa cả hai ô đất để còn 0 đảo.
 
 Ràng buộc:
+
 1 <= grid.length <= 30
 1 <= grid[i].length <= 30
 grid[i][j] thuộc {0,1}.
-
 BÀI 20 — 2076. Process Restricted Friend Requests — Hard
-class Solution(object):    def friendRequests(self, n, restrictions, requests):        """        :type n: int        :type restrictions: List[List[int]]        :type requests: List[List[int]]        :rtype: List[bool]        """        pass
 
+class Solution(object):
+    def friendRequests(self, n, restrictions, requests):
+        """
+        :type n: int
+        :type restrictions: List[List[int]]
+        :type requests: List[List[int]]
+        :rtype: List[bool]
+        """
+        pass
 
 Có n người, đánh số từ 0 đến n - 1, ban đầu chưa có quan hệ bạn bè.
 
 Mỗi cặp [x,y] trong restrictions quy định rằng x và y không được kết nối trực tiếp hoặc gián tiếp thông qua chuỗi quan hệ bạn bè.
 
 Xử lý lần lượt các yêu cầu [u,v] trong requests:
-- Chấp nhận nếu thêm quan hệ không vi phạm bất kỳ hạn chế nào.
-- Nếu chấp nhận, quan hệ được giữ lại cho các yêu cầu tiếp theo.
-- Nếu từ chối, mạng lưới không thay đổi.
-- Nếu hai người đã là bạn, yêu cầu vẫn được chấp nhận.
-Trả về danh sách boolean cho biết kết quả từng yêu cầu. LeetCode
+
+Chấp nhận nếu thêm quan hệ không vi phạm bất kỳ hạn chế nào.
+Nếu chấp nhận, quan hệ được giữ lại cho các yêu cầu tiếp theo.
+Nếu từ chối, mạng lưới không thay đổi.
+Nếu hai người đã là bạn, yêu cầu vẫn được chấp nhận.
+Trả về danh sách boolean cho biết kết quả từng yêu cầu. 
 
 Ví dụ:
+
 Input:
 n = 3
 restrictions = [[0,1]]
 requests = [[0,2],[2,1]]
 Output: [true,false]
-
 Giải thích: Sau khi 0 kết bạn với 2, chấp nhận [2,1] sẽ khiến 0 và 1 kết nối gián tiếp.
+
 Input:
 n = 5
 restrictions = [[0,1],[1,2],[2,3]]
 requests = [[0,4],[1,2],[3,1],[3,4]]
 Output: [true,false,true,false]
-
 Ràng buộc:
+
 2 <= n <= 1000
 0 <= restrictions.length <= 1000
 1 <= requests.length <= 1000

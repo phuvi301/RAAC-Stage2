@@ -6,7 +6,7 @@ import hashlib
 import unittest
 
 from raac.harness.layer2_core.context_manager import (
-    RoleContextPolicy, compact_request, compact_schema, prepare_messages, trim_checkpoint_receipts, select_task_input,
+    RoleContextPolicy, compact_request, compact_schema, prepare_messages, trim_checkpoint_receipts,
 )
 
 
@@ -37,6 +37,24 @@ class RoleContextTests(unittest.TestCase):
         analyst = compact_request({"requirement": "Full task", "incoming_message": {"from": "caller", "requirement": "Full task"}})
         self.assertEqual(analyst["incoming_message"]["requirement_ref"], "requirement")
 
+    def test_hydrator_and_compaction_preserve_the_supplied_role_view(self):
+        from pathlib import Path
+        from raac.registry.loader import load_registry
+        from raac.harness.layer2_core.prompt_hydrator import hydrate_messages
+        registry = load_registry(Path(__file__).resolve().parents[3] / "registry")
+        request = {"requirement": "Caller-selected raw text", "artifacts": {
+            "plan": {"steps": [{"id": 1, "description": "Caller-selected implementation detail"}]},
+            "patch": "Caller-selected full diff" * 200},
+            "repository_changes": [{"path": "app.py", "deleted": False}]}
+        original = deepcopy(request)
+        for recipient in ("Analyst", "Planner", "Coder", "Tester", "Reviewer"):
+            for enabled in (True, False):
+                with self.subTest(role=recipient, compact=enabled):
+                    payload = json.loads(hydrate_messages(registry.get(recipient), request, compact=enabled)[1]["content"])
+                    self.assertEqual(payload, request)
+        self.assertEqual(compact_request(request), request)
+        self.assertEqual(request, original)
+
     def test_schema_removes_annotations_but_keeps_title_property_and_constraints(self):
         schema = {"title": "Work", "type": "object", "properties": {
             "title": {"title": "Title", "type": "string", "minLength": 1},
@@ -49,114 +67,6 @@ class RoleContextTests(unittest.TestCase):
         self.assertEqual(result["properties"]["settings"]["default"], {"title": "user data"})
         self.assertEqual(result["required"], ["title"])
 
-    def test_handoff_views_keep_contracts_and_authoritative_task_data_without_mutating_audit(self):
-        plan = {"steps": [{"id": "S1", "ac_ids": ["AC1"], "target": "src/service.py::run",
-                           "approach": "IMPLEMENTATION_ONLY " * 100, "complexity": "O(n)",
-                           "risks": ["Boundary overflow"]}],
-                "interface_contracts": {"result": "Return a sorted list"}, "covered_ac_ids": ["AC1"]}
-        request = {"requirement": "Keep the ENTIRE user chat", "constraints": ["No new dependencies"],
-                   "acceptance_criteria": [{"id": "AC1", "description": "Exact inherited AC"}],
-                   "artifacts": {"spec": {"summary": "Compatibility facts", "acceptance_criteria": [
-                       {"id": "AC1", "description": "Exact inherited AC"}], "constraints": ["Preserve API"]},
-                       "plan": plan, "patch": "full diff", "patch_hash": "revision",
-                       "test_report": {"blocking_issues": ["Unresolved boundary"]},
-                       "coder_evidence": [{"exit_code": 1}], "coder_summary": "Known blocker"},
-                   "incoming_message": {"from": "Planner", "content": plan}}
-        original = deepcopy(request)
-        coder = compact_request(request, role="Coder")
-        tester = compact_request(request, role="Tester")
-        reviewer = compact_request(request, role="Reviewer")
-        self.assertEqual(coder["artifacts"]["plan"], plan)
-        self.assertEqual(tester["artifacts"]["plan"], {"interface_contracts": plan["interface_contracts"]})
-        self.assertNotIn("IMPLEMENTATION_ONLY", json.dumps(tester))
-        self.assertEqual(reviewer["artifacts"]["plan"]["decisions"][0]["risks"], ["Boundary overflow"])
-        self.assertEqual(reviewer["artifacts"]["plan"]["decisions"][0]["complexity"], "O(n)")
-        self.assertNotIn("steps", reviewer["artifacts"]["plan"])
-        for view in (coder, tester, reviewer):
-            for field in ("constraints", "acceptance_criteria"):
-                self.assertEqual(view[field], original[field])
-            for artifact in ("spec", "test_report", "coder_evidence", "coder_summary", "patch_hash", "patch"):
-                self.assertEqual(view["artifacts"][artifact], original["artifacts"][artifact])
-            self.assertEqual(view["incoming_message"]["content_ref"], "artifacts.plan")
-        self.assertNotIn("requirement", coder)
-        self.assertNotIn("requirement", tester)
-        self.assertEqual(reviewer["requirement"], original["requirement"])
-        self.assertEqual(request, original)
-        self.assertLess(len(json.dumps(tester)), len(json.dumps(coder)) // 2)
-
-    def test_raw_context_keeps_full_plan_and_role_projection_is_idempotent(self):
-        from pathlib import Path
-        from raac.registry.loader import load_registry
-        from raac.harness.layer2_core.prompt_hydrator import hydrate_messages
-        role = load_registry(Path(__file__).resolve().parents[3] / "registry").get("Tester")
-        request = {"requirement": "Keep task", "artifacts": {"plan": {"steps": [
-            {"id": "S1", "ac_ids": ["AC1"], "target": "service", "approach": "Design choice"}],
-            "interface_contracts": {}}}}
-        raw = json.loads(hydrate_messages(role, request, compact=False)[1]["content"])
-        compact = json.loads(hydrate_messages(role, request)[1]["content"])
-        self.assertEqual(raw, {"artifacts": request["artifacts"]})
-        self.assertEqual(compact["artifacts"]["plan"], {"interface_contracts": {}})
-        for recipient in ("Coder", "Tester", "Reviewer"):
-            view = compact_request(request, role=recipient)
-            self.assertEqual(compact_request(view, role=recipient), view)
-
-    def test_legacy_review_plan_is_preserved_when_decisions_cannot_be_projected(self):
-        request = {"artifacts": {"plan": {"approach": "Legacy design", "steps": ["Inspect risk"]}}}
-        self.assertEqual(compact_request(request, role="Reviewer"), request)
-
-    def test_raw_chat_only_reaches_analyst_and_reviewer_even_with_compaction_disabled(self):
-        from pathlib import Path
-        from raac.registry.loader import load_registry
-        from raac.harness.layer2_core.prompt_hydrator import hydrate_messages
-        registry = load_registry(Path(__file__).resolve().parents[3] / "registry")
-        spec = {"summary": "Implement add", "acceptance_criteria": [
-            {"id": "AC1", "description": "Return mathematical sum"}],
-            "constraints": ["O(1)"], "interface_contracts": {"add": "add(a: int, b: int) -> int"}}
-        request = {"requirement": "RAW_CHAT_ONLY_MARKER", "artifacts": {"spec": spec},
-                   "incoming_message": {"from": "caller", "content": "RAW_CHAT_ONLY_MARKER",
-                                        "requirement": "RAW_CHAT_ONLY_MARKER", "requirement_ref": "requirement"}}
-        original = deepcopy(request)
-        for recipient in ("Analyst", "Planner", "Coder", "Tester", "Reviewer"):
-            for enabled in (True, False):
-                with self.subTest(role=recipient, compact=enabled):
-                    messages = hydrate_messages(registry.get(recipient), request, compact=enabled)
-                    payload = json.loads(messages[1]["content"])
-                    self.assertEqual(payload["artifacts"]["spec"], spec)
-                    if recipient in {"Analyst", "Reviewer"}:
-                        self.assertEqual(payload["requirement"], "RAW_CHAT_ONLY_MARKER")
-                    else:
-                        self.assertNotIn("RAW_CHAT_ONLY_MARKER", json.dumps(payload))
-                        self.assertNotIn("requirement", payload)
-                        self.assertEqual(payload["incoming_message"]["content_ref"], "artifacts.spec")
-                        self.assertEqual(payload["incoming_message"]["requirement_ref"], "artifacts.spec")
-        self.assertEqual(request, original)
-
-    def test_role_selection_is_idempotent_and_does_not_leave_missing_requirement_references(self):
-        request = {"requirement": "raw chat", "incoming_message": {
-            "from": "caller", "requirement": "raw chat", "content_ref": "requirement"}}
-        original = deepcopy(request)
-        for recipient in ("Analyst", "Planner", "Coder", "Tester", "Reviewer"):
-            view = select_task_input(request, role=recipient)
-            self.assertEqual(select_task_input(view, role=recipient), view)
-            if recipient not in {"Analyst", "Reviewer"}:
-                self.assertEqual(view, {"incoming_message": {"from": "caller"}})
-        self.assertEqual(request, original)
-
-    def test_tester_uses_changed_file_references_while_reviewer_keeps_full_patch(self):
-        patch = "full source diff\n" * 1000
-        request = {"requirement": "Full user task", "repository_changes": [
-            {"path": "src/app.py", "deleted": False}, {"path": "old.py", "deleted": True}],
-            "artifacts": {"patch": patch, "patch_hash": "revision", "spec": {"acceptance_criteria": ["AC1"]}},
-            "incoming_message": {"from": "Coder", "patch": patch, "patch_hash": "revision"}}
-        tester = compact_request(request, role="Tester")
-        self.assertNotIn("patch", tester["artifacts"])
-        self.assertEqual(tester["artifacts"]["patch_hash"], "revision")
-        self.assertEqual(tester["artifacts"]["spec"], request["artifacts"]["spec"])
-        self.assertEqual(tester["incoming_message"]["patch_ref"], "artifacts.patch_context")
-        self.assertEqual(tester["repository_changes"], request["repository_changes"])
-        self.assertEqual(compact_request(request, role="Reviewer")["artifacts"]["patch"], patch)
-        without_paths = {**request, "repository_changes": []}
-        self.assertEqual(compact_request(without_paths, role="Tester")["artifacts"]["patch"], patch)
 
     def test_write_receipt_does_not_repeat_code_or_claim_failed_write_succeeded(self):
         code = "unique_source_marker\n" * 800

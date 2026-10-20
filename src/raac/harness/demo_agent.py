@@ -1,6 +1,7 @@
 """Minimal Registry → 9router → tools adapter for Chain; not full Layer 1."""
 
 import asyncio
+from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
@@ -13,7 +14,7 @@ from raac.collaboration.levels.l3_collaboration.chain_state import (
     RoleHandoff, parse_role_output,
 )
 from raac.harness.layer2_core.prompt_hydrator import hydrate_messages
-from raac.harness.layer2_core.context_manager import RoleContextPolicy, compact_tools, prepare_messages, select_task_input
+from raac.harness.layer2_core.context_manager import RoleContextPolicy, compact_tools, prepare_messages
 
 
 class DemoAgentRunner:
@@ -46,12 +47,10 @@ class DemoAgentRunner:
 
     async def __call__(self, name: str, request: dict) -> dict | RoleHandoff:
         role = self.registry.get(name)
-        request = select_task_input(request, role=role.spec.name)
+        request = deepcopy(request)
         listing = self.tools.workspace.list_files(limit=200)
         request["repository_files"] = [entry["path"] for entry in listing["files"]]
         request["repository_listing_truncated"] = listing["truncated"]
-        request["repository_changes"] = [{"path": path, "deleted": not (self.tools.workspace.root / path).is_file()}
-                                         for path in sorted(self.tools.workspace.coder_paths)]
         request["execution_environment"] = {
             "mode": "local", "platform": sys.platform,
             "repo_dir": str(self.tools.workspace.root),
@@ -176,6 +175,8 @@ class DemoAgentRunner:
                 return RoleHandoff(patch, {
                     "summary": "Workspace changes saved" if patch else "No workspace changes",
                     "execution_evidence": self.tools.execution_evidence(context, final_hash),
+                    "repository_changes": [{"path": path, "deleted": not (self.tools.workspace.root / path).is_file()}
+                                           for path in sorted(self.tools.workspace.coder_paths)],
                 })
             output = parse_role_output(name, content).model_dump()
             if name == "Tester":

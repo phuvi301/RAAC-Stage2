@@ -178,11 +178,26 @@ Mọi role sau Analyst đều nhận ac_catalog qua artifacts.
 | Tester → Reviewer qua check/limit | Spec, Plan, patch/hash, TestReport và evidence; cùng yêu cầu gốc. |
 | Reviewer → Result | ReviewReport, verdict hiệu lực, artifact cuối, số lượt và lý do dừng. |
 
-User chat gốc chỉ gửi Analyst/Reviewer, độc lập context compaction.
-Khi compaction bật, Tester chỉ nhận Plan.interface_contracts; Reviewer nhận
-Plan.decisions gồm id/description/files/depends_on/ac_ids cùng contract;
-Coder nhận đủ steps. Spec và catalog giữ đầy đủ, state/audit giữ Plan gốc.
+`chain_handoff.prepare_role_request()` được gọi trong `ChainNodes._call()`
+trước khi giao request cho runner. Đây là nơi duy nhất quyết định góc nhìn
+của role: user chat gốc chỉ gửi Analyst/Reviewer; Tester chỉ nhận
+Plan.interface_contracts; Reviewer nhận Plan.decisions gồm
+id/description/files/depends_on/ac_ids cùng contract; Coder nhận đủ steps.
+Chính sách này áp dụng cả khi tắt compaction. Spec và catalog giữ đầy đủ,
+ChainState và result giữ Plan gốc; log agent_started ghi request đã chọn.
 incoming_message có thể dùng field _ref trỏ tới artifact đã có trong request.
+
+Runner ghi nhận repository_changes từ workspace thực tế vào RoleHandoff.runtime
+của Coder. Node kiểm tra cấu trúc rồi lưu vào ChainState, đưa vào request sau.
+Khi có danh sách này, L3 thay patch dài hơn 2000 ký tự của Tester hoặc
+previous_patch của Coder retry bằng tham chiếu file; Reviewer giữ full diff.
+Nếu chưa có changed paths từ runner, L3 giữ patch đầy đủ, không tự đoán đường dẫn.
+
+DemoAgentRunner thực thi request đã được chọn, bổ sung listing/môi trường,
+gọi LLM và tools. Prompt hydrator ghép system/task, không lọc lại theo role.
+Context manager chỉ rút gọn biểu diễn (schema annotations, dữ liệu trùng) và
+lịch sử tool/file context trong role; không chứa chính sách bàn giao Chain.
+Tắt context.enabled chỉ tắt compaction, không thay dữ liệu role được nhận.
 
 ### Giữ nguyên flow và hiệu lực revision
 

@@ -26,13 +26,16 @@ from raac.registry.loader import load_registry
 
 class DemoError(RuntimeError):
     """Fixed actionable messages, without raw config/provider bodies."""
-
+    
 
 async def execute(args) -> int:
-    project = Path(__file__).resolve().parents[2]
+    #find framework RAAC root directory, load .env and configs, and prepare the MAS
+    project = Path(__file__).resolve().parents[2] 
     load_dotenv(project / ".env")
     llm_path = project / "configs/llm.yaml"
     llm_config = load_llm_config(llm_path, model=args.model, base_url=args.base_url)
+    
+    # Nếu lệnh là models Nó chỉ lấy danh sách model rồi kết thúc.
     if args.command == "models":
         client = LLMClient(llm_config, log_path=project / "results/model-check.jsonl")
         try:
@@ -40,6 +43,8 @@ async def execute(args) -> int:
         finally:
             await client.aclose()
         return 0
+
+    # Nếu lệnh là run-chain, nó sẽ load các configs và chuẩn bị môi trường để chạy MAS.
     harness_path = project / "configs/harness.yaml"
     level_path = project / "configs/levels/l3_collaboration.yaml"
     harness = yaml.safe_load(harness_path.read_text(encoding="utf-8-sig"))
@@ -53,20 +58,29 @@ async def execute(args) -> int:
     )
     policy = LocalExecutionPolicy.model_validate(harness["execution"])
     context_policy = RoleContextPolicy.model_validate(harness.get("context", {}))
+
+    # Nạp registry và role models, chuẩn bị workspace và client LLM.
     registry = load_registry(project / "registry")
     try:
         role_models = llm_config.resolve_role_models({role.id: role.model.ref for role in registry.roles.values()})
     except ValueError as exc:
         raise DemoError(str(exc) + "; no task was sent") from None
+
+    # Tao một run_id duy nhất cho lần chạy này, chuẩn bị thư mục output và executor.
     run_id = "chain-" + uuid.uuid4().hex
     output_dir = (project / "results" / run_id).resolve()
-    executor = LocalExecutor(policy)
+
+    # Tạo bộ chạy command và test local.
+    executor = LocalExecutor(policy) 
     try:
+        # thành phần thao tác repository của task.
         workspace = WorkspaceTools(Path(args.project_dir).resolve(), executor)
     except FileNotFoundError:
         raise DemoError("Missing project input: --project-dir must contain a repo/ directory "
                         "and requirement/user_chat.txt. No previous result was loaded.") from None
-    # The MAS receives only user chat and repo. No built-in task/test fixture.
+
+
+    # Lưu trữ các thông tin cấu hình và trạng thái hiện tại của MAS để phục vụ cho việc thu thập provenance.
     effective = {"llm": llm_config.model_dump(),
                  "role_models": {role_id: settings.model_dump() for role_id, settings in role_models.items()},
                  "chain_limits": limits.model_dump(),
@@ -79,22 +93,53 @@ async def execute(args) -> int:
     provenance["workspace"] = {"mode": "in_place", "project_dir": str(workspace.project),
                                "repo_dir": str(workspace.root),
                                "requirement_files": sorted(workspace.requirement_files)}
+
+    # Tạo HTTP client, bộ đếm token và logger.
     client = LLMClient(llm_config, log_path=output_dir / "llm.jsonl")
     if type(harness["trace_content"]) is not bool:
         await client.aclose()
         raise DemoError("trace_content in configs/harness.yaml must be true or false")
     client.trace_content = harness["trace_content"]
-    tools = ToolOrchestrator(workspace, timeout_seconds=policy.timeout_seconds + 15, trace=client.trace_event)
-    runner = DemoAgentRunner(registry, client, tools, provenance=provenance,
-                             token_limit=harness["token_limit"], context_policy=context_policy)
+    
+    # Tạo bộ kiểm tra quyền và điều phối tool.
+    tools = ToolOrchestrator(
+        workspace, 
+        timeout_seconds=policy.timeout_seconds + 15, 
+        trace=client.trace_event # gửi log tool về client để ghi vào llm.jsonl
+    )
+
+    # Ghép registry → Layer 2 → LLM client → tool.
+    runner = DemoAgentRunner(
+        registry, # Registry chứa các mô hình và công cụ
+        client, # Client LLM để giao tiếp với mô hình ngôn ngữ
+        tools, # thực thi tool
+        provenance=provenance, # Thông tin tin đi kèm log
+        token_limit=harness["token_limit"], # Giới hạn token cho mỗi lần gọi LLM
+        context_policy=context_policy   #quản lý ngữ cảnh cho các vai trò
+    )
+
+    # Tạo đầu vào của Chain: ID, yêu cầu và baseline.
     task_id = "task-" + hashlib.sha256(workspace.requirement.encode("utf-8")).hexdigest()[:16]
-    work = WorkItem(run_id=run_id, task_id=task_id, work_id=task_id,
-                    scope="task", requirement=workspace.requirement, baseline_ref=workspace.baseline_ref)
+    work = WorkItem(
+        run_id=run_id, 
+        task_id=task_id, 
+        work_id=task_id,            
+        scope="task", 
+        requirement=workspace.requirement, 
+        baseline_ref=workspace.baseline_ref
+    )
+
     try:
+        # Dựng graph và thực sự chạy
         trace_context = {"run_id": run_id, "task_id": task_id, "level": "L3"}
         client.trace_event(trace_context, "run_started", decision=decision.model_dump(),
                            workspace=provenance["workspace"])
-        graph = build_collaboration_graph(decision, ChainNodes(runner, budget_guard=runner.budget_guard))
+
+        graph = build_collaboration_graph(
+            decision, 
+            ChainNodes(runner, budget_guard=runner.budget_guard)
+        )
+
         initial_state = initial_chain_state(work, limits)
         initial_state["events"] = [{"node": "coordinator", "event": "topology_selected",
                                     "round": 0, "topology": decision.topology,
@@ -102,9 +147,12 @@ async def execute(args) -> int:
                                     "run_id": run_id, "task_id": work.task_id,
                                     "work_id": work.work_id, "scope": work.scope,
                                     "decision": decision.model_dump()}]
+
+        # Thực hiện graph và thu thập kết quả
         state = await graph.ainvoke(initial_state, {
             "recursion_limit": 4 * limits.max_rounds + 12,
         })
+        # Ghi lại kết quả, trạng thái, provenance, quyết định của coordinator, thông tin thực thi và usage vào llm.jsonl
         record = {**state["result"], "events": state["events"], "provenance": provenance,
                   "coordinator_decision": decision.model_dump(),
                   "execution": {"mode": "local", "repo_dir": str(workspace.root),
@@ -144,6 +192,8 @@ def main(argv=None) -> int:
     parser.add_argument("--base-url", default=None)
     parser.add_argument("--max-rounds", type=int, default=None)
     args = parser.parse_args(argv)
+
+    # Validate arguments for show-log command
     if args.command == "show-log":
         if bool(args.run_id) == bool(args.log):
             parser.error("show-log requires exactly one of --run-id ID or --log PATH")
@@ -169,6 +219,8 @@ def main(argv=None) -> int:
             print("Cannot read log; check --run-id or --log path.", file=sys.stderr)
             return 2
         return 0
+
+    # Validate arguments for run-chain command
     if args.command == "run-chain" and not args.project_dir:
         parser.error("run-chain requires --project-dir PATH (containing repo/ and requirement/user_chat.txt)")
     try:

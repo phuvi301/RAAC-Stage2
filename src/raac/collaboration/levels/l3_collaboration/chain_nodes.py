@@ -14,6 +14,7 @@ from typing import Any, Callable, Protocol
 from raac.collaboration.topologies import CHAIN
 from raac.common.errors import AgentExecutionError, RunGuardError
 
+from .chain_handoff import prepare_role_request
 from .chain_state import (
     ChainState, CodeOutput, ReviewReport, RoleHandoff, execution_report, parse_role_output, role_output_model,
 )
@@ -73,6 +74,7 @@ class ChainNodes:
             "events": [*events, self._event(state, node, "chain_aborted", reason=reason)],
         }
 
+    # Kiểm tra deadline và ngân sách trước khi gọi agent. Nếu vượt quá, trả về trạng thái bị gián đoạn.
     def _guard(self, state, node):
         if time.time() >= state["deadline_at"]:
             return self._abort(state, node, "timeout")
@@ -85,18 +87,20 @@ class ChainNodes:
                 return self._abort(state, node, "budget_exceeded")
         return None
 
+    # chuẩn bị dữ liệu bàn giao, schema output và gọi runner.
     async def _call(self, state, node, role, incoming, artifacts):
         interrupted = self._guard(state, node)
         if interrupted:
             return None, interrupted, []
         round_number = state["round_number"] + (node == "coder")
-        request = deepcopy({
+        request = prepare_role_request({
             **state["work"], "topology": CHAIN.topology_id, "topology_version": CHAIN.version,
             "round": round_number, "max_rounds": state["limits"]["max_rounds"],
             "incoming_message": incoming, "artifacts": {"ac_catalog": state["ac_catalog"], **artifacts},
+            "repository_changes": state.get("repository_changes", []),
             "output_format": "unified_diff" if role == "Coder" else "json",
             "output_schema": role_output_model(role).model_json_schema(),
-        })
+        }, role=role)
         events = [self._event(state, node, "agent_started", role=role, round=round_number)]
         try:
             timeout = min(
@@ -182,7 +186,8 @@ class ChainNodes:
         try:
             output = CodeOutput(patch=output.output,
                                 summary=output.runtime.get("summary", "Coder supplied a cumulative patch"),
-                                execution_evidence=output.runtime.get("execution_evidence", [])).model_dump()
+                                execution_evidence=output.runtime.get("execution_evidence", []),
+                                repository_changes=output.runtime.get("repository_changes", [])).model_dump()
         except (ValueError, TypeError):
             return self._abort(state, "coder", "invalid_output", events=events)
         patch_hash = hashlib.sha256(
@@ -191,6 +196,7 @@ class ChainNodes:
         return {
             "patch": output["patch"], "patch_hash": patch_hash,
             "coder_evidence": output["execution_evidence"],
+            "repository_changes": output["repository_changes"],
             "coder_summary": output["summary"],
             "round_number": state["round_number"] + 1,
             "test_report": None, "review_report": None, "tests_passed": False,
@@ -283,7 +289,7 @@ class ChainNodes:
                 "completed" if state["verdict"] == "PASS" else "rejected"
             ),
             **{key: deepcopy(state[key]) for key in (
-                "spec", "ac_catalog", "plan", "patch", "patch_hash", "coder_evidence", "coder_summary", "test_report", "review_report",
+                "spec", "ac_catalog", "plan", "patch", "patch_hash", "coder_evidence", "coder_summary", "repository_changes", "test_report", "review_report",
                 "verdict", "stop_reason", "error", "round_number", "rounds_completed",
             )},
         }

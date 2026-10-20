@@ -65,8 +65,8 @@ Thư mục `src/raac/harness/layer1_lifecycle/`.
 Thư mục `src/raac/harness/layer2_core/`.
 
 - [ ] `memory/short_term.py` lưu bộ nhớ trong phiên và được reset sau mỗi run (Vũ)
-- [~] `context_manager.py` cắt hoặc tóm tắt lịch sử để vừa context window (Vũ) — MAS có compaction, checkpoint receipt và cache file theo hash; chưa context window/resume toàn harness.
-- [~] `prompt_hydrator.py` ghép system prompt từ role, memory, state hiện tại và danh sách tool khả dụng (Vũ) — MAS dùng Registry chung, allowlist theo role, Plan theo role và chính sách raw chat; chưa memory toàn harness.
+- [~] `context_manager.py` cắt hoặc tóm tắt lịch sử để vừa context window (Vũ) — MAS có compaction biểu diễn, checkpoint receipt và cache file theo hash; chính sách dữ liệu theo role đã chuyển về L3/chain_handoff.py; chưa context window/resume toàn harness.
+- [~] `prompt_hydrator.py` ghép system prompt từ role, memory, state hiện tại và danh sách tool khả dụng (Vũ) — MAS ghép prompt/allowlist và request đã được Chain chọn, không tự lọc raw chat hoặc Plan theo role; chưa memory toàn harness.
 - [~] Prompt hydrator ghi lại version prompt đã dùng vào log (Vũ) — MAS ghi version/hash Registry chung 0.17.1 và prompt chain-v4 vào log; chưa nghiệm thu toàn harness.
 - [ ] `memory/long_term.py` và `retriever.py` chỉ là stub có interface, long-term memory được tắt trong benchmark (Tuấn)
 - [ ] Test xác nhận task/run mới không kế thừa memory hoặc checkpoint của run trước; resume chỉ khôi phục đúng run đang tiếp tục (Vũ)
@@ -303,6 +303,8 @@ Ghi chú tuần 9
 - [~] Dừng khi test qua, reviewer chấp thuận hoặc chạm số vòng tối đa, và log lý do dừng — Chain có timeout, trần vòng/ngân sách và log lý do dừng; PASS cần test đạt và Reviewer chấp thuận; chưa nghiệm thu L3 trên ba task thật.
 - [ ] Chạy L3 trên 3 task mẫu, xem log để chắc topology và số vòng thay đổi theo task
 
+- 2026-10-20 | Theo yêu cầu Tuấn, tách chính sách bàn giao khỏi runner/Layer 2: ChainNodes gọi chain_handoff.prepare_role_request trước runner, quyết định raw chat, góc nhìn Plan và tham chiếu patch; repository_changes do Coder adapter quan sát, kiểm tra kiểu rồi lưu trong ChainState/record. Runner giữ request được giao, hydrator chỉ ghép prompt, context manager chỉ compact biểu diễn/lịch sử. context.enabled không còn thay chính sách bàn giao; state/result giữ Plan và patch đầy đủ. | Agent hỗ trợ Vũ/Tuấn | python -m pytest tests/unit/registry tests/mas/unit tests/mas/integration -q --capture=sys --tb=short: 292 test + 132 subtest qua (27,39s), còn 4 lỗi test prompt Analyst/Planner do khối output format đã bị xóa trong thay đổi có sẵn trước lượt này; không sửa prompt của người dùng. Có regression cho boundary runner/hydrator, graph retry 2 vòng và CLI HTTP mock/local. Không gọi model thật, không chạy currentProject, không push; giữ A2/L3 [~], chưa nghiệm thu Engine/resume/đa topology.
+
 ### Guardrails cho các quyết định của LLM
 
 - [ ] Viết `validators.py` kiểm tra JSON của coordinator
@@ -383,6 +385,8 @@ Ghi chú tuần 9
 ---
 
 # Nhật ký vấn đề và quyết định
+
+- 2026-10-20 | Theo yêu cầu Tuấn, tách chính sách bàn giao khỏi runner/Layer 2: ChainNodes gọi chain_handoff.prepare_role_request trước runner, quyết định raw chat, góc nhìn Plan và tham chiếu patch; repository_changes do Coder adapter quan sát, kiểm tra kiểu rồi lưu trong ChainState/record. Runner giữ request được giao, hydrator chỉ ghép prompt, context manager chỉ compact biểu diễn/lịch sử. context.enabled không còn thay chính sách bàn giao; state/result giữ Plan và patch đầy đủ. | Agent hỗ trợ Vũ/Tuấn | python -m pytest tests/unit/registry tests/mas/unit tests/mas/integration -q --capture=sys --tb=short: 292 test + 132 subtest qua (27,39s), còn 4 lỗi test prompt Analyst/Planner do khối output format đã bị xóa trong thay đổi có sẵn trước lượt này; không sửa prompt của người dùng. Có regression cho boundary runner/hydrator, graph retry 2 vòng và CLI HTTP mock/local. Không gọi model thật, không chạy currentProject, không push; giữ A2/L3 [~], chưa nghiệm thu Engine/resume/đa topology.
 
 - 2026-10-20 | Theo yêu cầu Tuấn, hợp nhất models.py/loader.py gốc cho MAS và chuyển bộ role/prompt hiện dùng về registry/roles/core và registry/prompts. Gỡ registry/mas, mas_models.py/mas_loader.py và năm prompt v1 cũ; registry/tools.yaml khai đủ tool, Registry chung 0.16.0. Giữ strict/call cap/path/hash/snapshot của MAS và bổ sung kiểm tra catalog/ID/group/name/version, nạp extended ở mức khai báo. Public parser Registry dùng cùng hợp đồng Chain thay vì một bộ output model cũ. Test phát hiện prompt Planner chứa Reviewer và hướng dẫn format lỗi thời; đã sửa, giữ runtime guidance, tăng prompt chain-v4. CLI dùng configs/ chuẩn; bổ sung lại harness config local theo cấu hình MAS đã dùng, không đổi LLM/level settings có sẵn. 247 test + 113 subtest qua, gồm 92 Registry, 153 MAS unit và 2 CLI integration HTTP mock/local chạy trực tiếp cấu hình repo. Không gọi model thật, không sửa code sandbox/benchmark, không sửa workspace người dùng; giữ flow/giới hạn/AC-revision gate của Chain, chưa nghiệm thu L4/Engine chung/resume/pilot.
 

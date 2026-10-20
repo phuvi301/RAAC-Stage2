@@ -621,9 +621,14 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
         runner = DemoAgentRunner(self.registry, client, self.tools, provenance={"test": True})
         try:
             output = await runner("Coder", {"run_id": "context-run", "task_id": "task", "work_id": "task",
-                "scope": "task", "requirement": "Implement the requested function", "output_schema": {}})
+                "scope": "task", "requirement": "Implement the requested function", "output_schema": {},
+                "artifacts": {"plan": {"steps": [{"id": 1, "description": "Keep caller-selected plan"}]}}})
         finally:
             await client.aclose()
+        for payload in payloads:
+            supplied = json.loads(payload["messages"][1]["content"])
+            self.assertEqual(supplied["requirement"], "Implement the requested function")
+            self.assertEqual(supplied["artifacts"]["plan"]["steps"][0]["description"], "Keep caller-selected plan")
         self.assertNotIn("context_payload_marker", json.dumps(payloads[1]["messages"]))
         self.assertIn("content_sha256", json.dumps(payloads[1]["messages"]))
         self.assertEqual(self.workspace.read_file("solution.py")["content"], source)

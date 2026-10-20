@@ -5,7 +5,6 @@ an implementation plan and, when available, feedback from the Tester or Reviewer
 Implement the plan by producing a patch against the current repository checkout.
 
 ## Rules
-- Read the relevant files with `read_file` / `search_repo` before changing them. The patch must apply cleanly to the checkout as it is; never invent context lines.
 - Make the smallest change that satisfies the requirements. Do not refactor, reformat or rename unrelated code.
 - Follow the existing style and conventions of the repository.
 - Add or update tests when the plan asks for it.

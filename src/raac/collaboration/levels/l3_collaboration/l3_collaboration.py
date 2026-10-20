@@ -31,17 +31,19 @@ class CoordinatorDecision(StructuredOutput):
 
 
 def coordinate_chain(config: dict, *, max_rounds: int | None = None) -> CoordinatorDecision:
-    """Return a JSON-serializable choice; CLI overrides remain within the hard cap.
-
-    This deterministic coordinator does not call an LLM or inspect task content.
-    Unsupported topology names fail validation rather than silently falling back.
+    """
+    Trả về quyết định của coordinator dựa trên cấu hình đã cho. gồm topology, phiên bản topology, số vòng tối đa và nguồn quyết định.
+    Coordinator hiện tại chọn theo cấu hình, không gọi LLM để quyết định.
     """
     settings = CoordinatorConfig.model_validate(config)
     rounds = settings.max_rounds if max_rounds is None else max_rounds
     settings = CoordinatorConfig.model_validate({**settings.model_dump(), "max_rounds": rounds})
     topology = get_topology(settings.topology)
-    return CoordinatorDecision(topology=topology.topology_id,
-                               topology_version=topology.version, max_rounds=settings.max_rounds)
+    return CoordinatorDecision(
+        topology=topology.topology_id,                       
+        topology_version=topology.version, 
+        max_rounds=settings.max_rounds
+    )
 
 
 def build_collaboration_graph(decision: CoordinatorDecision, nodes, *, checkpointer=None):

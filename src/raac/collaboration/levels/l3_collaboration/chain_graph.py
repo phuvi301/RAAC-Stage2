@@ -9,12 +9,10 @@ from .chain_state import ChainState
 
 
 def build_chain_graph(nodes: ChainNodes, *, checkpointer=None):
-    """Build once, then invoke with fresh state or resume a saved checkpoint.
-
-    Use ``config={"recursion_limit": 4 * max_rounds + 12}`` when invoking.
-    The invocation's max_rounds is enforced by nodes, independently of this
-    LangGraph superstep safety limit. Checkpoint version matching and agent
-    lifecycle/workspace restoration remain responsibilities of the Engine.
+    """
+    Tạo một đồ thị trạng thái từ các nút ChainNodes, với các cạnh được xác định bởi CHAIN.
+    Các nút được thêm vào đồ thị theo thứ tự trong CHAIN.steps, 
+    với các cạnh điều kiện được xác định bởi CHAIN.edges.
     """
     builder = StateGraph(ChainState)
     for step in CHAIN.steps:

@@ -113,8 +113,14 @@ def _format_validation_error(path: Path, exc: ValidationError) -> list[str]:
     return lines
 
 
+
+
 def load_registry(registry_dir: Path | str | None = None, *, require_core: bool = True) -> Registry:
-    """Load, validate and return the registry. Raises :class:`RegistryError` on any problem."""
+    """
+    Loader:
+    - kiểm tra tính hợp lệ của registry, 
+    - đọc các vai trò, công cụ và mẫu prompt từ thư mục registry.
+    """
     root = Path(registry_dir) if registry_dir else default_registry_dir()
     if not root.is_dir():
         raise RegistryError(f"{root}: registry directory not found")

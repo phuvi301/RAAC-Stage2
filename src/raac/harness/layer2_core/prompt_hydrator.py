@@ -3,10 +3,11 @@
 import json
 
 from raac.registry.loader import LoadedRole
-from .context_manager import compact_request, select_task_input
+from .context_manager import compact_request
 
 
 def hydrate_messages(role: LoadedRole, request: dict, *, compact=True) -> list[dict]:
+    """Assemble the supplied request; collaboration owns which task data it contains."""
     allowed = set(role.spec.tools)
     tool_guidance = (
         "\n\nRole tool allowlist from Registry: "
@@ -48,7 +49,6 @@ def hydrate_messages(role: LoadedRole, request: dict, *, compact=True) -> list[d
     )
     return [
         {"role": "system", "content": system},
-        {"role": "user", "content": json.dumps(compact_request(request, role=role.spec.name) if compact
-                                               else select_task_input(request, role=role.spec.name),
+        {"role": "user", "content": json.dumps(compact_request(request) if compact else request,
                                                ensure_ascii=False, separators=(",", ":"))},
     ]

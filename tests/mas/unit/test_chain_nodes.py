@@ -141,6 +141,48 @@ class ChainNodeTests(unittest.IsolatedAsyncioTestCase):
         for role, request in agents.calls:
             self.assertEqual(request["output_schema"], role_output_model(role).model_json_schema())
 
+    async def test_role_visibility_is_selected_by_chain_before_the_runner(self):
+        class ObservedChanges(FakeAgents):
+            async def __call__(self, role, request):
+                output = await super().__call__(role, request)
+                if role == "Coder":
+                    patch = "--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+" + "x" * 2100 + str(request["round"]) + "\n"
+                    return RoleHandoff(patch, {**output.runtime,
+                        "repository_changes": [{"path": "app.py", "deleted": False}]})
+                return output
+
+        agents = ObservedChanges(pass_on_round=2)
+        state = make_state()
+        original = deepcopy(state)
+        output = await self.run_graph(agents, state)
+        self.assertEqual(output["result"]["verdict"], "PASS")
+        self.assertEqual([role for role, _ in agents.calls], [
+            "Analyst", "Planner", "Coder", "Tester", "Coder", "Tester", "Reviewer"])
+        for role, request in agents.calls:
+            with self.subTest(role=role, round=request["round"]):
+                if role in {"Analyst", "Reviewer"}:
+                    self.assertEqual(request["requirement"], original["work"]["requirement"])
+                else:
+                    self.assertNotIn("requirement", request)
+                if role in {"Coder", "Tester", "Reviewer"}:
+                    self.assertEqual(request["artifacts"]["spec"], output["spec"])
+                    self.assertEqual(request["artifacts"]["ac_catalog"], output["ac_catalog"])
+                if role == "Tester":
+                    self.assertEqual(request["artifacts"]["plan"], {"interface_contracts": {}})
+                    self.assertNotIn("patch", request["artifacts"])
+                    self.assertEqual(request["incoming_message"]["patch_ref"], "artifacts.patch_context")
+                    self.assertEqual(request["repository_changes"], [{"path": "app.py", "deleted": False}])
+                elif role == "Reviewer":
+                    self.assertEqual(request["artifacts"]["patch"], output["patch"])
+                    self.assertIn("decisions", request["artifacts"]["plan"])
+                elif role == "Coder" and request["round"] == 2:
+                    self.assertIn("previous_patch_context", request["artifacts"])
+                    self.assertEqual(request["artifacts"]["test_report"]["failed"], 1)
+        self.assertIn("steps", output["plan"])
+        self.assertIn("requirement", output["work"])
+        self.assertEqual(state, original)
+        self.assertEqual(output["result"]["repository_changes"], [{"path": "app.py", "deleted": False}])
+
     async def test_inherited_ac_ids_survive_string_ac_format(self):
         state = make_state()
         state["work"]["acceptance_criteria"] = [{"id": "ROOT9", "description": "Empty input returns zero"}]

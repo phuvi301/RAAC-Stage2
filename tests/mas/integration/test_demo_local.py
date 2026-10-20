@@ -253,9 +253,12 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(rebuilt["patch_hash"], record["patch_hash"])
         audit = next(event["request"] for event in trace
                      if event["event"] == "agent_started" and event["role"] == "Tester")
-        self.assertIn("steps", audit["artifacts"]["plan"])
+        self.assertEqual(audit["artifacts"]["plan"], {"interface_contracts": record["plan"]["interface_contracts"]})
         self.assertNotIn("requirement", audit)
-        self.assertEqual(record["plan"], audit["artifacts"]["plan"])
+        self.assertIn("steps", record["plan"])
+        self.assertEqual(record["repository_changes"], [{"path": "src/app/service.py", "deleted": False}])
+        self.assertNotIn("patch", audit["artifacts"])
+        self.assertEqual(audit["artifacts"]["patch_context"]["chars"], len(record["patch"]))
         runtime = next(event["observation"]["result"] for event in trace
                        if event["event"] == "tool_call_completed" and event["tool_name"] == "run_command")
         self.assertEqual(runtime["mode"], "local")
