@@ -1,18 +1,10 @@
-"""Run each core role on its own against a sample task, using the mock LLM.
-
-This checks the plumbing for the 'test each role in isolation' checklist item: the role is
-loaded from the registry, its system prompt is rendered and sent to the LLM together with the
-task, and the answer is validated against the role's output contract. Because the mock returns
-canned text, it does NOT measure how well a real model follows the prompt; that needs a real
-pilot run.
-"""
+"""Canonical role prompts and fixture outputs share the current wire contract; no LLM is called."""
 
 import json
 from pathlib import Path
 
 import pytest
 
-from raac.llm.mock_llm import MockLLM
 from raac.registry import (
     REQUIRED_CORE_ROLES,
     OutputFormat,
@@ -35,18 +27,25 @@ def user_message(task):
     return f"Repository: {task['repo']}\n\nIssue:\n{task['issue']}"
 
 
+OUTPUTS = {
+    "analyst": json.dumps({"summary": "Fix task", "requirements": [{"id": "R1", "description": "Fix behavior"}],
+                          "acceptance_criteria": ["Behavior is correct"], "constraints": [], "open_questions": []}),
+    "planner": json.dumps({"steps": [{"id": 1, "description": "Fix behavior", "files": ["app.py"], "depends_on": []}]}),
+    "coder": "--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new\n",
+    "tester": json.dumps({"tests_to_run": ["test_behavior"], "results": [
+        {"test": "test_behavior", "status": "passed", "details": ""}], "verdict": "pass"}),
+    "reviewer": json.dumps({"decision": "approve", "summary": "Reviewed", "comments": []}),
+}
+
+
 @pytest.mark.parametrize("role_id", REQUIRED_CORE_ROLES)
-def test_role_runs_alone_and_output_is_well_formed(registry, role_id):
+def test_prompt_and_fixture_output_share_contract(registry, role_id):
     role = registry.get_role(role_id)
-    llm = MockLLM()
-    system = render_prompt(registry, role_id)
-
-    response = llm.complete(system=system, user=user_message(TASK), role=role_id)
-    parsed = parse_role_output(role, response.text)
-
-    call = llm.calls[0]
-    assert call.system == system and TASK["issue"] in call.user
-    assert parsed  # non-empty model / diff
+    parsed = parse_role_output(role, OUTPUTS[role_id])
+    loaded = registry.get(role_id)
+    assert loaded.spec is role
+    assert loaded.system_prompt == render_prompt(registry, role_id)
+    assert parsed
     if role.output_format is OutputFormat.UNIFIED_DIFF:
         assert isinstance(parsed, str) and parsed.startswith("--- ")
     else:
@@ -56,10 +55,8 @@ def test_role_runs_alone_and_output_is_well_formed(registry, role_id):
 @pytest.mark.parametrize("role_id", REQUIRED_CORE_ROLES)
 def test_malformed_answer_is_rejected_for_every_role(registry, role_id):
     role = registry.get_role(role_id)
-    llm = MockLLM(responses={role_id: "I fixed it, here is my explanation."})
-    text = llm.complete(system="s", user="u", role=role_id).text
     with pytest.raises(OutputFormatError):
-        parse_role_output(role, text)
+        parse_role_output(role, "I fixed it, here is my explanation.")
 
 
 @pytest.mark.parametrize("role_id", REQUIRED_CORE_ROLES)
@@ -90,7 +87,10 @@ def test_prompt_documents_every_output_key(registry, role_id):
         assert f'"{key}"' in prompt, f"{role_id} prompt does not mention '{key}'"
 
 
-def test_tester_is_the_only_core_role_that_can_run_tests(registry):
-    can_run = [r.id for r in registry.roles.values() if "run_tests" in r.tools]
-    assert can_run == ["tester"]
-    assert not any("edit_file" in r.tools for r in registry.roles.values())
+def test_permissions_match_current_mas_roles(registry):
+    can_run = sorted(role.id for role in registry.roles.values() if "run_tests" in role.tools)
+    assert can_run == ["coder", "tester"]
+    for role_id in ("analyst", "planner", "reviewer"):
+        role = registry.get_role(role_id)
+        assert all(registry.tools[name].read_only for name in role.tools)
+    assert "apply_patch" not in registry.get_role("tester").tools

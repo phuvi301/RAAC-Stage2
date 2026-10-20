@@ -1,0 +1,365 @@
+"""Run real LangGraph nodes with fake agents; no API or sandbox is used."""
+
+import asyncio
+import json
+from copy import deepcopy
+import time
+import unittest
+
+from langgraph.checkpoint.memory import InMemorySaver
+from pydantic import ValidationError
+
+from raac.collaboration.levels.l3_collaboration import (
+    ChainLimits, ChainNodes, WorkItem, build_chain_graph, initial_chain_state,
+)
+from raac.collaboration.levels.l3_collaboration.chain_state import RoleHandoff, role_output_model
+
+
+def commit_payload(data):
+    """Serialize existing scenario fixtures using the commit's wire fields."""
+    if not isinstance(data, dict):
+        return data
+    if "acceptance_criteria" in data:
+        return {**data, "requirements": [{"id": "R1", "description": data["summary"]}],
+                "acceptance_criteria": [item["description"] if isinstance(item, dict) else item
+                                        for item in data["acceptance_criteria"]], "open_questions": []}
+    if "steps" in data:
+        return {**data, "steps": [{"id": int(str(step["id"]).removeprefix("S")),
+                "description": step["approach"], "files": [step["target"].split("::")[0]],
+                "depends_on": [], "ac_ids": step["ac_ids"]} for step in data["steps"]]}
+    if "tests_run" in data:
+        names = data["test_cases"] or ["<no tests executed>"]
+        status = data["status"]
+        results = [{"test": name, "status": ("error" if status == "error" else
+                    "failed" if index < data["failed"] else "passed" if data["test_cases"] else "skipped"),
+                    "details": data["summary"]} for index, name in enumerate(names)]
+        return {"tests_to_run": names, "results": results,
+                "verdict": "fail" if any(item["status"] in {"failed", "error"} for item in results) else "pass",
+                "covered_ac_ids": data["covered_ac_ids"], "blocking_issues": data["blocking_issues"]}
+    if "verdict" in data:
+        rejected = data["verdict"] == "REJECT"
+        comments = [{"severity": "blocker", "message": issue} for issue in data["blocking_issues"]]
+        if rejected and not comments:
+            comments = [{"severity": "major", "message": "Fixture review rejects this change"}]
+        return {"decision": "reject" if rejected else "approve", "summary": data["summary"],
+                "comments": comments, "covered_ac_ids": data["covered_ac_ids"]}
+    if "summary" in data:
+        return data.get("patch", "")
+    return data
+
+
+class FakeAgents:
+    def __init__(self, *, pass_on_round=1, verdict="PASS", overrides=None):
+        self.pass_on_round = pass_on_round
+        self.verdict = verdict
+        self.overrides = overrides or {}
+        self.calls = []
+
+    async def __call__(self, role, request):
+        self.calls.append((role, deepcopy(request)))
+        if role == "Analyst":
+            output = {
+                "summary": "Handle empty input", "constraints": [],
+                "acceptance_criteria": [{"id": "AC1", "description": "Empty input returns zero"}],
+            }
+        elif role == "Planner":
+            output = {
+                "steps": [{"id": "S1", "ac_ids": ["AC1"], "target": "current operation",
+                           "approach": "Add an empty input guard; keep existing behavior"}],
+                "covered_ac_ids": ["AC1"],
+            }
+        elif role == "Coder":
+            output = {
+                "patch": f"cumulative patch for attempt {request['round']}",
+                "summary": "Add an empty input guard",
+            }
+        elif role == "Tester":
+            passed = request["round"] >= self.pass_on_round
+            output = {
+                "patch_hash": request["artifacts"]["patch_hash"],
+                "status": "passed" if passed else "failed",
+                "tests_run": 2, "failed": 0 if passed else 1,
+                "test_cases": ["empty input", "non-empty input"],
+                "covered_ac_ids": ["AC1"],
+                "blocking_issues": [] if passed else ["Empty input raises"],
+                "summary": "Structured fake report, not a real test run",
+            }
+        else:
+            output = {
+                "patch_hash": request["artifacts"]["patch_hash"],
+                "verdict": self.verdict, "covered_ac_ids": ["AC1"],
+                "blocking_issues": [], "summary": "Fake review",
+            }
+        override = self.overrides.get(role)
+        output = override(output, request) if override else output
+        if not isinstance(output, dict):
+            return output
+        if role == "Coder":
+            patch = f"--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+attempt_{request['round']}\n"
+            return RoleHandoff(patch, {"summary": output["summary"]})
+        payload = commit_payload(output)
+        if role in {"Tester", "Reviewer"}:
+            runtime = {key: output[key] for key in ("patch_hash", "status", "tests_run", "failed", "test_cases", "summary") if key in output}
+            return RoleHandoff(payload, runtime)
+        return payload
+
+
+def make_state(*, run_id="run-1", work_id="task-1", scope="task", rounds=3):
+    return initial_chain_state(
+        WorkItem(
+            run_id=run_id, task_id="task-1", work_id=work_id, scope=scope,
+            requirement="Return zero for empty input", baseline_ref="base-commit",
+        ),
+        ChainLimits(
+            max_rounds=rounds, hard_max_rounds=4,
+            timeout_seconds=10.0, agent_timeout_seconds=2.0,
+        ),
+    )
+
+
+class ChainNodeTests(unittest.IsolatedAsyncioTestCase):
+    async def run_graph(self, agents, state=None, **node_options):
+        state = state or make_state()
+        graph = build_chain_graph(ChainNodes(agents, **node_options))
+        return await graph.ainvoke(
+            state, {"recursion_limit": 4 * state["limits"]["max_rounds"] + 12},
+        )
+
+    async def test_all_nodes_advertise_and_parse_the_shared_json_contract(self):
+        class JsonAgents(FakeAgents):
+            async def __call__(self, role, request):
+                result = await super().__call__(role, request)
+                if isinstance(result, RoleHandoff):
+                    wire = result.output if role == "Coder" else json.dumps(result.output)
+                    return RoleHandoff(wire, result.runtime)
+                return json.dumps(result)
+
+        agents = JsonAgents()
+        output = await self.run_graph(agents)
+        self.assertEqual(output["result"]["verdict"], "PASS")
+        self.assertEqual(len(agents.calls), 5)
+        for role, request in agents.calls:
+            self.assertEqual(request["output_schema"], role_output_model(role).model_json_schema())
+
+    async def test_inherited_ac_ids_survive_string_ac_format(self):
+        state = make_state()
+        state["work"]["acceptance_criteria"] = [{"id": "ROOT9", "description": "Empty input returns zero"}]
+        nodes = ChainNodes(FakeAgents())
+        update = await nodes.analyst(state)
+        self.assertEqual(update["ac_catalog"], {"ROOT9": "Empty input returns zero"})
+        self.assertEqual(update["spec"]["acceptance_criteria"], ["Empty input returns zero"])
+        self.assertTrue(update["spec"]["requirements"])
+
+    async def test_missing_plan_coverage_is_not_invented(self):
+        agents = FakeAgents(overrides={"Planner": lambda output, request: {**output, "covered_ac_ids": []}})
+        output = await self.run_graph(agents)
+        self.assertEqual(output["stop_reason"], "incomplete_plan")
+        self.assertNotIn("Coder", [role for role, _ in agents.calls])
+
+    async def test_pass_first_attempt_runs_all_roles_once(self):
+        agents = FakeAgents()
+        output = await self.run_graph(agents)
+        self.assertEqual([role for role, _ in agents.calls], [
+            "Analyst", "Planner", "Coder", "Tester", "Reviewer",
+        ])
+        self.assertEqual(output["result"]["verdict"], "PASS")
+        self.assertEqual(output["rounds_completed"], 1)
+        self.assertEqual(output["stop_reason"], "tests_and_review_passed")
+        self.assertEqual(output["events"][-1]["event"], "chain_stopped")
+
+    async def test_adapter_error_code_is_recorded_without_exception_body(self):
+        from raac.common.errors import AgentExecutionError
+
+        def fail_coder(output, request):
+            raise AgentExecutionError("invalid_coder_patch")
+
+        output = await self.run_graph(FakeAgents(overrides={"Coder": fail_coder}))
+        self.assertEqual(output["stop_reason"], "invalid_coder_patch")
+        self.assertEqual(output["error"], {"node": "coder", "kind": "invalid_coder_patch"})
+
+    async def test_retry_only_coder_tester_and_deliver_feedback(self):
+        agents = FakeAgents(pass_on_round=2)
+        output = await self.run_graph(agents)
+        self.assertEqual([role for role, _ in agents.calls], [
+            "Analyst", "Planner", "Coder", "Tester", "Coder", "Tester", "Reviewer",
+        ])
+        coders = [request for role, request in agents.calls if role == "Coder"]
+        self.assertEqual(coders[0]["incoming_message"]["from"], "Planner")
+        self.assertEqual(coders[1]["incoming_message"]["from"], "Tester")
+        self.assertEqual(coders[1]["artifacts"]["test_report"]["failed"], 1)
+        self.assertEqual(output["rounds_completed"], 2)
+        self.assertEqual(output["result"]["verdict"], "PASS")
+
+    async def test_always_fail_stops_at_cap_and_overrules_false_review_pass(self):
+        agents = FakeAgents(pass_on_round=100)
+        output = await self.run_graph(agents, make_state(rounds=3))
+        roles = [role for role, _ in agents.calls]
+        self.assertEqual(roles.count("Coder"), 3)
+        self.assertEqual(roles.count("Tester"), 3)
+        self.assertEqual(roles.count("Reviewer"), 1)
+        self.assertEqual(output["review_report"]["verdict"], "PASS")
+        self.assertEqual(output["verdict"], "REJECT")
+        self.assertEqual(output["stop_reason"], "max_rounds_reached")
+
+    async def test_review_rejection_does_not_restart_coder(self):
+        output = await self.run_graph(FakeAgents(verdict="REJECT"))
+        self.assertEqual(output["rounds_completed"], 1)
+        self.assertEqual(output["verdict"], "REJECT")
+        self.assertEqual(output["stop_reason"], "reviewer_rejected")
+
+    async def test_zero_tests_missing_coverage_or_blockers_cannot_pass(self):
+        reports = (
+            {"tests_run": 0, "test_cases": []},
+            {"covered_ac_ids": []},
+            {"blocking_issues": ["Unresolved requirement"]},
+        )
+        for changes in reports:
+            with self.subTest(changes=changes):
+                agents = FakeAgents(overrides={
+                    "Tester": lambda output, request: {**output, **changes},
+                })
+                output = await self.run_graph(agents, make_state(rounds=1))
+                self.assertEqual(output["verdict"], "REJECT")
+                self.assertFalse(output["tests_passed"])
+
+    async def test_old_patch_test_or_review_is_rejected(self):
+        for role, reason in (("Tester", "stale_test_report"), ("Reviewer", "stale_review_report")):
+            with self.subTest(role=role):
+                agents = FakeAgents(overrides={
+                    role: lambda output, request: {**output, "patch_hash": "old"},
+                })
+                output = await self.run_graph(agents)
+                self.assertEqual(output["result"]["status"], "aborted")
+                self.assertEqual(output["stop_reason"], reason)
+
+    async def test_invalid_json_stops_without_running_downstream_roles(self):
+        agents = FakeAgents(overrides={"Planner": lambda output, request: "not JSON"})
+        output = await self.run_graph(agents)
+        self.assertEqual(output["stop_reason"], "invalid_output")
+        self.assertEqual([role for role, _ in agents.calls], ["Analyst", "Planner"])
+
+    async def test_plan_cannot_drop_acceptance_criteria(self):
+        agents = FakeAgents(overrides={
+            "Planner": lambda output, request: {**output, "covered_ac_ids": ["AC-other"]},
+        })
+        output = await self.run_graph(agents)
+        self.assertEqual(output["stop_reason"], "incomplete_plan")
+
+    async def test_plan_steps_must_cover_actual_ac_even_when_global_list_claims_coverage(self):
+        agents = FakeAgents(overrides={
+            "Planner": lambda output, request: {**output, "steps": [
+                {**output["steps"][0], "ac_ids": ["AC-other"]}]},
+        })
+        output = await self.run_graph(agents)
+        self.assertEqual(output["stop_reason"], "incomplete_plan")
+        self.assertNotIn("Coder", [role for role, _ in agents.calls])
+
+    async def test_plan_cannot_repeat_step_ids(self):
+        agents = FakeAgents(overrides={
+            "Planner": lambda output, request: {**output, "steps": output["steps"] * 2},
+        })
+        output = await self.run_graph(agents)
+        self.assertEqual(output["stop_reason"], "invalid_output")
+
+    async def test_analyst_cannot_weaken_inherited_subtask_criteria(self):
+        state = make_state(scope="subtask", work_id="subtask-1")
+        state["work"]["acceptance_criteria"] = [
+            {"id": "AC1", "description": "Must preserve this requirement"},
+        ]
+        output = await self.run_graph(FakeAgents(), state)
+        self.assertEqual(output["stop_reason"], "changed_acceptance_criteria")
+
+    async def test_patch_change_invalidates_previous_test_and_review(self):
+        agents = FakeAgents()
+        nodes = ChainNodes(agents)
+        state = make_state()
+        state.update(await nodes.analyst(state))
+        state.update(await nodes.planner(state))
+        state.update(await nodes.coder(state))
+        old_hash = state["patch_hash"]
+        state.update(await nodes.tester(state))
+        state["review_report"] = {"patch_hash": old_hash, "verdict": "PASS"}
+        state.update(await nodes.coder(state))
+        self.assertNotEqual(state["patch_hash"], old_hash)
+        self.assertIsNone(state["test_report"])
+        self.assertIsNone(state["review_report"])
+        self.assertFalse(state["tests_passed"])
+
+    async def test_budget_guard_stops_between_agents(self):
+        agents = FakeAgents()
+        output = await self.run_graph(
+            agents, budget_guard=lambda state: len(agents.calls) < 2,
+        )
+        self.assertEqual(output["stop_reason"], "budget_exceeded")
+        self.assertNotIn("Coder", [role for role, _ in agents.calls])
+
+    async def test_deadline_and_agent_timeout_end_run(self):
+        state = make_state()
+        state["deadline_at"] = time.time() - 1
+        agents = FakeAgents()
+        output = await self.run_graph(agents, state)
+        self.assertEqual(output["stop_reason"], "timeout")
+        self.assertEqual(agents.calls, [])
+
+        async def slow_agent(role, request):
+            await asyncio.sleep(1)
+
+        state = make_state()
+        state["limits"]["agent_timeout_seconds"] = 0.01
+        output = await self.run_graph(slow_agent, state)
+        self.assertEqual(output["stop_reason"], "timeout")
+
+    async def test_test_infrastructure_error_is_not_a_code_retry(self):
+        agents = FakeAgents(overrides={
+            "Tester": lambda output, request: {**output, "status": "error"},
+        })
+        output = await self.run_graph(agents)
+        self.assertEqual(output["stop_reason"], "test_execution_error")
+        self.assertEqual(output["rounds_completed"], 1)
+        self.assertIsNotNone(output["test_report"])
+        self.assertNotIn("Reviewer", [role for role, _ in agents.calls])
+
+    async def test_adapter_errors_are_sanitized(self):
+        async def broken_agent(role, request):
+            raise RuntimeError("SECRET-EXAMPLE should not reach events or result")
+
+        output = await self.run_graph(broken_agent)
+        self.assertEqual(output["stop_reason"], "agent_error")
+        self.assertNotIn("SECRET-EXAMPLE", repr(output))
+
+    async def test_reused_graph_does_not_inherit_another_work_items_state(self):
+        agents = FakeAgents(pass_on_round=2)
+        graph = build_chain_graph(ChainNodes(agents))
+        first = await graph.ainvoke(make_state(), {"recursion_limit": 24})
+        second = await graph.ainvoke(
+            make_state(run_id="run-2", scope="subtask", work_id="subtask-2"),
+            {"recursion_limit": 24},
+        )
+        self.assertEqual(first["rounds_completed"], second["rounds_completed"])
+        self.assertTrue(all(event["run_id"] == "run-2" for event in second["events"]))
+        self.assertEqual(second["result"]["scope"], "subtask")
+        self.assertEqual(second["result"]["work_id"], "subtask-2")
+
+    async def test_graph_checkpoint_resume_keeps_round_and_feedback(self):
+        agents = FakeAgents(pass_on_round=2)
+        saver = InMemorySaver()
+        graph = build_chain_graph(ChainNodes(agents), checkpointer=saver)
+        config = {"configurable": {"thread_id": "run-1:task-1"}, "recursion_limit": 24}
+        interrupted = await graph.ainvoke(make_state(), config, interrupt_after=["tester"])
+        self.assertEqual(interrupted["rounds_completed"], 1)
+        completed = await graph.ainvoke(None, config)
+        self.assertEqual(completed["verdict"], "PASS")
+        self.assertEqual(completed["rounds_completed"], 2)
+        self.assertEqual([role for role, _ in agents.calls].count("Analyst"), 1)
+        self.assertEqual([role for role, _ in agents.calls].count("Coder"), 2)
+
+
+class ChainInputTests(unittest.TestCase):
+    def test_invalid_round_limits_rejected(self):
+        for rounds in (0, -1, True, "2", 5):
+            with self.subTest(rounds=rounds):
+                with self.assertRaises(ValidationError):
+                    ChainLimits(
+                        max_rounds=rounds, hard_max_rounds=4,
+                        timeout_seconds=10.0, agent_timeout_seconds=2.0,
+                    )

@@ -14,7 +14,7 @@ Cách dùng file này
 - Chữ trong ngoặc cuối dòng là người phụ trách, Vũ, Vinh hoặc Tuấn, đổi lại nếu hoán đổi việc.
 - Ghi ngày cập nhật cuối mỗi khi sửa file, và ghi vấn đề phát sinh vào mục nhật ký cuối file.
 
-Cập nhật gần nhất ngày 2026-10-19
+Cập nhật gần nhất ngày 2026-10-20
 
 ---
 
@@ -32,18 +32,20 @@ Thư mục liên quan là `src/raac/harness/`, `src/raac/llm/`, `src/raac/regist
 
 ### LLM client dùng chung (`src/raac/llm/`)
 
-- [ ] `client.py` gọi API, retry với backoff, đo latency (Vinh)
-- [ ] Đọc số token vào và ra từ trường usage của API (Vinh)
-- [ ] Ghi mọi lần gọi ra JSONL kèm `run_id`, `task_id`, `level`, `agent_id` (Vinh)
-- [ ] `usage.py` cộng dồn token theo run, agent và level (Vinh)
+- [~] `client.py` gọi API, retry với backoff, đo latency (Vinh) — có HTTP client/retry/usage guard cho MAS; chưa nghiệm thu benchmark.
+- [~] Đọc số token vào và ra từ trường usage của API (Vinh) — có trong client MAS, thiếu usage thì dừng; thêm cached_tokens từ response, phân biệt thiếu cache/0, kiểm chứng HTTP mock.
+- [~] Ghi mọi lần gọi ra JSONL kèm `run_id`, `task_id`, `level`, `agent_id` (Vinh) — MAS có JSONL, tool/role handoff, terminal và web viewer; chưa logging benchmark tổng quát.
+- [~] `usage.py` cộng dồn token theo run, agent và level (Vinh) — đã chuyển bộ đếm MAS và test phân tách run/agent/level; thêm cached_tokens/cache_usage_complete, giữ nguyên tổng token và budget; chưa định giá.
 - [ ] `pricing.py` quy đổi token ra chi phí theo model (Vinh)
 - [ ] `mock_llm.py` trả về phản hồi giả có thể cấu hình, dùng cho unit test và 1-2 ngày đầu (Vinh)
 
+- 2026-10-20 | Model profile theo role: configs/llm.yaml llm-v3; ref default giữ CLI/environment/YAML, ref có tên chọn model và kế thừa temperature/max_tokens. Preflight chặn ref sai trước workspace/HTTP; log ghi model_ref và cấu hình hiệu lực, result lưu role_models, usage/budget vẫn chung run. 268 test + 113 subtest qua: python -m pytest tests/unit/registry tests/mas/unit tests/mas/integration -q (27,04s); gồm Chain nhiều model với HTTP mock và command local thật. Không gọi model thật hoặc sửa currentProject.
+
 ### Registry dùng chung (`registry/`, `src/raac/registry/`)
 
-- [ ] `models.py` định nghĩa schema pydantic cho role, tool, model và nhóm lõi/mở rộng (Vũ)
-- [ ] `loader.py` nạp và kiểm tra registry, báo lỗi rõ khi thiếu trường (Vũ)
-- [ ] File `registry/VERSION` và cơ chế ghi version này vào mọi bản ghi kết quả (Vũ)
+- [x] `models.py` định nghĩa schema pydantic cho role, tool, model và nhóm lõi/mở rộng (Vũ) — đã hợp nhất schema dùng cho MAS; strict/frozen, group/Group, prompt path và call cap. ModelSpec.ref nhận default hoặc profile có tên; resolver trong llm/config.py kiểm tra tồn tại trước khi chạy, adapter/client chọn model/temperature/max_tokens theo role.
+- [x] `loader.py` nạp và kiểm tra registry, báo lỗi rõ khi thiếu trường (Vũ) — gom lỗi version/catalog/tool/path/ID/group/name; nạp core/extended, API LoadedRole và snapshot/hash. Có test biên và toàn bộ MAS dùng loader này.
+- [~] File `registry/VERSION` và cơ chế ghi version này vào mọi bản ghi kết quả (Vũ) — Registry chung 0.17.1, prompt chain-v4; MAS log/result có version/hash/snapshot và stamp_record chặn trộn version. Chưa nghiệm thu mọi writer benchmark/resume.
 
 ## A1 - Layer 1, Interface và Vòng đời
 
@@ -63,13 +65,13 @@ Thư mục `src/raac/harness/layer1_lifecycle/`.
 Thư mục `src/raac/harness/layer2_core/`.
 
 - [ ] `memory/short_term.py` lưu bộ nhớ trong phiên và được reset sau mỗi run (Vũ)
-- [ ] `context_manager.py` cắt hoặc tóm tắt lịch sử để vừa context window (Vũ)
-- [ ] `prompt_hydrator.py` ghép system prompt từ role, memory, state hiện tại và danh sách tool khả dụng (Vũ)
-- [ ] Prompt hydrator ghi lại version prompt đã dùng vào log (Vũ)
+- [~] `context_manager.py` cắt hoặc tóm tắt lịch sử để vừa context window (Vũ) — MAS có compaction, checkpoint receipt và cache file theo hash; chưa context window/resume toàn harness.
+- [~] `prompt_hydrator.py` ghép system prompt từ role, memory, state hiện tại và danh sách tool khả dụng (Vũ) — MAS dùng Registry chung, allowlist theo role, Plan theo role và chính sách raw chat; chưa memory toàn harness.
+- [~] Prompt hydrator ghi lại version prompt đã dùng vào log (Vũ) — MAS ghi version/hash Registry chung 0.17.1 và prompt chain-v4 vào log; chưa nghiệm thu toàn harness.
 - [ ] `memory/long_term.py` và `retriever.py` chỉ là stub có interface, long-term memory được tắt trong benchmark (Tuấn)
 - [ ] Test xác nhận task/run mới không kế thừa memory hoặc checkpoint của run trước; resume chỉ khôi phục đúng run đang tiếp tục (Vũ)
-- [ ] Bổ sung phần injection cho thông tin topology và vòng hiện tại phục vụ L3, L4 (Tuấn)
-- [ ] Unit test kiểm tra prompt sinh ra đúng và đủ các thành phần (Vũ)
+- [~] Bổ sung phần injection cho thông tin topology và vòng hiện tại phục vụ L3, L4 (Tuấn) — Chain nhận topology/version/vòng/artifact; còn L4 và harness chung.
+- [~] Unit test kiểm tra prompt sinh ra đúng và đủ các thành phần (Vũ) — có test năm role và bật/tắt compaction; còn memory/resume/context theo model.
 
 ## A3 - Layer 3, Thực thi và Bảo mật
 
@@ -77,9 +79,9 @@ Thư mục `src/raac/harness/layer3_execution/`.
 
 ### Tool orchestration
 
-- [ ] `tool_orchestrator.py` chạy tool theo yêu cầu của LLM, hỗ trợ chạy song song có giới hạn (Vinh)
-- [ ] Mỗi tool call có timeout và retry, lỗi được trả về agent dưới dạng quan sát (Vinh)
-- [ ] `tools/` gồm tối thiểu `read_file`, `edit_file`, `run_tests`, `search_repo` (Vinh)
+- [~] `tool_orchestrator.py` chạy tool theo yêu cầu của LLM, hỗ trợ chạy song song có giới hạn (Vinh) — MAS có allowlist, batch read/command và observation riêng; command tuần tự, chưa song song.
+- [~] Mỗi tool call có timeout và retry, lỗi được trả về agent dưới dạng quan sát (Vinh) — MAS có local timeout/output limit/stop_on_error; chưa retry tool tổng quát.
+- [~] `tools/` gồm tối thiểu `read_file`, `edit_file`, `run_tests`, `search_repo` (Vinh) — MAS có file tools, batch read/command, patch và test local; không tích hợp sandbox trong lượt chuyển này.
 
 ### Sandbox
 
@@ -115,10 +117,6 @@ Thư mục `src/raac/harness/layer4_connectors/`.
 - [ ] Cost guard dừng được run vượt trần và ghi rõ lý do dừng
 - [ ] Unit test của từng layer chạy được bằng `mock_llm` mà không tốn token
 - [ ] Phụ thuộc chỉ đi một chiều từ layer 1 xuống layer 4, không có import ngược
-
-Ghi chú tiến độ phần A
-
-- 2026-10-17 | Agent triển khai sandbox độc lập: mirror cache có khóa, archive commit LF, Dockerfile theo profile, baseline/candidate riêng volume, timeout và cleanup. Kiểm chứng `RAAC_DOCKER_TESTS=1 python -m pytest -q`: 21 passed, gồm 4 integration Docker thật trên Linux Engine 29.1.2; patch thử ghi file host không đổi sentinel. Các agent/layer khác chưa được nghiệm thu.
 - ........
 
 ---
@@ -131,8 +129,8 @@ Ghi chú tiến độ phần A
 
 ### Registry và role lõi
 
-- [ ] Viết các role lõi trong `registry/roles/core/` gồm Analyst, Planner, Coder, Tester, Reviewer
-- [ ] Viết system prompt template cho từng role trong `registry/prompts/`
+- [x] Viết các role lõi trong `registry/roles/core/` gồm Analyst, Planner, Coder, Tester, Reviewer — dùng bộ role MAS hiện tại; catalog/quyền/call cap được kiểm tra bằng test.
+- [~] Viết system prompt template cho từng role trong `registry/prompts/` — đã có đủ năm prompt chain-v4, sửa lệch Planner/Reviewer và format cũ, giữ hướng dẫn runtime; kiểm tra hợp đồng/tool qua, nội dung chờ review/model thật.
 - [ ] Test từng role riêng lẻ trên một task và xác nhận đầu ra đúng định dạng
 
 ### Engine dùng chung (`src/raac/collaboration/`)
@@ -171,6 +169,8 @@ Tiêu chí thành công tuần 8
 - [ ] Interface của Engine đủ rõ để L3 và L4 cắm vào mà không phải viết lại
 
 Ghi chú tuần 8
+
+- 2026-10-20 | Theo yêu cầu Tuấn, hợp nhất models.py/loader.py gốc cho MAS và chuyển bộ role/prompt hiện dùng về registry/roles/core và registry/prompts. Gỡ registry/mas, mas_models.py/mas_loader.py và năm prompt v1 cũ; registry/tools.yaml khai đủ tool, Registry chung 0.16.0. Giữ strict/call cap/path/hash/snapshot của MAS và bổ sung kiểm tra catalog/ID/group/name/version, nạp extended ở mức khai báo. Public parser Registry dùng cùng hợp đồng Chain thay vì một bộ output model cũ. Test phát hiện prompt Planner chứa Reviewer và hướng dẫn format lỗi thời; đã sửa, giữ runtime guidance, tăng prompt chain-v4. CLI dùng configs/ chuẩn; bổ sung lại harness config local theo cấu hình MAS đã dùng, không đổi LLM/level settings có sẵn. 247 test + 113 subtest qua, gồm 92 Registry, 153 MAS unit và 2 CLI integration HTTP mock/local chạy trực tiếp cấu hình repo. Không gọi model thật, không sửa code sandbox/benchmark, không sửa workspace người dùng; giữ flow/giới hạn/AC-revision gate của Chain, chưa nghiệm thu L4/Engine chung/resume/pilot.
 
 - ........
 
@@ -239,7 +239,7 @@ Ghi chú tuần 9
 
 ### Cấu hình và kiểm tra
 
-- [ ] Gom cấu hình LLM (model, temperature, seed nếu có, prompt version) vào `configs/llm.yaml` có version
+- [~] Gom cấu hình LLM (model, temperature, seed nếu có, prompt version) vào `configs/llm.yaml` có version — llm-v3 có cấu hình mặc định và profiles theo role, endpoint/auth/retry chung; prompt version vẫn thuộc Registry. Kiểm chứng HTTP mock/local, chưa tích hợp benchmark chung.
 - [ ] Viết `dummy level` chỉ gọi LLM một lần để kiểm tra harness trước khi L1 xong
 - [~] Viết `cli.py` với lệnh chạy một (task, level) — đã có sandbox check/prepare/run theo task; chưa tích hợp level hoặc LLM.
 
@@ -296,11 +296,11 @@ Ghi chú tuần 9
 
 ### Topology và L3 (`collaboration/topologies.py`, `levels/l3_collaboration.py`)
 
-- [ ] Liệt kê tập topology hữu hạn gồm chuỗi, hình sao qua orchestrator, vòng Coder-Reviewer và debate giữa hai agent
-- [ ] Viết node coordinator trả về JSON gồm topology và số vòng tối đa
-- [ ] Engine dựng graph theo lựa chọn của coordinator rồi mới chạy
-- [ ] Sau mỗi vòng có bước đánh giá "đã đủ chưa" để quyết định lặp tiếp hay dừng
-- [ ] Dừng khi test qua, reviewer chấp thuận hoặc chạm số vòng tối đa, và log lý do dừng
+- [~] Liệt kê tập topology hữu hạn gồm chuỗi, hình sao qua orchestrator, vòng Coder-Reviewer và debate giữa hai agent — đã chuyển Chain version 2 và đặc tả Subtask Chain; còn star, Coder–Reviewer, debate và runtime Subtask Chain.
+- [~] Viết node coordinator trả về JSON gồm topology và số vòng tối đa — coordinator xác định chọn Chain theo cấu hình, có JSON topology/version/số vòng; chưa chọn thích ứng bằng LLM.
+- [~] Engine dựng graph theo lựa chọn của coordinator rồi mới chạy — CLI MAS dispatch graph sau quyết định coordinator; chưa tích hợp Engine chung.
+- [~] Sau mỗi vòng có bước đánh giá "đã đủ chưa" để quyết định lặp tiếp hay dừng — Chain có check/limit và vòng Coder–Tester; chưa đầy đủ L3 nhiều topology.
+- [~] Dừng khi test qua, reviewer chấp thuận hoặc chạm số vòng tối đa, và log lý do dừng — Chain có timeout, trần vòng/ngân sách và log lý do dừng; PASS cần test đạt và Reviewer chấp thuận; chưa nghiệm thu L3 trên ba task thật.
 - [ ] Chạy L3 trên 3 task mẫu, xem log để chắc topology và số vòng thay đổi theo task
 
 ### Guardrails cho các quyết định của LLM
@@ -325,6 +325,14 @@ Tiêu chí thành công tuần 8
 - [ ] Đặc tả L4 đủ chi tiết để người khác hiện thực và cả nhóm đã review
 
 Ghi chú tuần 8
+
+- 2026-10-20 | Theo yêu cầu Tuấn, chỉnh hợp đồng MAS theo prompt/output format tại commit 39d39e7eb49917b6f381876cdebb6564b596ebc3 trong đúng checkout C:/Users/Tuan/Desktop/RAAC/RAAC/RAAC-Stage2. Analyst dùng requirements/priority/AC dạng chuỗi/open_questions; Planner dùng id số nguyên/description/files/depends_on; Tester dùng tests_to_run/results/verdict; Reviewer dùng decision/comments; Coder trả unified diff. Giữ AC coverage qua ac_catalog và các field mở rộng L3; RoleHandoff tách metadata/evidence/revision của framework khỏi output model. Registry MAS 0.15.0, năm prompt chain-v3; cập nhật adapter/context, kết quả unittest/JUnit từng test, l3_topologies.md và chain_demo.md. 153 unit + 2 CLI integration HTTP mock/local qua; integration dùng cấu hình framework tạm vì configs/mas hiện thiếu trong checkout. Giữ flow Analyst → Planner → Coder ⇄ Tester → Reviewer, check/limit, trần vòng, timeout, budget guard, stale-report/AC gate và chính sách user chat. Không đổi sandbox/benchmark/data hoặc gọi model thật; không nghiệm thu Engine chung, L3 đa topology, checkpoint cũ hoặc ba task thật. Các script tạm ở bản ngoài đã dọn; code/prompt/tài liệu cuối nằm ở bản trong.
+
+- 2026-10-20 | Tài liệu theo yêu cầu Tuấn: bổ sung mục cấu trúc hợp đồng chuyển giao trong `src/raac/collaboration/levels/l3_collaboration/l3_topologies.md`, gồm request, năm Output/alias, bảng bàn giao, context theo role, evidence, revision hash và kiểm tra schema/AC/điều kiện PASS. Đối chiếu trực tiếp chain_state.py, chain_nodes.py, demo_agent.py và context_manager.py; sửa mô tả coordinator cố định Chain và đường dẫn test MAS. Chỉ cập nhật tài liệu; chờ review, giữ trạng thái L3 [~], không nghiệm thu thêm tính năng hoặc chạy model/sandbox.
+
+- 2026-10-20 | Agent hỗ trợ Tuấn theo lựa chọn chỉ đổi cách tổ chức output: `chain_state.py` có AnalystOutput/PlannerOutput/CoderOutput/TesterOutput/ReviewerOutput, bảng JSON_OUTPUT_MODELS và parser chung; adapter và node Chain cùng sử dụng. Giữ toàn bộ field/validator/ChainState, prompt và alias WorkSpec/TechnicalPlan/CodeOutput/TestReport/ReviewReport. Đối chiếu JSON schema trước/sau chỉ khác title lớp; 145 unit test qua (thêm 7 parser + 1 graph test). Hai CLI integration HTTP mock/local qua với cấu hình framework tạm; lệnh integration trực tiếp hiện lỗi vì configs/mas/llm.yaml không còn trong checkout (configs/mas/harness.yaml và l3_collaboration.yaml cũng thiếu), không khôi phục/ghi đè cấu hình ngoài phạm vi. Runner kiểm chứng lưu tại `C:/Users/Tuan/AppData/Local/Temp/raac-chain-output-refactor-20261020/verify_integration.py`. Không gọi model thật hoặc đổi trạng thái nghiệm thu Engine/L3 đa topology/benchmark/L4.
+
+- 2026-10-20 | Agent hỗ trợ theo yêu cầu Tuấn: chuyển riêng MAS/L3 từ checkout bên ngoài, gồm năm role/prompt đầy đủ (Registry 0.14.1), schema/loader MAS, client, context, tools local, Chain và log viewer. `registry/mas/`, `configs/mas/`, `raac.mas_cli`, `tests/mas/` tách khỏi Registry/CLI cũ. 137 unit + 2 CLI integration HTTP mock/local + 6 Node test qua. Không gọi model thật; giữ sandbox, benchmark, data, kết quả cũ và phân công. Chưa nghiệm thu Engine chung, L3 nhiều topology/ba task thật, benchmark, resume toàn harness hoặc L4.
 
 - ........
 
@@ -375,6 +383,16 @@ Ghi chú tuần 9
 ---
 
 # Nhật ký vấn đề và quyết định
+
+- 2026-10-20 | Theo yêu cầu Tuấn, hợp nhất models.py/loader.py gốc cho MAS và chuyển bộ role/prompt hiện dùng về registry/roles/core và registry/prompts. Gỡ registry/mas, mas_models.py/mas_loader.py và năm prompt v1 cũ; registry/tools.yaml khai đủ tool, Registry chung 0.16.0. Giữ strict/call cap/path/hash/snapshot của MAS và bổ sung kiểm tra catalog/ID/group/name/version, nạp extended ở mức khai báo. Public parser Registry dùng cùng hợp đồng Chain thay vì một bộ output model cũ. Test phát hiện prompt Planner chứa Reviewer và hướng dẫn format lỗi thời; đã sửa, giữ runtime guidance, tăng prompt chain-v4. CLI dùng configs/ chuẩn; bổ sung lại harness config local theo cấu hình MAS đã dùng, không đổi LLM/level settings có sẵn. 247 test + 113 subtest qua, gồm 92 Registry, 153 MAS unit và 2 CLI integration HTTP mock/local chạy trực tiếp cấu hình repo. Không gọi model thật, không sửa code sandbox/benchmark, không sửa workspace người dùng; giữ flow/giới hạn/AC-revision gate của Chain, chưa nghiệm thu L4/Engine chung/resume/pilot.
+
+- 2026-10-20 | Theo yêu cầu Tuấn, chỉnh hợp đồng MAS theo prompt/output format tại commit 39d39e7eb49917b6f381876cdebb6564b596ebc3 trong đúng checkout C:/Users/Tuan/Desktop/RAAC/RAAC/RAAC-Stage2. Analyst dùng requirements/priority/AC dạng chuỗi/open_questions; Planner dùng id số nguyên/description/files/depends_on; Tester dùng tests_to_run/results/verdict; Reviewer dùng decision/comments; Coder trả unified diff. Giữ AC coverage qua ac_catalog và các field mở rộng L3; RoleHandoff tách metadata/evidence/revision của framework khỏi output model. Registry MAS 0.15.0, năm prompt chain-v3; cập nhật adapter/context, kết quả unittest/JUnit từng test, l3_topologies.md và chain_demo.md. 153 unit + 2 CLI integration HTTP mock/local qua; integration dùng cấu hình framework tạm vì configs/mas hiện thiếu trong checkout. Giữ flow Analyst → Planner → Coder ⇄ Tester → Reviewer, check/limit, trần vòng, timeout, budget guard, stale-report/AC gate và chính sách user chat. Không đổi sandbox/benchmark/data hoặc gọi model thật; không nghiệm thu Engine chung, L3 đa topology, checkpoint cũ hoặc ba task thật. Các script tạm ở bản ngoài đã dọn; code/prompt/tài liệu cuối nằm ở bản trong.
+
+- 2026-10-20 | Tài liệu theo yêu cầu Tuấn: bổ sung mục cấu trúc hợp đồng chuyển giao trong `src/raac/collaboration/levels/l3_collaboration/l3_topologies.md`, gồm request, năm Output/alias, bảng bàn giao, context theo role, evidence, revision hash và kiểm tra schema/AC/điều kiện PASS. Đối chiếu trực tiếp chain_state.py, chain_nodes.py, demo_agent.py và context_manager.py; sửa mô tả coordinator cố định Chain và đường dẫn test MAS. Chỉ cập nhật tài liệu; chờ review, giữ trạng thái L3 [~], không nghiệm thu thêm tính năng hoặc chạy model/sandbox.
+
+- 2026-10-20 | Agent hỗ trợ Tuấn theo lựa chọn chỉ đổi cách tổ chức output: `chain_state.py` có AnalystOutput/PlannerOutput/CoderOutput/TesterOutput/ReviewerOutput, bảng JSON_OUTPUT_MODELS và parser chung; adapter và node Chain cùng sử dụng. Giữ toàn bộ field/validator/ChainState, prompt và alias WorkSpec/TechnicalPlan/CodeOutput/TestReport/ReviewReport. Đối chiếu JSON schema trước/sau chỉ khác title lớp; 145 unit test qua (thêm 7 parser + 1 graph test). Hai CLI integration HTTP mock/local qua với cấu hình framework tạm; lệnh integration trực tiếp hiện lỗi vì configs/mas/llm.yaml không còn trong checkout (configs/mas/harness.yaml và l3_collaboration.yaml cũng thiếu), không khôi phục/ghi đè cấu hình ngoài phạm vi. Runner kiểm chứng lưu tại `C:/Users/Tuan/AppData/Local/Temp/raac-chain-output-refactor-20261020/verify_integration.py`. Không gọi model thật hoặc đổi trạng thái nghiệm thu Engine/L3 đa topology/benchmark/L4.
+
+- 2026-10-20 | Agent hỗ trợ theo yêu cầu Tuấn: chuyển riêng MAS/L3 từ checkout bên ngoài, gồm năm role/prompt đầy đủ (Registry 0.14.1), schema/loader MAS, client, context, tools local, Chain và log viewer. `registry/mas/`, `configs/mas/`, `raac.mas_cli`, `tests/mas/` tách khỏi Registry/CLI cũ. 137 unit + 2 CLI integration HTTP mock/local + 6 Node test qua. Không gọi model thật; giữ sandbox, benchmark, data, kết quả cũ và phân công. Chưa nghiệm thu Engine chung, L3 nhiều topology/ba task thật, benchmark, resume toàn harness hoặc L4.
 
 Ghi mỗi dòng theo dạng ngày, vấn đề hoặc quyết định, người xử lý và trạng thái.
 
@@ -500,3 +518,17 @@ Ghi mỗi dòng theo dạng ngày, vấn đề hoặc quyết định, người 
 - 2026-10-19 | PhầnA/sandbox vàPhầnB/Vinh/benchmark: dọnsetup15tasktheoyêucầu;11overridegỡ,default3configchọn105,recipe105khôngđổi. Xóa12imageexclusive,giảmDockerlayer9,45GiB,khônglỗi;giữcachechung/log/record. 94unitqua13,51s,3profilecheck105/105,Ruff/diffqua. | Agent hỗ trợ Vinh | Hoàn tất dọn riêngnhómloại; auditresults/retired15-environments-20261019.json,khôngpushhoặcnghiệmthuL1–L4/A5.
 
 - 2026-10-19 | Người dùng yêu cầu push: reviewdiff phần đối chứng/sửaadapter,manifest105vàretire15;94unitkiểmtralạipass12,90s,Ruffqua,fetchorigin/Vinhkhôngdiverge. | Agent hỗ trợ Vinh | Chuẩn bị commit/push theo yêu cầu lần này; không đưaresults/cache/log vàoGit,khôngnghiệmthu120/120/L1–L4/A5.
+
+- 2026-10-20 | Triển khai model.ref theo yêu cầu Tuấn: profile trong configs/llm.yaml llm-v3, default giữ override CLI/env, named profile cố định model và kế thừa tham số; Registry 0.17.0. Adapter chọn model từng lượt, preflight và provenance theo role, ngân sách token chung. | Agent hỗ trợ Vũ/Vinh | 268 test + 113 subtest Registry/MAS qua (27,04s), git diff --check qua; chưa gọi model thật hoặc nghiệm thu benchmark/A5.
+
+- 2026-10-20 | Theo yêu cầu Tuấn, đặt model mặc định configs/llm.yaml là cx/gpt-5.6-sol cho cả năm role ref default. | Agent hỗ trợ Vũ/Vinh | Đã nạp Registry/cấu hình và kiểm tra resolver đủ 5/5 role chọn đúng model; không gọi API hoặc chạy currentProject. CLI/LLM_MODEL vẫn có thể override theo cơ chế đã triển khai.
+
+- 2026-10-20 | Theo yêu cầu Tuấn, tạo 5 profile analyst/planner/coder/tester/reviewer riêng trong configs/llm.yaml, tất cả cx/gpt-5.6-sol; role.model.ref trỏ đúng profile cùng tên, Registry 0.17.1. | Agent hỗ trợ Vũ/Vinh | Resolver xác nhận 5/5 role trỏ đúng profile và model; 268 test + 113 subtest qua (25,95s), git diff --check qua. Lượt đầu lỗi handle Windows ở test dừng tiến trình; chạy lại cùng bộ với --capture=sys qua. Profile kế thừa temperature/max_tokens chung; fixture test default được tách khỏi profile triển khai. Không gọi API hoặc chạy currentProject.
+
+- 2026-10-20 | Theo yêu cầu Tuấn, thêm cached_tokens từ prompt_tokens_details hoặc trường router chuẩn hóa vào client/log và UsageTracker theo run/agent/level; result.json/web/terminal hiển thị cache, thiếu hoặc sai dữ liệu là null và cache_usage_complete=false. Không cộng cache hai lần, không thay guard/flow/model/profile hoặc suy quota tài khoản. | Agent hỗ trợ Vinh/Tuấn | 105 test Python + 30 subtest qua: 85 test HTTP mock/CLI local/viewer (10,34s) và 20 test profile/guard nhiều model (0,81s); 9 test Node usage, JS syntax và git diff --check qua. Không gọi model thật, không sửa log/run cũ hay currentProject.
+
+- 2026-10-20 | Sửa invalid_coder_patch theo run chain-0c472819137a4db69e12f22482b46167: Coder đã lưu 2 file nhưng final diff khai 81 thay vì 87 dòng. Adapter dùng patch workspace được sinh/áp lại trong RAM và kiểm tra schema; log/web/terminal ghi coder_patch_rebuilt. Chưa lưu file thì diff sai vẫn bị chặn; lỗi kiểm chứng patch vẫn dừng, giữ gate/flow Chain. | Agent hỗ trợ Vũ/Tuấn/Vinh | 98 test + 85 subtest qua (17,28s), gồm CLI HTTP mock/local đi tiếp Tester/Reviewer và negative cases. Replay đúng log trên workspace tạm cho patch 9082 ký tự hợp lệ từ 2 file, không gọi model/chạy code sinh ra/sửa currentProject hoặc lịch sử run.
+
+- 2026-10-20 | Theo yêu cầu Tuấn, lưu mốc hạn mức Codex trước lần chạy Chain tiếp theo tại results/quota-baselines/2026-10-20T013016Z-before.json; có thời điểm, cửa sổ/reset và danh sách run đã tồn tại để đối chiếu sau. | Agent hỗ trợ Tuấn/Vinh | Đã lưu snapshot từ usage tool; chờ người dùng chạy. Chưa kết luận mức tiêu hao riêng run, cache hay account cx trùng account desktop.
+
+- 2026-10-20 | Đối chiếu run chain-2f7d8b6fbc2c49f69c22bc092d2a7712 với mốc trước: lưu after snapshot và comparison tại results/quota-baselines/2026-10-20T013658Z-after-chain-2f7d8b6fbc2c49f69c22bc092d2a7712.json. | Agent hỗ trợ Tuấn/Vinh | Run completed/tests_and_review_passed, 19 call, input 163655 + output 11462 = 175117 token; cache chưa có số liệu. Cùng cửa sổ/reset, hạn mức còn 51→46% (5h), 17→16% (tuần); chênh 5/1 điểm phần trăm là của tài khoản trong khoảng đo, chưa quy toàn bộ cho riêng run hoặc xác nhận account cx trùng desktop. Không gọi model hoặc sửa currentProject.

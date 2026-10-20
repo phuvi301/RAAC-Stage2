@@ -1,12 +1,21 @@
 id: coder
 role: Coder
 group: core
-description: "Implements the plan and returns the change as a unified diff."
-prompt_version: v1
+prompt: prompts/coder.md
+prompt_version: chain-v4
 tools:
-  - read_file
+  - list_files
   - search_repo
+  - read_file
+  - read_files
+  - edit_file
+  - replace_text
+  - delete_file
+  - apply_patch
+  - run_command
+  - run_commands
+  - run_tests
 model:
-  ref: default            # placeholder: resolved from configs/llm.yaml
-cost_weight: 1.0          # TODO: calibrate cost weight (default 1.0 until pilot data exists)
-output_format: unified_diff
+  ref: coder
+cost_weight: 1.0  # TODO: calibrate cost weight (default 1.0 until pilot data exists)
+max_llm_calls: 10

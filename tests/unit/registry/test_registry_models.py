@@ -9,10 +9,10 @@ def make_role(**overrides):
         id="coder",
         role="Coder",
         group="core",
-        description="d",
+        prompt="prompts/coder.md",
+        max_llm_calls=10,
         prompt_version="v1",
         tools=["read_file"],
-        output_format="unified_diff",
     )
     data.update(overrides)
     return RoleSpec(**data)
@@ -24,7 +24,9 @@ def test_defaults_for_model_and_cost_weight():
     assert role.cost_weight == 1.0
     assert role.group is RoleGroup.CORE
     assert role.output_format is OutputFormat.UNIFIED_DIFF
-    assert role.prompt_filename == "coder.v1.md"
+    assert role.name == "Coder"
+    assert "output_format" not in role.model_dump()
+    assert role.prompt_filename == "coder.md"
 
 
 @pytest.mark.parametrize(
@@ -32,9 +34,12 @@ def test_defaults_for_model_and_cost_weight():
     [
         {"id": "Coder"},  # not a slug
         {"id": "1coder"},
-        {"prompt_version": "1"},
+        {"prompt_version": ""},
         {"cost_weight": 0},
         {"cost_weight": -1},
+        {"cost_weight": float("inf")},
+        {"max_llm_calls": "6"},
+        {"model": {"ref": "invalid/name"}},
         {"group": "optional"},
         {"output_format": "yaml"},
         {"tools": ["read_file", "read_file"]},
@@ -48,7 +53,7 @@ def test_invalid_role_is_rejected(overrides):
 
 def test_missing_required_field():
     with pytest.raises(ValidationError):
-        RoleSpec(id="x", role="X", group="core", description="d", prompt_version="v1")  # no output_format
+        RoleSpec(id="coder", role="Coder", group="core", prompt_version="chain-v3")  # missing prompt and call cap
 
 
 def test_role_is_immutable():

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RAAC · Luồng trao đổi</title>
+  <link rel="stylesheet" href="/viewer.css">
+  <script src="/viewer.js" type="module"></script>
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="/">R<span>RAAC</span></a><span class="top-label">RUN INSPECTOR</span><span id="connection" role="status">Đang kết nối…</span></header>
+  <main>
+    <section class="heading"><div><p class="eyebrow">AGENT ↔ HỆ THỐNG</p><h1>Luồng trao đổi</h1><p class="subtitle">Theo dõi nhiệm vụ, lời gọi tool và kết quả bàn giao trong một run.</p></div><button id="pause" type="button">Tạm dừng cập nhật</button></section>
+    <section class="run-banner" id="run-banner"><div><span class="status-pill" id="run-status">Đang đọc log</span><span id="run-id">—</span></div><p id="run-reason">Đang tải dữ liệu…</p><p id="log-name"></p></section>
+    <section class="stats" aria-label="Thống kê toàn run">
+      <div><span>LƯỢT ROLE BẮT ĐẦU</span><strong id="stat-agents">0</strong><small>Gồm cả các lượt chạy lại</small></div>
+      <div><span>LẦN GỌI LLM</span><strong id="stat-calls">0</strong><small id="stat-token-split">Token vào / ra: —</small></div>
+      <div><span>TỔNG TOKEN</span><strong id="stat-tokens">0</strong><small id="stat-budget">Theo usage API đã ghi</small></div>
+      <div><span>KẾT QUẢ TOOL LỖI</span><strong id="stat-errors">0</strong><small>Gồm test fail và lỗi thực thi</small></div>
+    </section>
+    <section class="workspace">
+      <aside class="sidebar"><p class="eyebrow">LỌC THEO ROLE</p><div id="roles"></div><div class="reading-guide"><strong>Cách đọc</strong><p><b>Trái → Phải</b> là bên gửi và bên nhận.</p><p>Bấm <b>Mở nội dung</b> để xem tham số, code, stdout/stderr hoặc kết quả bàn giao.</p><p>Những card có cùng mã <b>tool</b> là yêu cầu và phản hồi của cùng một lần gọi.</p><p><b>Token vào/ra</b> lấy từ usage API. Các card cùng lượt LLM hiển thị cùng usage; không cộng lại. Tool không có chi phí token riêng.</p><p>Luồng này hiển thị message và hành động đã ghi nhận, không suy diễn suy nghĩ nội bộ của model.</p></div></aside>
+      <section class="conversation" aria-label="Trao đổi theo thời gian">
+        <div class="toolbar"><label class="search"><span>Tìm trong trao đổi</span><input id="search" type="search" placeholder="Tên file, tool, nội dung, mã gọi…"></label><div class="toggles"><label><input id="errors-only" type="checkbox"> Chỉ lỗi</label><label><input id="technical" type="checkbox"> Context & HTTP</label></div></div>
+        <div class="feed-heading"><h2>Diễn biến theo thời gian</h2><span id="visible-count">0 trao đổi</span></div>
+        <p class="notice" id="warning" hidden></p>
+        <div id="feed"></div><p id="empty" hidden>Không có trao đổi phù hợp với bộ lọc.</p>
+      </section>
+    </section>
+    <footer>Giờ Việt Nam · UTC+7 <span>Chỉ đọc llm.jsonl · Không khởi chạy MAS</span></footer>
+  </main>
+</body>
+</html>

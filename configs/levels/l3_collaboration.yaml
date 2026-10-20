@@ -1,2 +1,4 @@
-# TODO: Define and validate configuration; see docs/implementation_checklist.md.
-{}
+version: l3-chain-demo-v1
+topology: chain
+max_rounds: 3
+hard_max_rounds: 4

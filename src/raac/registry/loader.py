@@ -7,7 +7,7 @@ Layout expected on disk::
       tools.yaml                     # tool catalog
       roles/core/<id>.yaml           # core roles
       roles/extended/<id>.yaml       # extended roles (L4 only)
-      prompts/<id>.<version>.md      # system prompt template per role
+      prompts/<role>.md (explicit role.prompt path)      # system prompt template per role
 
 All problems found are collected and raised together as one :class:`RegistryError`
 so a broken registry can be fixed in a single pass.
@@ -26,6 +26,7 @@ from pydantic import ValidationError
 
 from .models import (
     REQUIRED_CORE_ROLES,
+    LoadedRole,
     Registry,
     RoleGroup,
     RoleSpec,
@@ -37,7 +38,7 @@ RESULT_VERSION_KEY = "registry_version"
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$")
 
 
-class RegistryError(Exception):
+class RegistryError(ValueError):
     """The registry is missing, malformed or inconsistent."""
 
 
@@ -57,7 +58,7 @@ def read_registry_version(registry_dir: Path | str | None = None) -> str:
     version_file = path / "VERSION"
     if not version_file.is_file():
         raise RegistryError(f"{version_file}: file not found (registry version is required)")
-    version = version_file.read_text(encoding="utf-8").strip()
+    version = version_file.read_text(encoding="utf-8-sig").strip()
     if not _VERSION_RE.match(version):
         raise RegistryError(f"{version_file}: '{version}' is not a valid version (expected MAJOR.MINOR.PATCH)")
     return version
@@ -86,12 +87,12 @@ def stamp_record(record: dict[str, Any], registry_dir: Path | str | None = None)
 
 def _read_yaml(path: Path, errors: list[str]) -> Any | None:
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        data = yaml.safe_load(path.read_text(encoding="utf-8-sig"))
     except yaml.YAMLError as exc:
         errors.append(f"{path}: invalid YAML ({exc})")
         return None
-    except OSError as exc:
-        errors.append(f"{path}: cannot read ({exc})")
+    except (OSError, UnicodeError) as exc:
+        errors.append(f"{path}: cannot read ({type(exc).__name__})")
         return None
     if not isinstance(data, dict):
         errors.append(f"{path}: expected a mapping at the top level")
@@ -144,6 +145,7 @@ def load_registry(registry_dir: Path | str | None = None, *, require_core: bool 
     roles: dict[str, RoleSpec] = {}
     prompts: dict[str, str] = {}
     origin: dict[str, Path] = {}
+    names: set[str] = set()
     for group in RoleGroup:
         group_dir = root / "roles" / group.value
         if not group_dir.is_dir():
@@ -170,11 +172,23 @@ def load_registry(registry_dir: Path | str | None = None, *, require_core: bool 
             unknown = [t for t in role.tools if t not in tools]
             if unknown and tools:
                 problems.append(f"unknown tools {unknown} (not in tools.yaml)")
-            prompt_path = root / "prompts" / role.prompt_filename
+            if role.role in names:
+                problems.append(f"duplicate role name '{role.role}'")
+            if group is RoleGroup.CORE and role.id in REQUIRED_CORE_ROLES and role.role != role.id.capitalize():
+                problems.append(f"core role '{role.id}' must be named '{role.id.capitalize()}'")
+            prompt_path = (root / role.prompt).resolve()
+            prompt_root = (root / "prompts").resolve()
+            if not prompt_root.is_relative_to(root.resolve()) or not prompt_path.is_relative_to(prompt_root):
+                errors.append(f"{path}: role prompt must stay inside registry/prompts")
+                continue
             if not prompt_path.is_file():
                 problems.append(f"prompt file {prompt_path} not found")
             else:
-                text = prompt_path.read_text(encoding="utf-8")
+                try:
+                    text = prompt_path.read_text(encoding="utf-8-sig").strip()
+                except (OSError, UnicodeError):
+                    errors.append(f"{path}: cannot read prompt file {prompt_path}")
+                    continue
                 if not text.strip():
                     problems.append(f"prompt file {prompt_path} is empty")
                 else:
@@ -184,6 +198,7 @@ def load_registry(registry_dir: Path | str | None = None, *, require_core: bool 
                 continue
             roles[role.id] = role
             origin[role.id] = path
+            names.add(role.role)
 
     if require_core:
         missing = [r for r in REQUIRED_CORE_ROLES if r not in roles]

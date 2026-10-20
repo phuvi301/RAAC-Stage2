@@ -10,6 +10,7 @@ from .loader import (
 )
 from .models import (
     REQUIRED_CORE_ROLES,
+    LoadedRole,
     ModelSpec,
     OutputFormat,
     Registry,
@@ -21,6 +22,7 @@ from .output_formats import OutputFormatError, parse_role_output, validate_unifi
 
 __all__ = [
     "REQUIRED_CORE_ROLES",
+    "LoadedRole",
     "ModelSpec",
     "OutputFormat",
     "OutputFormatError",

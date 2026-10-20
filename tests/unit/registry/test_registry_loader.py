@@ -39,7 +39,7 @@ def test_every_role_uses_only_catalog_tools_and_has_prompt():
     for role in registry.roles.values():
         assert all(t in registry.tools for t in role.tools)
         assert registry.prompts[role.id].strip()
-        assert role.model.ref == "default"
+        assert role.model.ref == role.id
         assert role.cost_weight == 1.0
 
 
@@ -56,12 +56,12 @@ def test_missing_registry_dir(tmp_path):
 def test_missing_field_names_file_and_field(reg_dir):
     path = reg_dir / "roles" / "core" / "coder.yaml"
     data = yaml.safe_load(path.read_text())
-    del data["output_format"]
+    del data["max_llm_calls"]
     path.write_text(yaml.safe_dump(data))
     with pytest.raises(RegistryError) as exc:
         load_registry(reg_dir)
     msg = str(exc.value)
-    assert "coder.yaml" in msg and "missing required field 'output_format'" in msg
+    assert "coder.yaml" in msg and "missing required field 'max_llm_calls'" in msg
 
 
 def test_unknown_yaml_key_is_reported(reg_dir):
@@ -81,8 +81,8 @@ def test_unknown_tool_is_reported(reg_dir):
 
 
 def test_missing_prompt_file_is_reported(reg_dir):
-    (reg_dir / "prompts" / "tester.v1.md").unlink()
-    with pytest.raises(RegistryError, match="tester.v1.md not found"):
+    (reg_dir / "prompts" / "tester.md").unlink()
+    with pytest.raises(RegistryError, match="tester.md not found"):
         load_registry(reg_dir)
 
 
@@ -108,11 +108,11 @@ def test_missing_core_role_is_reported(reg_dir):
 
 
 def test_all_problems_reported_together(reg_dir):
-    (reg_dir / "prompts" / "tester.v1.md").unlink()
-    (reg_dir / "prompts" / "coder.v1.md").unlink()
+    (reg_dir / "prompts" / "tester.md").unlink()
+    (reg_dir / "prompts" / "coder.md").unlink()
     with pytest.raises(RegistryError) as exc:
         load_registry(reg_dir)
-    assert "tester.v1.md" in str(exc.value) and "coder.v1.md" in str(exc.value)
+    assert "tester.md" in str(exc.value) and "coder.md" in str(exc.value)
 
 
 def test_invalid_yaml(reg_dir):
@@ -122,14 +122,14 @@ def test_invalid_yaml(reg_dir):
 
 
 def test_render_prompt_substitutes_known_variables_only(reg_dir):
-    (reg_dir / "prompts" / "coder.v1.md").write_text("Language: ${lang}. Keep ${other}.")
+    (reg_dir / "prompts" / "coder.md").write_text("Language: ${lang}. Keep ${other}.")
     registry = load_registry(reg_dir)
     assert render_prompt(registry, "coder", lang="Python") == "Language: Python. Keep ${other}."
 
 
 # ---------------------------------------------------------------- version stamping
 def test_version_file_exists_and_is_semver():
-    assert read_registry_version(REAL_REGISTRY) == "0.1.0"
+    assert read_registry_version(REAL_REGISTRY) == "0.17.1"
 
 
 def test_bad_or_missing_version(reg_dir):
@@ -146,7 +146,7 @@ def test_bad_or_missing_version(reg_dir):
 def test_stamp_record_adds_version_without_mutating_input(reg_dir):
     record = {"task_id": "t1", "level": "L1"}
     stamped = stamp_record(record, reg_dir)
-    assert stamped == {"task_id": "t1", "level": "L1", "registry_version": "0.1.0"}
+    assert stamped == {"task_id": "t1", "level": "L1", "registry_version": "0.17.1"}
     assert "registry_version" not in record
 
 
@@ -158,4 +158,4 @@ def test_stamp_record_follows_version_file(reg_dir):
 def test_stamp_record_rejects_mixed_versions(reg_dir):
     with pytest.raises(RegistryError, match="already has registry_version='0.0.9'"):
         stamp_record({"registry_version": "0.0.9"}, reg_dir)
-    assert stamp_record({"registry_version": "0.1.0"}, reg_dir)["registry_version"] == "0.1.0"
+    assert stamp_record({"registry_version": "0.17.1"}, reg_dir)["registry_version"] == "0.17.1"

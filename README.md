@@ -5,7 +5,7 @@ Khung dự án Python >= 3.11 / LangGraph để xây dựng và so sánh bốn c
 - Kế hoạch và tiến độ: [checklist](docs/implementation_checklist.md).
 - Quy tắc agent: [.agents/rules/progress.md](.agents/rules/progress.md).
 - Kiến trúc: harness 4 layer bao quanh mỗi agent, collaboration engine dùng LangGraph.
-- CLI sandbox Docker đã hiện thực; agent/LLM/collaboration còn scaffold. Xem [hướng dẫn sandbox](docs/sandbox.md).
+- CLI sandbox Docker và MAS/L3 Chain chạy local đã hiện thực; Engine chung và các level còn lại chưa hoàn tất. Xem [hướng dẫn sandbox](docs/sandbox.md).
 - requirements.lock chưa chứa dependency đã khóa; cần resolve và kiểm tra ở D01.
 - WASM, A2A và long-term memory được đặc tả là stub/tuỳ chọn trong kế hoạch.
 
@@ -16,7 +16,7 @@ Khung dự án Python >= 3.11 / LangGraph để xây dựng và so sánh bốn c
     python -m pip install -e ".[dev]"
     python -m pytest
 
-Không commit API key hoặc dữ liệu nhạy cảm. CLI sandbox đã có; CLI benchmark và các level chưa hiện thực.
+Không commit API key hoặc dữ liệu nhạy cảm. CLI sandbox và MAS Chain đã có; CLI benchmark tổng quát và các level còn lại chưa hoàn tất.
 
 ## Cấu trúc thư mục
 
@@ -42,7 +42,8 @@ Cây dưới đây lược bỏ các file `__init__.py` và `.gitkeep` để d�
 │   └── benchmark.yaml                # kích thước pilot/full, số lần lặp, song song
 │
 ├── registry/                         # dữ liệu Agent Registry (cố định cho 4 level)
-│   ├── VERSION                       # ghi vào mọi bản ghi kết quả
+│   ├── VERSION                       # Registry dùng chung, hiện 0.17.1
+│   ├── tools.yaml                    # catalog tool dùng chung
 │   ├── roles/
 │   │   ├── core/                     # Analyst, Planner, Coder, Tester, Reviewer
 │   │   └── extended/                 # Security, Architect, DB/Migration (chỉ L4 dùng)
@@ -204,3 +205,14 @@ chọn105task để tránh build nhầm nhóm bị loại.
 Manifest105 và danh sách15task bị loại nằm trong `data/tasks/`; dữ liệu gốc
 và evaluator không đổi. Điểm chính là `100 × resolved / 105`, không thu nhỏ mẫu
 số khi còn task chưa chạy. Xem [quy tắc, lệnh chạy và giới hạn](docs/benchmark105.md).
+
+## MAS/L3 Chain
+
+Đã ghép MAS Chain Analyst → Planner → Coder ⇄ Tester → Reviewer, chạy local
+trên repo và user chat. Coordinator hiện cố định Chain; chưa tích hợp Engine
+chung hoặc benchmark. Cấu hình nằm trong `configs/`, role/prompt trong
+`registry/roles/core/` và `registry/prompts/`; CLI sandbox hiện có giữ nguyên.
+
+Chạy `python -m raac.mas_cli run-chain --project-dir PATH` với `PYTHONPATH=src`,
+hoặc `raac-mas run-chain --project-dir PATH` sau khi cài editable.
+Xem [cấu hình, đầu vào, tools và log viewer](docs/chain_demo.md).

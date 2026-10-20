@@ -1,13 +1,20 @@
 id: tester
 role: Tester
 group: core
-description: "Selects the tests to run, runs them, and reports observed results."
-prompt_version: v1
+prompt: prompts/tester.md
+prompt_version: chain-v4
 tools:
+  - list_files
   - read_file
+  - read_files
   - search_repo
+  - edit_file
+  - replace_text
+  - delete_file
   - run_tests
+  - run_command
+  - run_commands
 model:
-  ref: default            # placeholder: resolved from configs/llm.yaml
-cost_weight: 1.0          # TODO: calibrate cost weight (default 1.0 until pilot data exists)
-output_format: json
+  ref: tester
+cost_weight: 1.0  # TODO: calibrate cost weight (default 1.0 until pilot data exists)
+max_llm_calls: 10

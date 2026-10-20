@@ -1,15 +1,34 @@
-# Tool catalog. Roles may only reference tool names defined here.
-# The harness (layer3_execution/tools/) implements these; the registry only declares them.
 tools:
-  - name: read_file
-    description: Read a file from the task repository checkout.
-    read_only: true
-  - name: search_repo
-    description: Search the repository (text / symbol search) and return matching locations.
-    read_only: true
-  - name: edit_file
-    description: Edit a file in the sandbox working copy. Not granted to any core role; patches are applied by the sandbox.
-    read_only: false
-  - name: run_tests
-    description: Run the test suite (or a subset) inside the sandbox and return the results.
-    read_only: false
+- name: list_files
+  description: List repository paths.
+  read_only: true
+- name: read_file
+  description: Read a repository file or range.
+  read_only: true
+- name: read_files
+  description: Read multiple repository files or ranges.
+  read_only: true
+- name: search_repo
+  description: Search repository text.
+  read_only: true
+- name: edit_file
+  description: Create or update a permitted repository file.
+  read_only: false
+- name: replace_text
+  description: Replace an exact region in a permitted file.
+  read_only: false
+- name: delete_file
+  description: Delete a permitted repository file.
+  read_only: false
+- name: apply_patch
+  description: Apply a multi-file Coder patch.
+  read_only: false
+- name: run_command
+  description: Run one local argv command.
+  read_only: false
+- name: run_commands
+  description: Run related local argv commands sequentially.
+  read_only: false
+- name: run_tests
+  description: Run the selected local test suite and return observed results.
+  read_only: false

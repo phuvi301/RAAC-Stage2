@@ -1,29 +1,24 @@
-"""Pydantic schema for the Agent Registry (roles, tools, models, groups).
-
-The registry only *describes* agents. Running them is the job of ``raac.harness``.
-"""
-
+"""One Registry schema for core/extended roles, tools and the MAS runtime."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
+import hashlib
+from pathlib import PurePosixPath
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 ID_PATTERN = r"^[a-z][a-z0-9_]*$"
-
-# Roles every level of the ladder relies on (proposal section 1.2 pipeline).
-REQUIRED_CORE_ROLES: tuple[str, ...] = ("analyst", "planner", "coder", "tester", "reviewer")
+REQUIRED_CORE_ROLES = ("analyst", "planner", "coder", "tester", "reviewer")
+Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
 class _Strict(BaseModel):
-    """Base class: unknown YAML keys are errors, models are immutable."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
 
 class RoleGroup(str, Enum):
-    """Core roles are available at every level; extended roles are only used by L4."""
-
     CORE = "core"
     EXTENDED = "extended"
 
@@ -34,77 +29,99 @@ class OutputFormat(str, Enum):
 
 
 class ToolSpec(_Strict):
-    """A tool that roles may be allowed to use. Implemented in the harness."""
-
     name: str = Field(pattern=ID_PATTERN)
-    description: str = Field(min_length=1)
+    description: Text
     read_only: bool = True
 
 
 class ModelSpec(_Strict):
-    """Which LLM profile a role uses.
-
-    ``ref`` is only a name. The concrete model, temperature and seed are looked up in
-    ``configs/llm.yaml`` so that they can be frozen in one place before the pilot.
-    """
-
-    ref: str = Field(default="default", min_length=1)
+    """Reference to default settings or a named profile in configs/llm.yaml."""
+    ref: str = Field(default="default", pattern=ID_PATTERN)
 
 
 class RoleSpec(_Strict):
-    """One agent role in the registry."""
-
     id: str = Field(pattern=ID_PATTERN)
-    role: str = Field(min_length=1, description="Display name, e.g. 'Coder'.")
-    group: RoleGroup
-    description: str = Field(min_length=1)
-    prompt_version: str = Field(pattern=r"^v\d+$", description="Selects registry/prompts/<id>.<version>.md")
-    tools: tuple[str, ...] = Field(default=())
+    role: Text
+    group: RoleGroup = Field(default=RoleGroup.CORE, validation_alias=AliasChoices("group", "Group"))
+    prompt: Text
+    prompt_version: Text
+    tools: list[str]
     model: ModelSpec = Field(default_factory=ModelSpec)
-    # TODO: calibrate with pilot data. 1.0 means "no extra cost weighting".
-    cost_weight: float = Field(default=1.0, gt=0)
-    output_format: OutputFormat
+    cost_weight: float = Field(default=1.0, gt=0, allow_inf_nan=False)
+    max_llm_calls: int = Field(ge=1, le=20)
+
+    @field_validator("group", mode="before")
+    @classmethod
+    def parse_group(cls, value):
+        return RoleGroup(value)
 
     @field_validator("tools")
     @classmethod
-    def _no_duplicate_tools(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+    def unique_tools(cls, value):
         if len(set(value)) != len(value):
             raise ValueError("tools contains duplicates")
         return value
 
     @property
-    def prompt_filename(self) -> str:
-        return f"{self.id}.{self.prompt_version}.md"
+    def name(self):
+        return self.role
+
+    @property
+    def prompt_filename(self):
+        return PurePosixPath(self.prompt).name
+
+    @property
+    def output_format(self):
+        """Derived runtime format; YAML has no second format declaration."""
+        return OutputFormat.UNIFIED_DIFF if self.id == "coder" else OutputFormat.JSON
 
 
 class ToolCatalog(_Strict):
-    """Contents of ``registry/tools.yaml``."""
-
-    tools: tuple[ToolSpec, ...]
+    tools: list[ToolSpec]
 
     @model_validator(mode="after")
-    def _unique_names(self) -> "ToolCatalog":
-        names = [t.name for t in self.tools]
-        dupes = sorted({n for n in names if names.count(n) > 1})
-        if dupes:
-            raise ValueError(f"duplicate tool names: {', '.join(dupes)}")
+    def unique_names(self):
+        names = [tool.name for tool in self.tools]
+        if len(set(names)) != len(names):
+            raise ValueError("duplicate tool names")
         return self
 
 
-class Registry(_Strict):
-    """A fully loaded and validated registry."""
+@dataclass(frozen=True)
+class LoadedRole:
+    spec: RoleSpec
+    system_prompt: str
+    prompt_hash: str
 
+
+class Registry(_Strict):
     version: str
     tools: dict[str, ToolSpec]
     roles: dict[str, RoleSpec]
-    prompts: dict[str, str] = Field(description="role id -> raw prompt template text")
+    prompts: dict[str, str]
 
     def get_role(self, role_id: str) -> RoleSpec:
         try:
             return self.roles[role_id]
         except KeyError:
-            known = ", ".join(sorted(self.roles)) or "<none>"
-            raise KeyError(f"unknown role '{role_id}' (known: {known})") from None
+            raise KeyError(f"unknown role '{role_id}' (known: {', '.join(sorted(self.roles))})") from None
 
-    def roles_in_group(self, group: RoleGroup) -> list[RoleSpec]:
-        return [r for r in self.roles.values() if r.group == group]
+    def get(self, name: str) -> LoadedRole:
+        """Resolve an ID or display name for the MAS adapter."""
+        spec = self.roles.get(name)
+        if spec is None:
+            spec = next((item for item in self.roles.values() if item.role == name), None)
+        if spec is None:
+            raise ValueError(f"Unknown Registry role: {name!r}")
+        prompt = self.prompts[spec.id]
+        return LoadedRole(spec, prompt, hashlib.sha256(prompt.encode("utf-8")).hexdigest())
+
+    def roles_in_group(self, group: RoleGroup):
+        return [role for role in self.roles.values() if role.group == group]
+
+    def snapshot(self):
+        return {"version": self.version, "roles": {
+            role_id: {**self.roles[role_id].model_dump(mode="json"),
+                      "prompt_hash": self.get(role_id).prompt_hash}
+            for role_id in sorted(self.roles)
+        }}

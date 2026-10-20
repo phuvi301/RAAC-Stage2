@@ -8,10 +8,11 @@ version = "0.1.0"
 description = "Python and LangGraph agent collaboration benchmark"
 requires-python = ">=3.11"
 # TODO D01: select tested versions and resolve requirements.lock.
-dependencies = ["langgraph", "pydantic>=2", "PyYAML", "docker"]
+dependencies = ["langgraph", "langchain-core>=1.6,<2", "httpx>=0.27", "pydantic>=2", "PyYAML", "docker"]
 
 [project.scripts]
 raac = "raac.cli:main"
+raac-mas = "raac.mas_cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-asyncio", "ruff", "radon"]
@@ -21,3 +22,5 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+[tool.setuptools.package-data]
+"raac.common" = ["trace_assets/*.html", "trace_assets/*.css", "trace_assets/*.js", "trace_assets/*.mjs"]

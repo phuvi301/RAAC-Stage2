@@ -21,3 +21,5 @@ results/*
 !data/evaluation/
 data/evaluation/*
 !data/evaluation/swe_bench_verified.json
+currentProjects/*
+results/*

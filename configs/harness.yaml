@@ -1,2 +1,16 @@
-# TODO: Define and validate configuration; see docs/implementation_checklist.md.
-{}
+version: harness-demo-v9
+trace_content: true
+token_limit: 200000
+timeout_seconds: 900.0
+agent_timeout_seconds: 400
+context:
+  enabled: true
+  recent_tool_turns: 1
+  max_tool_output_chars: 8000
+  max_old_tool_output_chars: 1200
+  max_file_context_chars: 12000
+  max_checkpoint_tokens: 2000
+execution:
+  mode: local
+  timeout_seconds: 200.0
+  max_output_bytes: 131072

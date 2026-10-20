@@ -1,12 +1,14 @@
 id: analyst
 role: Analyst
 group: core
-description: "Turns the raw issue into a structured specification: requirements, constraints, acceptance criteria."
-prompt_version: v1
+prompt: prompts/analyst.md
+prompt_version: chain-v4
 tools:
+  - list_files
   - read_file
+  - read_files
   - search_repo
 model:
-  ref: default            # placeholder: resolved from configs/llm.yaml
-cost_weight: 1.0          # TODO: calibrate cost weight (default 1.0 until pilot data exists)
-output_format: json
+  ref: analyst
+cost_weight: 1.0  # TODO: calibrate cost weight (default 1.0 until pilot data exists)
+max_llm_calls: 6

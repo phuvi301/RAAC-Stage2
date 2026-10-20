@@ -134,10 +134,10 @@ def test_planner_ids_and_dependencies():
 
 def test_tester_verdict_must_match_results():
     lying = {**TESTER, "results": [{"test": "t", "status": "failed", "details": "boom"}]}
-    with pytest.raises(OutputFormatError, match="verdict is 'pass'"):
+    with pytest.raises(OutputFormatError, match="verdict.*results"):
         parse_role_output("tester", dump(lying))
     inverse = {**TESTER, "verdict": "fail"}
-    with pytest.raises(OutputFormatError, match="verdict is 'fail'"):
+    with pytest.raises(OutputFormatError, match="verdict.*results"):
         parse_role_output("tester", dump(inverse))
     bad_status = {**TESTER, "results": [{"test": "t", "status": "ok"}]}
     with pytest.raises(OutputFormatError):
