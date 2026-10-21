@@ -32,8 +32,9 @@ class TopologySpec:
 
 
 CHAIN = TopologySpec(
-    topology_id="chain", version="2",
+    topology_id="chain", version="5",
     steps=(
+        TopologyStep("environment", "Environment"),
         TopologyStep("analyst", "Analyst"),
         TopologyStep("planner", "Planner"),
         TopologyStep("coder", "Coder"),
@@ -44,13 +45,13 @@ CHAIN = TopologySpec(
         TopologyStep("result", None),
     ),
     edges=(
-        ("analyst", "planner"), ("planner", "coder"),
-        ("coder", "tester"), ("tester", "check"),
+        ("environment", "analyst"), ("analyst", "planner"),
+        ("planner", "coder"), ("coder", "tester"), ("tester", "check"),
         ("check", "reviewer"), ("check", "limit"),
         ("limit", "coder"), ("limit", "reviewer"),
         ("reviewer", "result"),
     ),
-    entry_node="analyst", exit_node="result",
+    entry_node="environment", exit_node="result",
 )
 
 TOPOLOGIES = MappingProxyType({CHAIN.topology_id: CHAIN})

@@ -29,7 +29,7 @@ def reg_dir(tmp_path):
 def test_real_registry_loads():
     registry = load_registry(REAL_REGISTRY)
     assert set(REQUIRED_CORE_ROLES) <= set(registry.roles)
-    assert {r.id for r in registry.roles_in_group(RoleGroup.CORE)} == set(REQUIRED_CORE_ROLES)
+    assert {r.id for r in registry.roles_in_group(RoleGroup.CORE)} == set(REQUIRED_CORE_ROLES) | {"environment"}
     assert registry.roles_in_group(RoleGroup.EXTENDED) == []
     assert registry.version == read_registry_version(REAL_REGISTRY)
 
@@ -129,7 +129,7 @@ def test_render_prompt_substitutes_known_variables_only(reg_dir):
 
 # ---------------------------------------------------------------- version stamping
 def test_version_file_exists_and_is_semver():
-    assert read_registry_version(REAL_REGISTRY) == "0.17.1"
+    assert read_registry_version(REAL_REGISTRY) == "0.18.6"
 
 
 def test_bad_or_missing_version(reg_dir):
@@ -146,7 +146,7 @@ def test_bad_or_missing_version(reg_dir):
 def test_stamp_record_adds_version_without_mutating_input(reg_dir):
     record = {"task_id": "t1", "level": "L1"}
     stamped = stamp_record(record, reg_dir)
-    assert stamped == {"task_id": "t1", "level": "L1", "registry_version": "0.17.1"}
+    assert stamped == {"task_id": "t1", "level": "L1", "registry_version": "0.18.6"}
     assert "registry_version" not in record
 
 
@@ -158,4 +158,4 @@ def test_stamp_record_follows_version_file(reg_dir):
 def test_stamp_record_rejects_mixed_versions(reg_dir):
     with pytest.raises(RegistryError, match="already has registry_version='0.0.9'"):
         stamp_record({"registry_version": "0.0.9"}, reg_dir)
-    assert stamp_record({"registry_version": "0.17.1"}, reg_dir)["registry_version"] == "0.17.1"
+    assert stamp_record({"registry_version": "0.18.6"}, reg_dir)["registry_version"] == "0.18.6"

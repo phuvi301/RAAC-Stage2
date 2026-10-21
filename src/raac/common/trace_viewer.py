@@ -7,6 +7,7 @@ import re
 import time
 
 from .tracing import JSONLTrace
+from .memory_viewer import MemoryFeed
 from raac.llm.usage import cached_tokens
 
 
@@ -141,13 +142,30 @@ class TraceViewer:
         elif kind == "agent_completed":
             content = event.get("output", {})
             message = "HOÀN TẤT | " + _summary(content)
+            if event.get("agent_id") == "environment":
+                content = {"output": content, "runtime": event.get("runtime", {})}
+                message = "MÔI TRƯỜNG | " + _summary(event.get("output", {}))
         elif kind == "agent_failed":
             message = f"DỪNG | {event.get('code') or event.get('error_kind')}"
             content = {key: event.get(key) for key in ("code", "error_kind", "stack")}
         elif kind == "agent_final_call":
             message = "Lượt LLM cuối: trả báo cáo bàn giao, không gọi thêm tool"
+        elif kind == "coder_patch_rebased":
+            message = "Chuẩn hóa đường dẫn patch theo Git worktree đã quan sát"
         elif kind == "coder_patch_rebuilt":
-            message = "Diff LLM sai định dạng; đã sinh và kiểm tra patch từ file Coder lưu"
+            message = ("Diff đã có trong workspace; dùng patch chuẩn theo baseline run"
+                       if event.get("reason") == "already_applied_diff" else
+                       "Diff LLM sai định dạng; đã sinh và kiểm tra patch từ file Coder lưu")
+        elif kind in {"memory_saved", "memory_loaded", "memory_compacted"}:
+            title = {"memory_saved": "LƯU MEMORY", "memory_loaded": "NẠP MEMORY",
+                     "memory_compacted": "COMPACT MEMORY"}[kind]
+            message = f"{title} | revision {event.get('revision', '?')}"
+            if kind == "memory_compacted":
+                message += f" | ~{event.get('before_estimated_tokens', '?')} → ~{event.get('after_estimated_tokens', '?')} token"
+            elif event.get("entry"):
+                entry = _mapping(event["entry"])
+                message += " | " + str(entry.get("tool") or entry.get("kind", ""))
+            content = {key: event[key] for key in ("path", "entry", "memory", "stored_entries", "compactions") if key in event}
         elif kind == "llm_request":
             message = "Gửi yêu cầu tới LLM"
         elif kind == "context_compacted":
@@ -216,7 +234,7 @@ class TraceViewer:
         return lines
 
 
-def show_trace(path: Path, *, details=False, agent=None, follow=False, emit=print):
+def show_trace(path: Path, *, details=False, agent=None, follow=False, memory=False, emit=print):
     viewer = TraceViewer(details=details, agent=agent)
     redactor = JSONLTrace(path)
     emit("Giờ Việt Nam (UTC+7) | --details: mở nội dung | --agent: lọc role")
@@ -243,3 +261,40 @@ def show_trace(path: Path, *, details=False, agent=None, follow=False, emit=prin
                 emit(rendered)
             if follow and event.get("event") == "run_completed":
                 break
+    if memory:
+        show_memory(path, details=details, agent=agent, emit=emit)
+
+
+def show_memory(path, *, details=False, agent=None, emit=print):
+    """Show snapshots and the complete paged action journal, without changing memory."""
+    if agent and str(agent).lower() != "coder":
+        return
+    feed = MemoryFeed(path)
+    data = feed.snapshots()
+    for warning in data["warnings"]:
+        emit(warning)
+    if not data["memories"]:
+        emit("MEMORY: run chưa có memory Coder đã lưu.")
+    for saved in data["memories"]:
+        identity = _mapping(saved.get("identity"))
+        emit(f"MEMORY CODER | work {identity.get('work_id', '?')} | revision {saved.get('revision', '?')} "
+             f"| ~{saved.get('estimated_tokens', '?')} token | compact {saved.get('compactions', 0)} lần")
+        if details:
+            for line in _details(saved):
+                emit(line)
+        if not saved.get("journal_available"):
+            continue
+        cursor = 0
+        while True:
+            page = feed.journal(saved["id"], cursor)
+            for entry in page["entries"]:
+                emit(f"  #{entry.get('sequence', '?')} · vòng {entry.get('round', '?')} · "
+                     + str(entry.get("tool") or entry.get("kind", "?")))
+                if details:
+                    for line in _details(entry):
+                        emit(line)
+            for warning in page["warnings"]:
+                emit(warning)
+            if not page["has_more"]:
+                break
+            cursor = page["cursor"]

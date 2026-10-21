@@ -16,6 +16,7 @@ from raac.collaboration.levels.l3_collaboration import (
 from raac.common.provenance import collect_provenance
 from raac.harness.demo_agent import DemoAgentRunner
 from raac.harness.layer2_core.context_manager import RoleContextPolicy
+from raac.harness.layer2_core.memory.short_term import ShortTermMemoryPolicy
 from raac.harness.layer3_execution.local_executor import LocalExecutor, LocalExecutionPolicy
 from raac.harness.layer3_execution.tool_orchestrator import ToolOrchestrator
 from raac.harness.layer3_execution.tools.workspace import WorkspaceTools
@@ -58,9 +59,11 @@ async def execute(args) -> int:
     )
     policy = LocalExecutionPolicy.model_validate(harness["execution"])
     context_policy = RoleContextPolicy.model_validate(harness.get("context", {}))
+    memory_policy = ShortTermMemoryPolicy.model_validate(harness.get("memory", {}))
 
     # Nạp registry và role models, chuẩn bị workspace và client LLM.
     registry = load_registry(project / "registry")
+    registry.get("Environment")  # Required by Chain topology v3, before workspace or HTTP.
     try:
         role_models = llm_config.resolve_role_models({role.id: role.model.ref for role in registry.roles.values()})
     except ValueError as exc:
@@ -87,7 +90,7 @@ async def execute(args) -> int:
                  "coordinator_decision": decision.model_dump(),
                  "trace_content": harness["trace_content"],
                  "execution": policy.model_dump(), "context": context_policy.model_dump(),
-                 "token_limit": harness["token_limit"]}
+                 "token_limit": harness["token_limit"], "memory": memory_policy.model_dump()}
     provenance = collect_provenance(project, registry, [llm_path, harness_path, level_path], effective)
     provenance["task_snapshot"] = workspace.baseline_ref
     provenance["workspace"] = {"mode": "in_place", "project_dir": str(workspace.project),
@@ -115,7 +118,8 @@ async def execute(args) -> int:
         tools, # thực thi tool
         provenance=provenance, # Thông tin tin đi kèm log
         token_limit=harness["token_limit"], # Giới hạn token cho mỗi lần gọi LLM
-        context_policy=context_policy   #quản lý ngữ cảnh cho các vai trò
+        context_policy=context_policy,  # quản lý ngữ cảnh cho các vai trò
+        memory_policy=memory_policy
     )
 
     # Tạo đầu vào của Chain: ID, yêu cầu và baseline.
@@ -150,13 +154,14 @@ async def execute(args) -> int:
 
         # Thực hiện graph và thu thập kết quả
         state = await graph.ainvoke(initial_state, {
-            "recursion_limit": 4 * limits.max_rounds + 12,
+            "recursion_limit": 6 * limits.max_rounds + 16,
         })
         # Ghi lại kết quả, trạng thái, provenance, quyết định của coordinator, thông tin thực thi và usage vào llm.jsonl
         record = {**state["result"], "events": state["events"], "provenance": provenance,
                   "coordinator_decision": decision.model_dump(),
                   "execution": {"mode": "local", "repo_dir": str(workspace.root),
-                                "python_executable": sys.executable},
+                                "python_executable": (workspace.environment.configuration or {}).get("python_executable", sys.executable),
+                                "prepared_environment": workspace.environment.configuration},
                   "usage": client.usage.snapshot(run_id=run_id)}
         client.trace_event(trace_context, "run_completed", status=record["status"],
                            stop_reason=record["stop_reason"], error=record["error"], usage=record["usage"])
@@ -181,6 +186,7 @@ def main(argv=None) -> int:
     parser.add_argument("--run-id", help="show-log: ID run cần đọc")
     parser.add_argument("--log", help="show-log: đường dẫn llm.jsonl hoặc file JSONL được dán")
     parser.add_argument("--details", action="store_true", help="show-log: mở nội dung trao đổi/tool")
+    parser.add_argument("--memory", action="store_true", help="show-log terminal: xem thêm snapshot và nhật ký memory Coder")
     parser.add_argument("--agent", help="show-log: lọc một role, ví dụ coder")
     parser.add_argument("--follow", action="store_true", help="show-log: theo dõi tới khi run kết thúc")
     parser.add_argument("--web", action="store_true", help="show-log: xem luồng trao đổi trên trình duyệt, tự cập nhật")
@@ -211,7 +217,7 @@ def main(argv=None) -> int:
                 serve_trace(log, port=args.port, agent=args.agent, open_browser=not args.no_open,
                             emit=lambda line: print(line, flush=True))
             else:
-                show_trace(log, details=args.details, agent=args.agent, follow=args.follow,
+                show_trace(log, details=args.details, agent=args.agent, follow=args.follow, memory=args.memory,
                            emit=lambda line: print(line, flush=True))
         except KeyboardInterrupt:
             return 130

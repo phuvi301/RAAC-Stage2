@@ -68,6 +68,8 @@ class FakeAgents:
                            "approach": "Add an empty input guard; keep existing behavior"}],
                 "covered_ac_ids": ["AC1"],
             }
+        elif role == "Environment":
+            output = {"status": "ready", "summary": "Fake verified environment", "blocking_issues": []}
         elif role == "Coder":
             output = {
                 "patch": f"cumulative patch for attempt {request['round']}",
@@ -97,6 +99,8 @@ class FakeAgents:
         if role == "Coder":
             patch = f"--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+attempt_{request['round']}\n"
             return RoleHandoff(patch, {"summary": output["summary"]})
+        if role == "Environment":
+            return RoleHandoff(output, {"verified": True, "configuration": {"cwd": "."}})
         payload = commit_payload(output)
         if role in {"Tester", "Reviewer"}:
             runtime = {key: output[key] for key in ("patch_hash", "status", "tests_run", "failed", "test_cases", "summary") if key in output}
@@ -122,7 +126,7 @@ class ChainNodeTests(unittest.IsolatedAsyncioTestCase):
         state = state or make_state()
         graph = build_chain_graph(ChainNodes(agents, **node_options))
         return await graph.ainvoke(
-            state, {"recursion_limit": 4 * state["limits"]["max_rounds"] + 12},
+            state, {"recursion_limit": 6 * state["limits"]["max_rounds"] + 16},
         )
 
     async def test_all_nodes_advertise_and_parse_the_shared_json_contract(self):
@@ -137,7 +141,7 @@ class ChainNodeTests(unittest.IsolatedAsyncioTestCase):
         agents = JsonAgents()
         output = await self.run_graph(agents)
         self.assertEqual(output["result"]["verdict"], "PASS")
-        self.assertEqual(len(agents.calls), 5)
+        self.assertEqual(len(agents.calls), 6)
         for role, request in agents.calls:
             self.assertEqual(request["output_schema"], role_output_model(role).model_json_schema())
 
@@ -157,10 +161,10 @@ class ChainNodeTests(unittest.IsolatedAsyncioTestCase):
         output = await self.run_graph(agents, state)
         self.assertEqual(output["result"]["verdict"], "PASS")
         self.assertEqual([role for role, _ in agents.calls], [
-            "Analyst", "Planner", "Coder", "Tester", "Coder", "Tester", "Reviewer"])
+            "Environment", "Analyst", "Planner", "Coder", "Tester", "Coder", "Tester", "Reviewer"])
         for role, request in agents.calls:
             with self.subTest(role=role, round=request["round"]):
-                if role in {"Analyst", "Reviewer"}:
+                if role in {"Environment", "Analyst", "Reviewer"}:
                     self.assertEqual(request["requirement"], original["work"]["requirement"])
                 else:
                     self.assertNotIn("requirement", request)
@@ -202,7 +206,7 @@ class ChainNodeTests(unittest.IsolatedAsyncioTestCase):
         agents = FakeAgents()
         output = await self.run_graph(agents)
         self.assertEqual([role for role, _ in agents.calls], [
-            "Analyst", "Planner", "Coder", "Tester", "Reviewer",
+            "Environment", "Analyst", "Planner", "Coder", "Tester", "Reviewer",
         ])
         self.assertEqual(output["result"]["verdict"], "PASS")
         self.assertEqual(output["rounds_completed"], 1)
@@ -223,12 +227,18 @@ class ChainNodeTests(unittest.IsolatedAsyncioTestCase):
         agents = FakeAgents(pass_on_round=2)
         output = await self.run_graph(agents)
         self.assertEqual([role for role, _ in agents.calls], [
-            "Analyst", "Planner", "Coder", "Tester", "Coder", "Tester", "Reviewer",
+            "Environment", "Analyst", "Planner", "Coder", "Tester", "Coder", "Tester", "Reviewer",
         ])
         coders = [request for role, request in agents.calls if role == "Coder"]
         self.assertEqual(coders[0]["incoming_message"]["from"], "Planner")
         self.assertEqual(coders[1]["incoming_message"]["from"], "Tester")
         self.assertEqual(coders[1]["artifacts"]["test_report"]["failed"], 1)
+        for role, request in agents.calls:
+            if role in {"Analyst", "Planner", "Coder", "Tester"}:
+                self.assertEqual(request["environment_report"], output["environment_report"])
+            if role == "Environment":
+                self.assertIsNone(request["environment_report"])
+        self.assertEqual([role for role, _ in agents.calls].count("Environment"), 1)
         self.assertEqual(output["rounds_completed"], 2)
         self.assertEqual(output["result"]["verdict"], "PASS")
 
@@ -236,6 +246,7 @@ class ChainNodeTests(unittest.IsolatedAsyncioTestCase):
         agents = FakeAgents(pass_on_round=100)
         output = await self.run_graph(agents, make_state(rounds=3))
         roles = [role for role, _ in agents.calls]
+        self.assertEqual(roles.count("Environment"), 1)
         self.assertEqual(roles.count("Coder"), 3)
         self.assertEqual(roles.count("Tester"), 3)
         self.assertEqual(roles.count("Reviewer"), 1)
@@ -278,7 +289,7 @@ class ChainNodeTests(unittest.IsolatedAsyncioTestCase):
         agents = FakeAgents(overrides={"Planner": lambda output, request: "not JSON"})
         output = await self.run_graph(agents)
         self.assertEqual(output["stop_reason"], "invalid_output")
-        self.assertEqual([role for role, _ in agents.calls], ["Analyst", "Planner"])
+        self.assertEqual([role for role, _ in agents.calls], ["Environment", "Analyst", "Planner"])
 
     async def test_plan_cannot_drop_acceptance_criteria(self):
         agents = FakeAgents(overrides={
@@ -343,7 +354,11 @@ class ChainNodeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(output["stop_reason"], "timeout")
         self.assertEqual(agents.calls, [])
 
+        ready = FakeAgents()
+
         async def slow_agent(role, request):
+            if role == "Environment":  # has no agent timeout; the first timed role is Analyst
+                return await ready(role, request)
             await asyncio.sleep(1)
 
         state = make_state()
@@ -394,6 +409,7 @@ class ChainNodeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(completed["rounds_completed"], 2)
         self.assertEqual([role for role, _ in agents.calls].count("Analyst"), 1)
         self.assertEqual([role for role, _ in agents.calls].count("Coder"), 2)
+        self.assertEqual([role for role, _ in agents.calls].count("Environment"), 1)
 
 
 class ChainInputTests(unittest.TestCase):

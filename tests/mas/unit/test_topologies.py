@@ -10,11 +10,12 @@ class ChainTopologyTests(unittest.TestCase):
         topology = get_topology("chain")
         self.assertEqual(
             [step.role for step in topology.steps if step.role is not None],
-            ["Analyst", "Planner", "Coder", "Tester", "Reviewer"],
+            ["Environment", "Analyst", "Planner", "Coder", "Tester", "Reviewer"],
         )
         self.assertEqual(topology.incoming_nodes("coder"), ("planner", "limit"))
         self.assertEqual(topology.incoming_nodes("limit"), ("check",))
         self.assertEqual(topology.incoming_nodes("check"), ("tester",))
+        self.assertEqual(topology.incoming_nodes("environment"), ())
         self.assertNotIn(("reviewer", "coder"), topology.edges)
         self.assertEqual(topology.exit_node, "result")
 
@@ -26,7 +27,7 @@ class ChainTopologyTests(unittest.TestCase):
             self.assertIn(source, node_ids)
             self.assertIn(target, node_ids)
         self.assertFalse(any(source == "result" for source, _ in topology.edges))
-        self.assertEqual(topology.incoming_nodes("analyst"), ())
+        self.assertEqual(topology.incoming_nodes("analyst"), ("environment",))
         self.assertEqual(topology.incoming_nodes("planner"), ("analyst",))
         self.assertEqual(topology.incoming_nodes("tester"), ("coder",))
 

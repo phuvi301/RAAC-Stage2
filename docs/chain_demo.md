@@ -10,7 +10,7 @@ MAS/L3 dùng Registry chung: role ở `registry/roles/core/`, prompt ở
 `raac.registry.loader`. Cấu hình dùng `configs/llm.yaml`,
 `configs/harness.yaml`, `configs/levels/l3_collaboration.yaml`.
 Lệnh `raac-mas` tương đương `python -m raac.mas_cli` sau khi cài editable.
-Registry VERSION hiện 0.17.1, prompt chain-v4. Bộ dữ liệu/model/loader
+Registry VERSION hiện 0.18.6, Coder và Environment dùng prompt chain-v5; các role còn lại chain-v4. Bộ dữ liệu/model/loader
 MAS trùng và prompt v1 cũ đã được gỡ. CLI sandbox hiện có giữ nguyên.
 Tự cấu hình model/key ở `.env`; `--project-dir` chỉ định workspace.
 
@@ -44,7 +44,7 @@ vào results; mỗi run chỉ lưu hai file nêu trên.
    Key không nằm trong source/YAML/log. Base URL mặc định:
    http://127.0.0.1:20128/v1.
 3. Chuẩn bị repo và requirement/user_chat.txt.
-4. Runtime/dependency của phần mềm cần có trên laptop. Không cần Docker.
+4. Role Environment kiểm tra và cài dependency vào virtualenv local một lần ở bước đầu tiên, trước Analyst và Planner. Không cần Docker.
 
 Cài dependencies framework nếu chưa có:
 
@@ -73,12 +73,104 @@ python -m raac.mas_cli run-chain --project-dir 'D:/myProject' --model MODEL_ID -
 
 models chỉ đọc danh sách model, không gửi task để completion.
 
+### Role Environment chạy một lần ở bước đầu tiên
+
+Flow Chain topology v5:
+
+`Environment → Analyst → Planner → Coder → Tester → Check`.
+Khi cần sửa tiếp: `Check → Limit → Coder → Tester`. Environment không chạy lại;
+Coder/Tester dùng cấu hình Python/cwd/env đã xác minh trong cả run.
+Environment không tăng số vòng Coder–Tester. Chưa sẵn sàng thì dừng tại
+`environment_setup_failed`, giữ báo cáo và patch đã có; không lặp sửa code vì thiếu dependency.
+
+Khai báo ở `registry/roles/core/environment.yaml`, prompt ở
+`registry/prompts/environment.md`; profile riêng `environment` vẫn dùng `cx/gpt-5.6-sol`.
+Role đọc manifest/CI/README, chọn Python tương thích, tạo hoặc dùng lại `.venv`,
+cài runtime/build/test dependency bằng `run_command` hoặc `run_commands`.
+Prompt yêu cầu giữ cài đặt trong virtualenv của project và không sửa source/test để né lỗi.
+
+`execution_environment.python_candidates` liệt kê interpreter đã có trong các
+runtime cục bộ (kể cả `.venv38`, `.venv39`, `.python38`). Đây chỉ là đường dẫn
+được phát hiện, không phải bằng chứng ready hoặc dữ liệu kế thừa từ run trước.
+Environment phải kiểm tra phiên bản/import và gọi `configure_environment` trong
+chính run hiện tại; ưu tiên runtime tương thích đã có, tránh xóa môi trường đang
+hoạt động hoặc tải lại dependency khi lỗi mạng và còn candidate phù hợp.
+Discovery không chạy interpreter, không đi vào site-packages hoặc theo thư mục
+symlink/junction; source snapshot vẫn bỏ qua các runtime này.
+
+Snapshot/list/search/patch bỏ qua các thư mục runtime Python cục bộ có tên
+`.python`, `.venv` và hậu tố phiên bản như `.python39`, `.venv38`, `.venv-3.12`,
+cùng installer dạng `.python-3.9.13-installer.exe`. Quy tắc áp dụng cả trước và
+sau Environment, không xóa runtime hoặc đưa dependency vào baseline/patch.
+Các tên source như `.python-tools`, `.venv_config` và `venv_helpers.py` vẫn được
+giữ. File tools không đọc/ghi các đường dẫn runtime bị loại; command tools vẫn
+chạy interpreter đã được Environment xác minh.
+Source thật vượt 2 MiB dừng bằng `workspace_file_too_large`; vượt tổng 16 MiB
+hoặc 2000 file dừng bằng `workspace_snapshot_limit`, không gán thành
+`invalid_output`. Nếu lỗi ở bước chuẩn bị danh sách file trước khi gọi model,
+trace ghi `agent_failed` với `stage=workspace_preflight` và mã lỗi tương ứng.
+
+Tool `configure_environment` nhận `python_executable`, `cwd`, `test_command`,
+`check_command` và `env`. Runtime chạy Python thật rồi kiểm tra import/discovery;
+với `python -m pytest`, thu thập suite bằng `--collect-only` rồi thực thi suite và trả `smoke_report` cùng mẫu lỗi khác nhau để role kiểm tra tương thích dependency/API.
+Không yêu cầu assertion của task phải pass ở bước chuẩn bị môi trường.
+Chỉ khi startup/collection và report thực thi đáng tin cậy trong chính lượt Environment hiện tại mới mở cấu hình runtime. Role đọc smoke_report để phân biệt lỗi task với lỗi môi trường; assertion fail do task vẫn có thể bàn giao cho Coder, lỗi dependency/API chưa xử lý phải báo blocked.
+Một báo cáo LLM tự khai thành công không mở được gate.
+
+Helper test chạy bằng Python của project và tương thích Python 3.8; Python chạy
+framework vẫn theo yêu cầu `>=3.11`. Đường dẫn `python_executable` tương đối trong
+`configure_environment` được tính từ `cwd`, giống command/test tools.
+JUnit phân biệt `<skipped type="pytest.xfail">` với skip thông thường; unittest
+ghi nhận `expectedFailure` riêng và `unexpectedSuccess` là lỗi. `skipped` giữ
+tổng số case bỏ qua/xfail, `expected_failures` là tập con có bằng chứng từ runner.
+Suite chỉ passed khi exit code 0, không lỗi, không skip thông thường và có ít
+nhất một case passed thật. Suite toàn xfail/zero test hoặc strict XPASS vẫn bị
+chặn. Các case xfail giữ status skipped và lý do, không đổi thành case passed.
+Counter expected failure đi qua Environment, Tester runtime và result; AC và
+Reviewer vẫn phải đạt đủ điều kiện Chain PASS.
+
+Cấu hình đã xác minh được dùng cho lệnh Python và test sau đó, kể cả khi model
+vẫn đưa đường dẫn Python đang chạy MAS. `run_tests()` không tham số dùng suite/cwd/env
+đã chọn; Tester vẫn có thể chọn thêm test. Result lưu `environment_report` và
+`execution.prepared_environment`; log/web/terminal hiển thị role, tool và kiểm tra thực tế.
+
+`timeout_seconds: null` trong role bỏ deadline riêng của Environment. Lệnh và batch
+cài đặt/kiểm tra, cùng HTTP của role này, không có timeout phía RAAC. Đồng hồ run
+tạm dừng trong thời gian Environment chạy; Coder/Tester vẫn giữ giới hạn cũ.
+Giới hạn token chung, `max_llm_calls: 20`, output limit và hủy bằng Ctrl+C vẫn áp dụng.
+Provider/router hoặc hệ điều hành vẫn có thể tự ngắt kết nối/tiến trình.
+Không hỗ trợ nạp checkpoint topology v2/v3 vào graph v4.
+
+Executable tương đối của `run_command`/`run_tests` được phân giải theo `cwd`
+trước khi spawn, kể cả trên Windows. Ví dụ `cwd=xarray` cùng
+`.venv\Scripts\python.exe` chọn `repo/xarray/.venv/Scripts/python.exe`.
+Bare `python` ưu tiên cấu hình Environment đã xác minh; khi chưa có cấu hình,
+ưu tiên venv ngay trong cwd rồi venv ở gốc repo, cuối cùng Python của MAS.
+Lệnh lỗi hiển thị đường dẫn tuyệt đối đã thử. Không cài lại venv chỉ vì lỗi khởi chạy.
+
+### Diff từ Git lồng nhau và báo cáo test lớn
+
+Khi Coder trả diff sau một `git diff` thành công, adapter dùng cwd đã quan sát và
+marker Git worktree trong repo để chuẩn hóa header về gốc `repo/`. Không tự dò
+prefix chỉ vì tên file giống nhau. Patch chỉ có một base áp dụng hợp lệ mới được
+áp dụng; nhiều base hợp lệ hoặc nội dung không khớp vẫn bị từ chối.
+Diff của lần chạy trước đã khớp nguyên baseline/current của run mới được nhận là
+no-op: patch của run hiện tại rỗng, không ghi lại file hoặc nhận công thay đổi cũ.
+
+Báo cáo test JSON đầy đủ đi qua file tạm do parent chọn, không đi chung pipe stdout.
+`execution.max_output_bytes` vẫn giới hạn output lệnh; `execution.max_report_bytes`
+mặc định 16 MiB giới hạn report riêng. Report lỗi/quá giới hạn không được coi là pass.
+Full case results giữ trong log/state/result; handoff lớn chỉ gửi aggregate counts,
+AC/blockers, summary và mẫu lỗi đại diện để không lặp hàng trăm stacktrace vào LLM.
+Executor đóng transport/pipe trước khi event loop kết thúc, kể cả output-limit,
+timeout và cancellation; không chỉ chờ tiến trình trả exit code trên Windows.
+
 ### Timeout LLM và chính sách retry/usage
 
-`configs/llm.yaml` (llm-v3) có `timeout_seconds` cho mỗi request LLM (hiện 400s)
+`configs/llm.yaml` (llm-v4) có `timeout_seconds` cho mỗi request LLM (hiện 400s)
 và `max_retries` (hiện 2). `configs/harness.yaml` có `agent_timeout_seconds`
 cho toàn bộ lượt role gồm các request/tool/backoff (hiện 400s), còn
-`timeout_seconds` ở cấp gốc là trần toàn run (900s). Timeout command nằm riêng
+`timeout_seconds` ở cấp gốc là trần thời gian làm việc ngoài Environment (theo cấu hình hiện tại). Timeout command nằm riêng
 trong `execution.timeout_seconds`, không phải thời gian chờ model.
 
 Muốn cho model thêm thời gian, chỉnh request timeout và role timeout phù hợp
@@ -141,7 +233,7 @@ patch không tự biến run thành PASS. Run cũ đã aborted giữ nguyên l�
 ## Chain và role
 
 Coordinator hiện cố định chọn chain, không gọi LLM để chọn topology.
-Graph chạy Analyst → Planner → Coder ⇄ Tester → Reviewer, cùng năm role.
+Graph chạy Environment → Analyst → Planner → Coder → Tester → Reviewer; retry vẫn qua Limit, có sáu role.
 Mặc định tối đa ba lượt Coder–Tester; --max-rounds phải từ 1 đến hard cap 4.
 Đây chưa phải coordinator thích ứng nhiều topology.
 
@@ -153,7 +245,7 @@ Mặc định tối đa ba lượt Coder–Tester; --max-rounds phải từ 1 đ
 | Tester | Các tool đọc, edit_file, replace_text, delete_file, run_command, run_commands, run_tests | Sửa từng vùng test, chạy đầy đủ và báo kết quả thật |
 | Reviewer | list_files, read_file, read_files, search_repo | Review patch, AC, smoke evidence và kết quả test |
 
-Registry VERSION là 0.17.1. YAML role dùng cấu trúc như sau, ví dụ Planner:
+Registry VERSION là 0.18.6. YAML role dùng cấu trúc như sau, ví dụ Planner:
 
 ```yaml
 id: planner
@@ -174,7 +266,7 @@ max_llm_calls: 6
 
 `prompt` vẫn trỏ trực tiếp đến file đang có. Nội dung hướng dẫn tool đã được
 đồng bộ với quyền YAML, giữ nhiệm vụ và hợp đồng bàn giao của từng role.
-Cả năm role dùng prompt_version=chain-v4; output theo commit 39d39e7 và mở rộng L3.
+Coder/Environment dùng prompt_version=chain-v5; các role còn lại dùng chain-v4; output theo commit 39d39e7 và mở rộng L3.
 `group` là cách viết thống nhất; schema cũng
 nhận `Group` như mẫu người dùng. `model.ref` chọn model theo cấu hình bên dưới.
 `cost_weight` là metadata chờ hiệu chỉnh pilot, chưa thay đổi tính giá/ngân sách.
@@ -234,7 +326,7 @@ Prompt Tester nêu đủ tool đọc/sửa/xóa test, giới hạn không sửa 
 chạm và yêu cầu chọn lại cấu hình test đầy đủ để tránh kế thừa smoke command.
 Prompt Coder phân biệt run_command/run_commands với run_tests cho smoke có
 báo cáo cấu trúc. Unit test đối chiếu tool được nhắc trong system prompt với
-function declarations cho đủ năm role, cả bật/tắt compaction.
+function declarations cho đủ sáu role, cả bật/tắt compaction.
 
 max_llm_calls trong từng role YAML giới hạn số lượt LLM bên trong role, khác
 max_rounds của vòng Coder–Tester. Coder/Tester mặc định có 10 lượt; lượt cuối
@@ -453,22 +545,33 @@ không gọi thêm LLM:
 - Giữ một lượt tool gần nhất; các lượt cũ thành checkpoint chứa tên tool,
   tham số gọn và kết quả. Output dài giữ đầu/cuối, đánh dấu rút gọn để agent
   đọc lại khoảng dòng cần thiết. Số liệu test và lỗi không bị đổi thành PASS.
-- Checkpoint cũ được cắt bằng `trim_messages` của LangChain Core, dùng
-  `count_tokens_approximately` để chọn các biên nhận gần nhất vừa ngân sách.
-  Mỗi biên nhận được giữ/bỏ nguyên khối; các cặp tool call/result gần nhất
-  được xử lý riêng để bảo toàn giao thức. Kết quả run_tests gần nhất trong
-  checkpoint luôn được giữ, kể cả khi riêng nó vượt ngân sách; log có cờ báo.
-- Bỏ bản sao report nằm trong execution.stdout của run_tests khi summary và
-  số liệu đã có; stdout/stderr đầy đủ vẫn được ghi ở sự kiện tool gốc.
-- Với diff trên 2000 ký tự, Tester và Coder retry nhận tham chiếu tới file đã
-  thay đổi rồi đọc code hiện tại. Reviewer tiếp tục nhận full diff để review.
-- Agent dùng danh sách repository_files đã có, tránh list_files lặp lại nếu
-  danh sách đầy đủ, và có thể gộp các tool call độc lập trong một response.
+- Checkpoint cũ được cắt bằng `trim_messages` của LangChain Core và bộ đếm token
+  ước lượng. Kết quả test gần nhất được bảo vệ bằng biên nhận gọn khi vượt
+  `max_checkpoint_tokens`, giữ status/count/hash/ref và mẫu lỗi khi còn chỗ.
+  Không giữ nguyên báo cáo test khổng lồ để vượt ngưỡng checkpoint.
+- `run_tests.results`, `test_cases` và `tests_to_run` có mẫu đại diện khi báo cáo
+  lớn: ưu tiên lỗi, kèm tổng số kết quả/số lỗi/số tên test và số liệu gốc. AC,
+  blocker, verdict và patch hash giữ nguyên; mẫu không thay bằng chứng thực thi.
+- `configure_environment.verification` rút gọn từng stdout/stderr lồng bên trong,
+  giữ command/exit code/trạng thái; smoke_report cũng được rút gọn. Handoff chỉ
+  chứa một bản environment_report ở cấp ngoài.
+- Tool `read_tool_result` dành cho Environment/Coder/Tester/Reviewer đọc chi tiết
+  observation_ref trong cùng run mà không chạy lại test. `path` là danh sách khóa
+  và chỉ số, ví dụ `["results", 0, "details"]` hoặc `["verification", 1, "stdout"]`.
+  `offset`/`limit` phân trang tối đa 10 phần tử hoặc 4000 ký tự. Giá trị lồng quá
+  lớn trả preview có cờ rõ ràng; đi sâu bằng path để đọc trường chính xác.
+  Ref được framework tạo từ quan sát thật; báo cáo lịch sử không chứng minh code
+  hiện tại vẫn pass. Báo cáo đầy đủ giữ trong log/result; bộ đọc giữ dữ liệu trong
+  phiên run, không phải cơ chế resume Engine sau khi process kết thúc.
 
-Cấu hình trong context: enabled=true, recent_tool_turns=1,
-max_tool_output_chars=8000, max_old_tool_output_chars=1200 và
-max_file_context_chars=12000, max_checkpoint_tokens=2000. Có thể đặt
-enabled=false để giữ cách truyền đầy đủ; không tự thay đổi token_limit.
+Cấu hình hiện tại `harness-demo-v14` đặt `context.enabled=false`: giữ nguyên
+lịch sử tool gửi model, không cắt code/output hoặc thay lượt ghi bằng receipt
+trong context. Coder có `max_llm_calls=20` cho mỗi lần kích hoạt role, bao gồm
+lượt cuối chỉ trả patch (tối đa 19 lượt có tool). Memory vẫn bật với ngưỡng
+compact snapshot riêng 50000/20000 token ước lượng; `token_limit` vẫn 800000.
+Các tham số chỉ áp dụng khi bật lại context: recent_tool_turns=1,
+max_tool_output_chars=8000, max_old_tool_output_chars=1200,
+max_file_context_chars=12000, max_checkpoint_tokens=2000.
 Ngân sách 2000 token ước lượng chỉ áp dụng cho biên nhận cũ, không bao gồm
 requirement/AC, source cache hoặc lượt tool gần nhất. Đây chưa phải giới hạn
 context window toàn request theo tokenizer của model. Usage API vẫn là số
@@ -498,6 +601,7 @@ Trace không ghi reasoning nội bộ của provider.
 ```powershell
 python -m raac.mas_cli show-log --run-id RUN_ID
 python -m raac.mas_cli show-log --run-id RUN_ID --agent tester --details
+python -m raac.mas_cli show-log --run-id RUN_ID --agent coder --memory --details
 python -m raac.mas_cli show-log --run-id RUN_ID --follow
 python -m raac.mas_cli show-log --log 'duong/dan/Pasted text.txt'
 python -m raac.mas_cli show-log --run-id RUN_ID --web
@@ -512,7 +616,9 @@ redaction thay đổi. Usage thiếu thì run dừng thay vì coi token bằng 0
 
 `show-log --run-id RUN_ID --web` mở trang local, mặc định tại
 `http://127.0.0.1:8765/`. Mỗi trang đọc đúng một file `llm.jsonl`, không gọi
-LLM hoặc khởi chạy lại MAS. Không tạo thêm artifact trong results.
+LLM hoặc khởi chạy lại MAS. Panel memory chỉ đọc snapshot/journal trong thư mục
+`memory/` cùng run với log đã chọn; không mở đường dẫn lấy từ nội dung log.
+Trình xem không tạo thêm artifact trong results.
 
 - Mỗi card ghi bên gửi → bên nhận, role, vòng, lượt LLM và giờ UTC+7.
   `Nhận nhiệm vụ` thể hiện nguồn bàn giao thật trong incoming_message;
@@ -527,7 +633,7 @@ LLM hoặc khởi chạy lại MAS. Không tạo thêm artifact trong results.
   Tool chạy xong nhưng test fail hoặc exit code khác 0 vẫn hiện đỏ.
   Các lượt adapter tự kiểm chứng được gắn nhãn riêng.
 - Chọn role bên trái, tìm theo tên file/tool/nội dung hoặc bật `Chỉ lỗi`.
-  `Context & HTTP` mở thêm request LLM thực tế (system prompt, messages,
+  `Context, HTTP & memory` mở thêm request LLM thực tế (system prompt, messages,
   tool schema), response, retry, usage và các bước rút gọn context.
   Lời nhắn ngôn ngữ tự nhiên của agent được hiện ngay trong luồng chính.
 - Bấm `Mở nội dung` để đọc từng trao đổi. Nội dung log được render như văn
@@ -539,6 +645,58 @@ LLM hoặc khởi chạy lại MAS. Không tạo thêm artifact trong results.
   Nếu chưa có usage đầy đủ, tổng hiển thị `≥` thay vì suy ra usage bằng 0.
 - Trang tự đọc phần log mới; không cần `--follow`. `Tạm dừng cập nhật` dừng
   việc đọc của trình xem, không dừng MAS. Ctrl+C ở terminal dừng server xem log.
+
+### Xem memory Coder
+
+Mở **Memory Coder** phía trên timeline để xem snapshot hiện tại: phạm vi work,
+revision, token ước lượng, số lần compact và các bản ghi đang giữ. Chọn phạm vi
+khi một run có nhiều work. **Nhật ký đầy đủ** đọc `.events.jsonl`, tải từng
+trang 50 bản ghi; bấm từng mục để mở arguments/observation, feedback, handoff
+hoặc lỗi. Nội dung code/HTML được hiển thị như văn bản. Panel tự cập nhật và
+không compact, thay đổi hoặc ghi lại memory khi đọc.
+
+Timeline nhận ba sự kiện: `memory_saved` ghi entry và thông số lần ghi;
+`memory_loaded` lưu đúng memory đã đưa vào request Coder retry;
+`memory_compacted` lưu snapshot sau compact và số token trước/sau. Hai sự kiện
+nạp/compact hiện trong luồng chính; các lần ghi nằm trong bộ lọc kỹ thuật.
+Sự kiện memory được ghi cả khi `trace_content: false`, độc lập việc ghi toàn
+bộ message LLM. Log cũ không có sự kiện vẫn xem được sidecar nếu còn file
+memory; không có file thì panel báo chưa có memory.
+
+Memory Coder `short-term-v2` ưu tiên một bản **working_notes** mới nhất ở đầu
+snapshot, gồm `conclusions` (kết luận + tham chiếu bằng chứng), `ruled_out`
+(giả thuyết đã loại + lý do + bằng chứng) và `next_steps` theo thứ tự. Coder gọi
+`update_memory` để thay toàn bộ ba danh sách, giữ mục còn đúng và bỏ mục đã lỗi
+thời; danh sách rỗng xóa phần tương ứng. Ghi chú giới hạn tổng 2000 ký tự JSON,
+không chứa bản chép suy nghĩ hay dump source/stdout. Bằng chứng trong ghi chú là
+tham chiếu do model khai, không thay bằng chứng test do executor quan sát.
+
+Snapshot lưu biên nhận tool ngắn (path/hash/status/count/ref), còn journal giữ
+arguments/observation đầy đủ và stored_entry để xem lại đúng revision. Ghi chú
+được cập nhật ngay trong task message của call tiếp theo và được nạp trước các
+biên nhận khi Coder retry. Chỉ Coder đang có phiên memory đúng run/call được ghi;
+tắt memory thì tool báo MemoryUnavailable. Không gọi LLM tóm tắt phụ. Ghi chú mới
+thay bản cũ tại nơi lưu; compact chỉ chạy khi snapshot vượt ngưỡng, bảo vệ nguyên
+bản ghi chú mới nhất. Đọc/view/hydrate không compact hoặc ghi lại file. Snapshot
+v1 vẫn đọc được; run cũ không tự sinh ra kết luận/giả thuyết/bước tiếp theo.
+
+Trên web, mở **Memory Coder → Xem thay đổi memory**. Chọn **Thời điểm lưu**
+để so sánh revision N với N−1: mục thêm, mục bị bỏ khỏi snapshot và mục được
+rút gọn/thay đổi có phần Trước/Sau. Revision compact được đánh dấu COMPACT,
+hiển thị token ước lượng trước/sau compact và số mục của snapshot. Token này
+là ước lượng kích thước memory, không phải usage tính phí của API.
+Lịch sử tải 50 revision mới nhất trước; nút **Tải revision cũ hơn** mở thêm.
+API `/api/memory/history?id=...&cursor=...` trả metadata, còn
+`/api/memory/change?id=...&revision=N` trả thay đổi. Dữ liệu dựng từ journal
+đúng identity, sự kiện memory_saved/compacted và snapshot hiện tại; không gọi
+model, ghi lại memory hoặc compact khi xem. Run cũ thiếu bản chụp compact hay
+journal bị thiếu sẽ báo không đủ dữ liệu để so sánh chính xác; không giả dựng
+snapshot lịch sử. Khởi động lại server show-log --web sau khi cập nhật.
+
+Terminal: thêm `--memory` để đọc snapshot và nhật ký sau timeline; thêm
+`--details` để mở nội dung. `--agent coder` lọc phần Coder. Với `--follow`,
+timeline cập nhật sự kiện memory ngay khi run đang chạy; sidecar tổng hợp
+được in sau khi run kết thúc.
 
 Đổi cổng hoặc chỉ in URL:
 
@@ -565,8 +723,8 @@ Các field mở rộng L3 giữ contract công khai và AC coverage. ac_catalog 
 xạ ID → mô tả AC; RoleHandoff tách output của model khỏi metadata runtime,
 revision và evidence của framework. CodeOutput/TestReport/ReviewReport là
 artifact điều phối, không phải wire schema để model tự khai thực thi.
-Flow/giới hạn Coder–Tester và điều kiện PASS giữ nguyên. Registry MAS 0.17.1,
-prompt chain-v4; chưa nghiệm thu resume checkpoint thuộc contract cũ.
+Flow Coder–Tester và điều kiện PASS giữ nguyên. Registry chung 0.18.6,
+Coder prompt chain-v5, các role khác chain-v4; chưa nghiệm thu resume checkpoint thuộc contract cũ.
 
 Xem [cấu trúc request, output, metadata và từng chặng bàn giao](../src/raac/collaboration/levels/l3_collaboration/l3_topologies.md#cấu-trúc-hợp-đồng-chuyển-giao-giữa-các-role).
 

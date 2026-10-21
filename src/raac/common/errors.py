@@ -9,6 +9,18 @@ class RunGuardError(RuntimeError):
         super().__init__(reason)
 
 
+class WorkspaceSnapshotError(ValueError):
+    """Source snapshot limit failure, distinct from invalid model output."""
+
+    def __init__(self, code: str):
+        messages = {"workspace_file_too_large": "Repository file exceeds size limit",
+                    "workspace_snapshot_limit": "Repository snapshot exceeds configured limits"}
+        if code not in messages:
+            raise ValueError("Unknown workspace snapshot error code")
+        self.code = code
+        super().__init__(messages[code])
+
+
 class AgentExecutionError(RuntimeError):
     """Allowlisted adapter failures, safe to expose in result/event metadata."""
 

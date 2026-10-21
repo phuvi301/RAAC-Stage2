@@ -2,8 +2,10 @@ id: coder
 role: Coder
 group: core
 prompt: prompts/coder.md
-prompt_version: chain-v4
+prompt_version: chain-v5
 tools:
+  - update_memory
+  - read_tool_result
   - list_files
   - search_repo
   - read_file
@@ -18,4 +20,4 @@ tools:
 model:
   ref: coder
 cost_weight: 1.0  # TODO: calibrate cost weight (default 1.0 until pilot data exists)
-max_llm_calls: 10
+max_llm_calls: 20

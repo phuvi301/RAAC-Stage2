@@ -5,6 +5,7 @@ import difflib
 import io
 import json
 import tempfile
+import sys
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
@@ -58,6 +59,8 @@ class EnvelopesTests(unittest.TestCase):
 def commit_payload(data):
     """Serialize existing scenario fixtures using the commit's wire fields."""
     if not isinstance(data, dict):
+        return data
+    if "status" in data and "blocking_issues" in data and "tests_run" not in data:
         return data
     if "acceptance_criteria" in data:
         return {**data, "requirements": [{"id": "R1", "description": data["summary"]}],
@@ -142,7 +145,10 @@ class ServiceTests(unittest.TestCase):
             work = json.loads(messages[1]["content"])
             self.assertNotIn("solution.py", work["repository_files"])
             system = messages[0]["content"].replace("**", "")
-            if system.startswith(("You are the Planner", "You are the Coder", "You are the Tester")):
+            if system.startswith("You are the Environment"):
+                self.assertIn("requirement", work)
+                self.assertNotIn("spec", work["artifacts"])
+            elif system.startswith(("You are the Planner", "You are the Coder", "You are the Tester")):
                 self.assertNotIn("requirement", work)
                 self.assertEqual(work["artifacts"]["spec"]["interface_contracts"]["add"],
                                  "app.service.add(a, b) returns a + b")
@@ -159,6 +165,16 @@ class ServiceTests(unittest.TestCase):
                                      "risks": ["Preserve negative inputs"]}],
                           "interface_contracts": {"test_command": "PYTHONPATH=src python -m unittest discover -s checks"},
                           "covered_ac_ids": ["AC1"]}
+            elif system.startswith("You are the Environment"):
+                if any(message.get("role") == "tool" for message in messages[2:]):
+                    output = {"status": "ready", "summary": "Verified temporary test runtime", "blocking_issues": []}
+                else:
+                    output = None
+                    tool_calls = [{"id": "configure-runtime", "type": "function", "function": {
+                        "name": "configure_environment", "arguments": json.dumps({
+                            "python_executable": sys.executable, "cwd": ".",
+                            "test_command": ["python", "-m", "unittest", "discover"],
+                            "check_command": ["python", "-c", "import unittest"]})}}]
             elif system.startswith("You are the Coder") and not wrote_code:
                 self.assertEqual(work["artifacts"]["plan"]["steps"][0]["id"], 1)
                 wrote_code = True
@@ -245,7 +261,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual((repo / "checks/test_service.py").read_text(), tests)
         self.assertEqual(len(record["coder_evidence"]), 2)
         self.assertNotIn("fabricated", json.dumps(record["coder_evidence"]))
-        self.assertEqual({file.name for file in output_dir.iterdir()}, {"llm.jsonl", "result.json"})
+        self.assertEqual({file.name for file in output_dir.iterdir()}, {"llm.jsonl", "result.json", "memory"})
         trace = [json.loads(line) for line in (output_dir / "llm.jsonl").read_text(encoding="utf-8").splitlines()]
         rebuilt = next(event for event in trace if event["event"] == "coder_patch_rebuilt")
         self.assertEqual(rebuilt["source"], "workspace")
@@ -280,6 +296,8 @@ class ServiceTests(unittest.TestCase):
             system = messages[0]["content"].replace("**", "")
             if system.startswith(("You are the Analyst", "You are the Reviewer")):
                 seen_requirements.append(work["requirement"])
+            elif system.startswith("You are the Environment"):
+                self.assertIn("requirement", work)
             else:
                 self.assertNotIn("requirement", work)
                 self.assertIn("spec", work["artifacts"])
@@ -291,6 +309,16 @@ class ServiceTests(unittest.TestCase):
                 output = {"steps": [{"id": "S1", "ac_ids": ["AC1"], "target": "solution.py",
                                      "approach": "Implement the current operation"}],
                           "covered_ac_ids": ["AC1"]}
+            elif system.startswith("You are the Environment"):
+                if any(message.get("role") == "tool" for message in messages[2:]):
+                    output = {"status": "ready", "summary": "Verified temporary test runtime", "blocking_issues": []}
+                else:
+                    output = None
+                    tool_calls = [{"id": "configure-runtime", "type": "function", "function": {
+                        "name": "configure_environment", "arguments": json.dumps({
+                            "python_executable": sys.executable, "cwd": ".",
+                            "test_command": ["python", "-m", "unittest", "discover"],
+                            "check_command": ["python", "-c", "import unittest"]})}}]
             elif system.startswith("You are the Coder") and not wrote_code:
                 wrote_code = True
                 output = None
@@ -349,7 +377,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(record["execution"]["mode"], "local")
         self.assertNotIn("evaluation", record)
         self.assertNotIn("sandbox_image_id", record)
-        self.assertEqual(record["provenance"]["registry_version"], "0.17.1")
+        self.assertEqual(record["provenance"]["registry_version"], "0.18.6")
         declaration = record["provenance"]["registry_snapshot"]["roles"]["planner"]
         self.assertEqual(declaration["role"], "Planner")
         self.assertEqual(declaration["model"], {"ref": "planner"})
@@ -360,7 +388,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual((self.project_dir / "repo/solution.py").read_text(), SOLUTION)
         self.assertEqual(apply_solution_patch(original, record["patch"]), SOLUTION)
         self.assertEqual((self.project_dir / "repo/test_generated.py").read_text(), GENERATED)
-        self.assertEqual({path.name for path in output_dir.iterdir()}, {"result.json", "llm.jsonl"})
+        self.assertEqual({path.name for path in output_dir.iterdir()}, {"result.json", "llm.jsonl", "memory"})
         self.assertEqual(record["provenance"]["workspace"]["mode"], "in_place")
         self.assertEqual(record["provenance"]["workspace"]["repo_dir"], str(self.project_dir / "repo"))
         trace = [json.loads(line) for line in (output_dir / "llm.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -368,6 +396,11 @@ class ServiceTests(unittest.TestCase):
         self.assertTrue({"run_started", "agent_started", "llm_request", "llm_response", "tool_call_started",
                          "tool_call_completed", "agent_completed", "run_completed"}.issubset(events))
         self.assertEqual(record["trace"]["event_count"], len(trace))
+        environment_calls = [event for event in trace if event["event"] == "agent_started" and event["agent_id"] == "environment"]
+        self.assertEqual(len(environment_calls), 1)
+        self.assertEqual(decision["topology_version"], "5")
+        self.assertTrue(record["test_report"]["observation_ref"])
+        self.assertTrue(record["environment_report"]["observation_ref"])
         self.assertEqual([event["sequence"] for event in trace], list(range(1, len(trace) + 1)))
         planner = next(event for event in trace if event["event"] == "agent_started" and event["agent_id"] == "planner")
         self.assertEqual(planner["request"]["incoming_message"]["from"], "Analyst")
@@ -402,7 +435,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual((self.project_dir / "repo/solution.py").read_text(), follow_up)
         self.assertEqual(apply_solution_patch(SOLUTION, second["patch"]), follow_up)
         self.assertEqual((self.project_dir / "repo/test_generated.py").read_text(), ENVELOPE_TESTS)
-        self.assertEqual({path.name for path in second_dir.iterdir()}, {"result.json", "llm.jsonl"})
+        self.assertEqual({path.name for path in second_dir.iterdir()}, {"result.json", "llm.jsonl", "memory"})
 
 
     async def test_unknown_profile_fails_before_workspace_or_http(self):

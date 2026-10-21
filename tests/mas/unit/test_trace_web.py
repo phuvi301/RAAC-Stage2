@@ -29,6 +29,19 @@ def running_server(path):
 
 
 class TraceWebTests(unittest.TestCase):
+    def test_environment_handoff_exposes_observation_and_blocked_setup(self):
+        runtime = {"verified": False, "verification": [{"exit_code": 1, "stderr": "No pandas"}]}
+        row = present_event({"event": "agent_completed", "agent_id": "environment",
+            "output": {"status": "blocked", "summary": "Dependency missing", "blocking_issues": ["No pandas"]},
+            "runtime": runtime}, 0)
+        self.assertEqual(row["source"], "Environment")
+        self.assertEqual(row["tone"], "error")
+        self.assertEqual(row["payloads"][-1]["data"], runtime)
+        check = present_event({"event": "tool_call_completed", "agent_id": "environment",
+            "tool_name": "configure_environment", "observation": {"ok": True,
+                "result": {"ready": False, "status": "failed"}}}, 1)
+        self.assertEqual(check["tone"], "error")
+
     def test_transport_failure_exposes_retry_blocked_by_unknown_usage(self):
         row = present_event({"event": "llm_call", "agent_id": "planner", "error": "ReadTimeout",
             "status": None, "usage": None, "retry_scheduled": False,

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from enum import Enum
 import hashlib
 from pathlib import PurePosixPath
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
@@ -49,6 +49,17 @@ class RoleSpec(_Strict):
     model: ModelSpec = Field(default_factory=ModelSpec)
     cost_weight: float = Field(default=1.0, gt=0, allow_inf_nan=False)
     max_llm_calls: int = Field(ge=1, le=20)
+    # Missing inherits the Chain limit; explicit null removes this role deadline.
+    timeout_seconds: float | None | Literal["inherit"] = "inherit"
+
+    @field_validator("timeout_seconds")
+    @classmethod
+    def valid_timeout(cls, value):
+        if value is not None and value != "inherit":
+            import math
+            if isinstance(value, bool) or not math.isfinite(value) or value <= 0:
+                raise ValueError("timeout_seconds must be positive, null or inherit")
+        return value
 
     @field_validator("group", mode="before")
     @classmethod

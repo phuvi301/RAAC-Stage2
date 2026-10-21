@@ -1,4 +1,16 @@
 tools:
+- name: update_memory
+  description: Replace active Coder working notes with conclusions, ruled-out hypotheses and next steps.
+  read_only: false
+- name: read_tool_result
+  description: Read paged observed test/environment details from the same run without re-execution.
+  read_only: true
+- name: configure_environment
+  description: Verify and select the local runtime/test configuration for development roles.
+  read_only: false
+- name: provision_environment
+  description: Detect project requirements, compare with the machine and install what is missing.
+  read_only: false
 - name: list_files
   description: List repository paths.
   read_only: true

@@ -1,7 +1,7 @@
 # Các mẫu topology L3
 
 Hai mẫu dưới đây dùng chung năm role Analyst, Planner, Coder, Tester và
-Reviewer. Chain đã có node/graph và adapter demo cho Registry, client 9router,
+Reviewer; Chain bổ sung role Environment chuẩn bị runtime. Chain đã có node/graph và adapter demo cho Registry, client 9router,
 file tool và lệnh chạy local; Subtask Chain còn ở mức định nghĩa. Coordinator hiện cố định chọn Chain; chưa chọn topology thích ứng
 hoặc tích hợp Engine/harness benchmark đầy đủ. Xem
 [hướng dẫn chạy demo](../../../../../docs/chain_demo.md).
@@ -13,7 +13,7 @@ Planner chạy một lượt, Coder–Tester lặp trong giới hạn, sau đó 
 chốt kết quả. Vì có cạnh phản hồi Tester → Coder, mẫu này không còn là
 Linear Chain.
 
-Trong adapter hiện tại, user chat gốc chỉ gửi cho Analyst và Reviewer.
+Trong adapter hiện tại, user chat gốc chỉ gửi cho Environment, Analyst và Reviewer.
 Planner/Coder/Tester nhận WorkSpec/AC/constraints/interface_contracts của Analyst
 cùng các artifact cần cho vai trò của mình. Reviewer dùng user chat để đối chiếu
 Spec và sản phẩm; việc các role khác đồng ý hoặc test pass không thay thế kiểm tra
@@ -23,6 +23,7 @@ yêu cầu gốc. Mỗi role vẫn có context riêng, không nhận toàn bộ 
 flowchart TD
     analyst["Analyst<br/>Requirement, Business Rules & AC"]
     planner["Planner<br/>Technical Plan & API/Data Schema"]
+    environment["Environment<br/>Chuẩn bị và xác minh runtime"]
     coder["Coder<br/>Hiện thực hoặc sửa lỗi"]
     tester["Tester<br/>Test Cases & Execution Report"]
     check{"Test bắt buộc pass<br/>và không còn vấn đề chặn?"}
@@ -30,10 +31,13 @@ flowchart TD
     reviewer["Reviewer<br/>Review sản phẩm và test report"]
     result["Kết quả Chain<br/>PASS / REJECT và lý do kết thúc"]
 
-    analyst --> planner --> coder --> tester --> check
+    environment -->|Sẵn sàng| analyst --> planner --> coder
+    coder --> tester
+    environment -->|Chưa sẵn sàng| result
+    tester --> check
     check -->|Đạt| reviewer
     check -->|Chưa đạt| limit
-    limit -->|Có: chuyển report lỗi| coder
+    limit -->|Có: sửa theo report Tester| coder
     limit -->|Hết lượt: bàn giao report chưa đạt| reviewer
     reviewer --> result
 ```
@@ -42,6 +46,7 @@ flowchart TD
 | --- | --- | --- | --- | --- |
 | `analyst` | Analyst | Task/subtask từ bên gọi | Phân tích requirement, user story, Business Rules, ràng buộc và AC. Khi nhận subtask, làm rõ AC cục bộ và giữ nhất quán với Spec toàn task. | Work Spec, AC có mã định danh, giả định và thông tin còn thiếu. |
 | `planner` | Planner | `analyst` | Từ Spec và AC, chọn giải pháp, thiết kế cấu trúc dữ liệu/API Contract, xác định file/module cần sửa, thứ tự thao tác và cách tích hợp. Chain này không tự mở thêm Chain con. | Technical Plan, API/Data Schema Spec và ánh xạ bước thực hiện tới AC. |
+| `environment` | Environment | Task từ bên gọi (entry) | Chạy một lần ở bước đầu tiên, trước Analyst/Planner: chọn Python, cài dependency local, xác minh import/collection/thực thi suite theo requirement gốc và repo. Coder/Tester dùng lại runtime cả run; không tăng round. | JSON ready/blocked; runtime bổ sung cấu hình và kết quả thật. Chưa ready thì dừng. |
 | `coder` | Coder | `planner` ở lượt đầu; qua `limit` từ report của `tester` khi sửa lỗi | Hiện thực theo kế hoạch hoặc sửa lỗi Tester báo; tự kiểm tra sơ bộ trước khi bàn giao. Không tự hạ AC hay bỏ test để được pass. | Source Code Patch / Build có version, kết quả tự kiểm tra và mô tả thay đổi. |
 | `tester` | Tester | `coder` | Đọc Spec/AC/contract của Analyst và contract mới từ Planner để viết test độc lập; chạy trên đúng patch/build hiện tại và kiểm tra hồi quy liên quan. | Test Case, Test Execution Report, lỗi tái hiện được, AC chưa đạt và vấn đề chặn đã biết. |
 | `check` | Không — node điều khiển | `tester` | Kiểm tra toàn bộ test bắt buộc đã pass và không còn vấn đề chặn trên đúng code version. Không coi thiếu test hoặc test chưa chạy là pass. | Đạt: chuyển `reviewer`; chưa đạt: chuyển `limit` cùng report. |
@@ -52,6 +57,17 @@ flowchart TD
 Spec, Plan, AC, patch và test report là artifact dùng chung có version.
 Tester/Reviewer đọc phần liên quan dù không có cạnh message trực tiếp từ
 mọi role trước đó; không mặc định nhận toàn bộ lịch sử hội thoại.
+
+Chain topology v5 có cạnh Environment → Analyst → Planner → Coder; retry đi trực tiếp
+Limit → Coder → Tester. Environment không nhận report của Tester để chuẩn bị lại.
+
+Environment còn thực thi pytest suite để trả smoke_report/mẫu lỗi tương thích, thay vì chỉ collection. Role phân biệt dependency/API lỗi với assertion task chưa được sửa.
+
+Environment dùng `timeout_seconds: null` ở role: không timeout agent/HTTP/lệnh/batch;
+đồng hồ deadline chung được kéo dài đúng thời gian role này chạy. Các role khác,
+budget token và call cap vẫn giữ giới hạn. Coder/Tester dùng Python và cấu hình test
+đã xác minh. Dữ liệu này nằm ở `environment_report` trong ChainState/result,
+không thay state vòng đời Layer 1 hoặc memory Coder.
 
 ## Hợp đồng dùng lại Chain
 
@@ -75,7 +91,7 @@ Role/prompt được nạp từ registry/roles/core và registry/prompts qua mod
 Hợp đồng lấy output format của prompt tại commit
 `39d39e7eb49917b6f381876cdebb6564b596ebc3` làm nền. Định nghĩa thực thi nằm
 trong [chain_state.py](chain_state.py), kiểm tra/bàn giao nằm trong
-[chain_nodes.py](chain_nodes.py). Registry chung hiện là 0.17.1, prompt chain-v4.
+[chain_nodes.py](chain_nodes.py). Registry chung hiện là 0.18.4; Coder prompt chain-v5, các role còn lại chain-v4.
 
 ### Output của role và metadata của framework
 
@@ -83,6 +99,7 @@ trong [chain_state.py](chain_state.py), kiểm tra/bàn giao nằm trong
 | --- | --- | --- |
 | Analyst | JSON: summary, requirements, constraints, acceptance_criteria, open_questions | ac_catalog: ID ổn định cho từng AC. |
 | Planner | JSON: steps gồm id, description, files, depends_on | Node kiểm tra coverage và giữ Plan đầy đủ trong state. |
+| Environment | JSON: status ready/blocked, summary, blocking_issues | configure_environment xác minh Python/import/collection; configuration/verification trong environment_report. |
 | Coder | Chỉ unified diff; không JSON hay lời giải thích | Patch thực từ workspace, patch_hash, coder_summary và coder_evidence. |
 | Tester | JSON: tests_to_run, results, verdict | Chạy lại suite; kết quả thật, trạng thái/tổng test, patch_hash và execution summary. |
 | Reviewer | JSON: decision, summary, comments | Revision stamp và ánh xạ decision sang verdict của Chain. |
@@ -94,7 +111,7 @@ Các field mở rộng L3 nằm trong JSON Schema gửi tới model: Analyst có
 năng kiểm tra AC của Chain. Framework không tự suy ra coverage từ mô tả;
 bỏ coverage không thể làm một run được PASS.
 
-`JSON_OUTPUT_MODELS` chứa bốn role JSON. `role_output_model()` còn trả
+`JSON_OUTPUT_MODELS` chứa năm role JSON (gồm Environment). `role_output_model()` còn trả
 schema kiểu string cho Coder; `parse_role_output()` kiểm tra JSON hoặc diff
 theo đúng role. Model không được khai các field runtime như patch_hash,
 tests_run hay metadata thực thi trong JSON Tester/Reviewer.
@@ -172,7 +189,7 @@ Mọi role sau Analyst đều nhận ac_catalog qua artifacts.
 | --- | --- |
 | Caller → Analyst | Yêu cầu gốc, repo, AC/ràng buộc kế thừa. |
 | Analyst → Planner | Spec gồm requirements, AC dạng chuỗi, constraints, open_questions, contracts; ac_catalog. |
-| Planner → Coder | Spec, Plan có bước số nguyên/phụ thuộc/AC coverage; retry thêm TestReport và previous_patch. |
+| Environment → Analyst → Planner → Coder | Environment chạy đầu tiên, chuẩn bị runtime một lần từ requirement gốc và repo; Spec, Plan có bước số nguyên/phụ thuộc/AC coverage. Coder retry nhận thêm TestReport và previous_patch qua Limit. |
 | Coder → Tester | Spec, contract mới của Plan, patch/hash, coder_summary/evidence và ac_catalog. |
 | Tester → Coder qua limit | TestReport có lỗi thực tế để sửa; giữ Spec/Plan và giới hạn hiện tại. |
 | Tester → Reviewer qua check/limit | Spec, Plan, patch/hash, TestReport và evidence; cùng yêu cầu gốc. |
@@ -197,7 +214,58 @@ DemoAgentRunner thực thi request đã được chọn, bổ sung listing/môi 
 gọi LLM và tools. Prompt hydrator ghép system/task, không lọc lại theo role.
 Context manager chỉ rút gọn biểu diễn (schema annotations, dữ liệu trùng) và
 lịch sử tool/file context trong role; không chứa chính sách bàn giao Chain.
-Tắt context.enabled chỉ tắt compaction, không thay dữ liệu role được nhận.
+Tắt context.enabled chỉ tắt compaction biểu diễn/lịch sử live, không thay dữ liệu role được nhận.
+
+Bản gửi model của TestReport lấy mẫu các danh sách results/tests_to_run/test_cases
+khi lớn; giữ nguyên count/status/verdict/AC/blocker/hash và thêm report_context.
+Verification rút gọn stdout/stderr lồng bên trong; environment_report chỉ có một bản.
+Full report trong ChainState/result/audit không bị sửa. observation_ref do adapter
+bổ sung cho phép read_tool_result đọc chi tiết theo path/offset/limit trong cùng run,
+không chạy lại test. Checkpoint giữ outcome gọn của lần test gần nhất theo ngân sách.
+
+### Memory Coder trong cùng run
+
+Memory v2 đặt working_notes mới nhất ở đầu: conclusions có evidence,
+ruled_out có reason/evidence, next_steps có thứ tự. Tool update_memory chỉ ghi
+trong phiên Coder đang hoạt động, thay ba danh sách với giới hạn 2000 ký tự JSON;
+model ghi các kết luận ngắn, không ghi bản chép suy nghĩ. Notes là dữ liệu chưa
+được xác minh độc lập; files/Tester/executor hiện tại vẫn có ưu tiên. Snapshot
+hành động là receipt ngắn, journal giữ dữ liệu đầy đủ và receipt thực lưu. Notes
+được cập nhật trong call kế tiếp và nạp lại khi retry; compact khi ghi vượt ngưỡng
+bảo vệ notes, không compact lúc gửi LLM. Không đổi output unified diff, vòng Chain,
+điều kiện PASS hay state vòng đời Layer 1.
+
+`memory/short_term.py` lưu hành động thực tế của Coder: tool/arguments/observation,
+phần trả lời hiển thị của model, feedback khi bắt đầu vòng, handoff và lỗi.
+Runner chỉ gắn `role_memory` khi cùng run/task/work/scope/agent, baseline,
+registry và prompt. Role khác hoặc run/work/baseline khác không nhận memory này.
+Mỗi lần gọi Coder vẫn có system/task mới; lịch sử hành động trước được nạp
+như dữ liệu, không phát lại tool call cũ và không thay artifact mới của L3.
+
+Trong `results/<run_id>/memory/` có hai file cùng stem `coder-<scope-hash>`:
+`.json` là memory đang dùng; `.events.jsonl` giữ nhật ký chi tiết đã lọc secret.
+Ghi tool xong, feedback/handoff hoặc lỗi sẽ lưu ngay; bản `.json` được thay
+nguyên tử. Khi memory vượt `memory.max_tokens` (ước lượng), compact chính
+entries đang lưu về `memory.target_tokens`: bỏ payload code dài, giữ dấu vết
+hành động/hash, tóm tắt tool/file cũ và ưu tiên lỗi/handoff gần nhất. Nhật ký
+đầy đủ không bị compact và không tự gửi vào LLM. Đọc memory không compact,
+không ghi lại file, không gọi model phụ để tóm tắt.
+
+Cấu hình mặc định: `memory.enabled: true`, `max_tokens: 6000`,
+`target_tokens: 4000`, độc lập `context.enabled`. Memory vẫn được lưu khi tắt
+trace_content. Mỗi lần ghi phát `memory_saved`; retry phát `memory_loaded`
+kèm memory nhận vào; vượt ngưỡng phát `memory_compacted` kèm snapshot sau
+compact và metrics trước/sau. Terminal `show-log --memory --details` xem
+snapshot/journal; web có panel Memory Coder, đọc đúng file cùng run, phân
+trang nhật ký 50 entry và tự cập nhật. Trình xem không ghi/compact memory.
+File được giữ sau run để kiểm tra; run mới bắt đầu namespace trống. Có thể nạp lại đúng identity bằng runner mới, nhưng CLI chưa khôi phục
+workspace/graph/lifecycle nên chưa coi đây là resume toàn hệ thống.
+
+Với retry không sửa source, adapter kiểm chứng diff có mô tả code đã lưu hay
+không bằng đảo diff rồi áp lại trong RAM, chỉ trên đường dẫn Coder đã chạm.
+Nếu khớp, dùng cumulative patch chuẩn từ baseline runtime; ghi
+`coder_patch_rebuilt` reason `already_applied_diff`. Diff không khớp workspace
+vẫn phải áp được vào baseline hoặc bị chặn; không dùng Git HEAD thay baseline.
 
 ### Giữ nguyên flow và hiệu lực revision
 
@@ -285,7 +353,7 @@ LLM tự ghép topology. Các node điều khiển không phải agent mới.
 
 Đây là bản nháp theo điều chỉnh của Tuấn: Chain có vòng Coder–Tester và
 Subtask Chain dùng lại Chain. Nó thay thế cách mô tả Linear Chain/Loop Chain
-ở phiên bản tài liệu trước. Mẫu `chain` version 2 đã cập nhật cạnh phản hồi,
+ở phiên bản tài liệu trước. Mẫu `chain` version 4 đã cập nhật cạnh phản hồi và Environment chạy một lần,
 node điều khiển và test cho định nghĩa Chain; chưa hiện thực Subtask Chain.
 
 Coder–Tester loop khác Coder–Reviewer loop trong checklist. Cần đối chiếu
@@ -300,7 +368,7 @@ không đồng nghĩa task thành công.
 - [chain_state.py](chain_state.py): WorkItem, ChainLimits, ChainState và schema
   đầu ra của Analyst, Planner, Coder, Tester, Reviewer. State này chỉ quản lý
   collaboration của một Chain, không thay state vòng đời agent ở Layer 1.
-- [chain_nodes.py](chain_nodes.py): các node `analyst`, `planner`, `coder`,
+- [chain_nodes.py](chain_nodes.py): các node `analyst`, `planner`, `environment`, `coder`,
   `tester`, `check`, `limit`, `reviewer`, `result`. Mỗi node trả cập nhật state;
   node điều khiển quyết định đường đi bằng code, không gọi thêm LLM.
 - [chain_graph.py](chain_graph.py): nối node bằng conditional edge LangGraph

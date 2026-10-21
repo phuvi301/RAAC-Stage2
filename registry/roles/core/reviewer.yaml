@@ -4,6 +4,7 @@ group: core
 prompt: prompts/reviewer.md
 prompt_version: chain-v4
 tools:
+  - read_tool_result
   - list_files
   - read_file
   - read_files

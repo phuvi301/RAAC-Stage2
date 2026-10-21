@@ -20,7 +20,7 @@ class CoordinatorTests(unittest.TestCase):
         self.config.pop("topology")
         decision = coordinate_chain(self.config)
         self.assertEqual(json.loads(decision.model_dump_json()), {
-            "topology": "chain", "topology_version": "2", "max_rounds": 3,
+            "topology": "chain", "topology_version": "5", "max_rounds": 3,
             "source": "fixed_default",
         })
         self.assertEqual(CoordinatorDecision.model_validate_json(decision.model_dump_json()), decision)

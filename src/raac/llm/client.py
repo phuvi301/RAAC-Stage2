@@ -104,7 +104,8 @@ class LLMClient:
             data = None
             message = None
             try:
-                response = await self._http.post("chat/completions", json=payload)
+                response = await self._http.post("chat/completions", json=payload,
+                                                 **({"timeout": None} if context.get("unlimited_timeout") else {}))
                 status = response.status_code
                 if response.is_error:
                     raise httpx.HTTPStatusError("API request failed", request=response.request,

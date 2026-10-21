@@ -18,16 +18,44 @@
       <div><span>TỔNG TOKEN</span><strong id="stat-tokens">0</strong><small id="stat-budget">Theo usage API đã ghi</small></div>
       <div><span>KẾT QUẢ TOOL LỖI</span><strong id="stat-errors">0</strong><small>Gồm test fail và lỗi thực thi</small></div>
     </section>
+    <section class="flow" id="flow" aria-label="Tiến trình theo topology">
+      <div class="flow-head"><div><h2>Tiến trình theo topology</h2><p class="subtitle">Mỗi node là một bước của chain, cập nhật theo log. Bấm vào node để xem role đó đang làm gì.</p></div><span class="tag" id="flow-topology">Đang tải…</span></div>
+      <div class="flow-body">
+        <div class="flow-main"><div class="flow-canvas" id="flow-canvas" tabindex="-1"></div>
+      <ul class="flow-legend" aria-label="Chú thích"><li class="idle">Chưa chạy</li><li class="running">Đang chạy</li><li class="done">Hoàn tất</li><li class="failed">Lỗi / dừng</li><li class="loop">Nét đứt chạy: luồng đang đi</li></ul></div>
+        <aside class="flow-detail" id="flow-detail" aria-live="polite"><p class="notice">Đang đọc topology…</p></aside>
+      </div>
+    </section>
+    <details class="memory-panel" id="memory-panel">
+      <summary>Memory Coder <span class="tag" id="memory-count">Đang đọc…</span></summary>
+      <p class="subtitle">Bản đang lưu được compact khi vượt ngưỡng. Nhật ký giữ các hành động và kết quả đầy đủ.</p>
+      <p class="notice" id="memory-empty">Run chưa có memory Coder đã lưu.</p>
+      <p class="memory-warning" id="memory-warning" role="status"></p>
+      <div id="memory-content" hidden>
+        <div class="memory-toolbar"><label>Phạm vi công việc <select id="memory-scope"></select></label><div class="memory-actions"><button id="memory-changes-toggle" type="button" aria-expanded="false" aria-controls="memory-changes">Xem thay đổi memory</button><button id="memory-refresh" type="button">Cập nhật memory</button></div></div>
+        <p id="memory-status"></p><p class="memory-file" id="memory-file"></p>
+        <section id="memory-changes" class="memory-changes" hidden aria-label="Thay đổi memory theo revision">
+          <h2>Memory thay đổi qua từng lần lưu</h2>
+          <p class="subtitle">So sánh với revision liền trước. Mở từng mục để xem nội dung trước và sau.</p>
+          <div class="memory-toolbar"><label>Thời điểm lưu <select id="memory-revision"></select></label><button id="memory-history-more" type="button" hidden>Tải revision cũ hơn</button></div>
+          <p id="memory-change-status" role="status"></p><div id="memory-change-content"></div>
+        </section>
+        <h2>Memory hiện tại</h2><div id="memory-snapshot"></div>
+        <details id="memory-journal"><summary>Nhật ký đầy đủ<span id="memory-journal-count"></span></summary>
+          <div id="memory-entries"></div><button id="memory-more" type="button" hidden>Tải thêm 50 bản ghi</button>
+        </details>
+      </div>
+    </details>
     <section class="workspace">
       <aside class="sidebar"><p class="eyebrow">LỌC THEO ROLE</p><div id="roles"></div><div class="reading-guide"><strong>Cách đọc</strong><p><b>Trái → Phải</b> là bên gửi và bên nhận.</p><p>Bấm <b>Mở nội dung</b> để xem tham số, code, stdout/stderr hoặc kết quả bàn giao.</p><p>Những card có cùng mã <b>tool</b> là yêu cầu và phản hồi của cùng một lần gọi.</p><p><b>Token vào/ra</b> lấy từ usage API. Các card cùng lượt LLM hiển thị cùng usage; không cộng lại. Tool không có chi phí token riêng.</p><p>Luồng này hiển thị message và hành động đã ghi nhận, không suy diễn suy nghĩ nội bộ của model.</p></div></aside>
       <section class="conversation" aria-label="Trao đổi theo thời gian">
-        <div class="toolbar"><label class="search"><span>Tìm trong trao đổi</span><input id="search" type="search" placeholder="Tên file, tool, nội dung, mã gọi…"></label><div class="toggles"><label><input id="errors-only" type="checkbox"> Chỉ lỗi</label><label><input id="technical" type="checkbox"> Context & HTTP</label></div></div>
+        <div class="toolbar"><label class="search"><span>Tìm trong trao đổi</span><input id="search" type="search" placeholder="Tên file, tool, nội dung, mã gọi…"></label><div class="toggles"><label><input id="errors-only" type="checkbox"> Chỉ lỗi</label><label><input id="technical" type="checkbox"> Context, HTTP & memory</label></div></div>
         <div class="feed-heading"><h2>Diễn biến theo thời gian</h2><span id="visible-count">0 trao đổi</span></div>
         <p class="notice" id="warning" hidden></p>
         <div id="feed"></div><p id="empty" hidden>Không có trao đổi phù hợp với bộ lọc.</p>
       </section>
     </section>
-    <footer>Giờ Việt Nam · UTC+7 <span>Chỉ đọc llm.jsonl · Không khởi chạy MAS</span></footer>
+    <footer>Giờ Việt Nam · UTC+7 <span>Chỉ đọc log và memory của run · Không khởi chạy MAS</span></footer>
   </main>
 </body>
 </html>

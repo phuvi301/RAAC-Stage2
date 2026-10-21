@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import re
 import tempfile
+import sys
 import unittest
 from unittest import mock
 
@@ -51,6 +52,8 @@ def context():
 def commit_payload(data):
     """Serialize existing scenario fixtures using the commit's wire fields."""
     if not isinstance(data, dict):
+        return data
+    if "status" in data and "blocking_issues" in data and "tests_run" not in data:
         return data
     if "acceptance_criteria" in data:
         return {**data, "requirements": [{"id": "R1", "description": data["summary"]}],
@@ -154,7 +157,7 @@ max_llm_calls: 6
 
     def test_core_roles_permissions_and_prompt_provenance(self):
         registry = load_registry(PROJECT / "registry")
-        self.assertEqual(len(registry.roles), 5)
+        self.assertEqual(len(registry.roles), 6)
         self.assertEqual(registry.get("Coder").spec.id, "coder")
         self.assertNotIn("edit_file", registry.get("Reviewer").spec.tools)
         self.assertNotIn("apply_patch", registry.get("Tester").spec.tools)
@@ -385,6 +388,9 @@ class FakeExecutor:
         self.passed = passed
         self.calls = []
 
+    async def run_command(self, root, **specification):
+        return {"status": "completed", "exit_code": 0, "stdout": "fake verified runtime", "stderr": ""}
+
     async def run_tests(self, root, **specification):
         self.calls.append({path.relative_to(root).as_posix(): path.read_text(encoding="utf-8")
                            for path in root.rglob("*") if path.is_file()})
@@ -417,6 +423,19 @@ class WorkspaceFixture:
 
 
 class WorkspaceTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
+    async def test_already_applied_multifile_diff_is_verified_without_writes(self):
+        self.workspace.edit_file(role="Coder", path="solution.py", content=IMPLEMENTED.rstrip("\n"))
+        self.workspace.edit_file(role="Coder", path="new.txt", content="new without newline")
+        diff = self.workspace.current_patch()
+        before = self.workspace._snapshot()
+        self.assertTrue(self.workspace.patch_matches_current(diff))
+        self.assertEqual(self.workspace._snapshot(), before)
+        self.workspace.delete_file(role="Coder", path="solution.py")
+        deleted = self.workspace.current_patch()
+        before = self.workspace._snapshot()
+        self.assertTrue(self.workspace.patch_matches_current(deleted))
+        self.assertEqual(self.workspace._snapshot(), before)
+
     async def test_tool_trace_records_arguments_results_and_forbidden_calls(self):
         from raac.common.tracing import JSONLTrace
         log = Path(self.temp.name) / "tools.jsonl"
@@ -669,6 +688,117 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(apply_solution_patch(BASELINE, output["patch"]), IMPLEMENTED)
                 self.assertEqual(self.workspace.read_file("solution.py")["content"], IMPLEMENTED)
 
+    async def test_retry_recalls_persisted_actions_and_repairs_a_git_head_diff(self):
+        from raac.harness.layer2_core.memory.short_term import ShortTermMemoryPolicy
+        source = IMPLEMENTED + "# memory-write-marker\n" * 600
+        old_git_source = "# old Git HEAD\n" + BASELINE
+        git_patch = "".join(difflib.unified_diff(old_git_source.splitlines(True), source.splitlines(True),
+                                              fromfile="a/solution.py", tofile="b/solution.py"))
+        sequence = [response(tool_calls=[{"id": "save-first-round", "type": "function", "function": {
+            "name": "edit_file", "arguments": json.dumps({"path": "solution.py", "content": source})}}]),
+            response(patch_to(source)), response(git_patch)]
+        payloads = []
+        def handler(request):
+            payloads.append(json.loads(request.content))
+            return httpx.Response(200, json=sequence.pop(0))
+        log = Path(self.temp.name) / "memory-retry.jsonl"
+        client = LLMClient(LLMConfig(model="test-model"), log_path=log,
+                           transport=httpx.MockTransport(handler), trace_content=True)
+        request = {"run_id": "memory-run", "task_id": "task", "work_id": "task", "scope": "task",
+                   "round": 1, "baseline_ref": self.workspace.baseline_ref, "output_schema": {}}
+        runner = DemoAgentRunner(self.registry, client, self.tools, provenance={},
+                                 memory_policy=ShortTermMemoryPolicy(max_tokens=1024, target_tokens=700))
+        try:
+            first = await runner("Coder", request)
+            # A new runner reloads concise receipts from the same run; full code stays in the journal.
+            runner = DemoAgentRunner(self.registry, client, self.tools, provenance={},
+                                     memory_policy=ShortTermMemoryPolicy(max_tokens=1024, target_tokens=700))
+            second = await runner("Coder", {**request, "round": 2, "artifacts": {
+                "test_report": {"status": "passed", "blocking_issues": ["Need performance evidence"]}}})
+        finally:
+            await client.aclose()
+        self.assertEqual(second.output, first.output)
+        self.assertEqual(self.workspace.read_file("solution.py")["content"], source)
+        memory = json.loads(payloads[-1]["messages"][1]["content"])["role_memory"]
+        self.assertEqual(memory["identity"]["run_id"], "memory-run")
+        self.assertIn("edit_file", json.dumps(memory))
+        self.assertIn("solution.py", json.dumps(memory))
+        files = list((log.parent / "memory").glob("*.json"))
+        self.assertEqual(len(files), 1)
+        saved = json.loads(files[0].read_text())
+        self.assertEqual(saved["compactions"], 0)  # Receipts no longer cross the 1024-token threshold.
+        self.assertNotIn("memory-write-marker\n" * 100, json.dumps(saved))
+        journal = next((log.parent / "memory").glob("*.events.jsonl")).read_text()
+        self.assertIn("memory-write-marker", journal)
+        events = [json.loads(line) for line in log.read_text().splitlines()]
+        self.assertTrue(any(e["event"] == "memory_loaded" for e in events))
+        self.assertFalse(any(e["event"] == "memory_compacted" for e in events))
+        self.assertTrue(any(e["event"] == "coder_patch_rebuilt" and e["reason"] == "already_applied_diff" for e in events))
+
+    async def test_wrong_base_patch_that_does_not_match_saved_code_still_aborts(self):
+        from raac.common.errors import AgentExecutionError
+        self.workspace.edit_file(role="Coder", path="solution.py", content=IMPLEMENTED)
+        wrong = "".join(difflib.unified_diff(("# old HEAD\n" + BASELINE).splitlines(True),
+            IMPLEMENTED.replace("return [", "return sorted([").splitlines(True),
+            fromfile="a/solution.py", tofile="b/solution.py"))
+        with self.assertRaises(AgentExecutionError) as caught:
+            await self.run_coder_responses([response(wrong)])
+        self.assertEqual(caught.exception.code, "invalid_coder_patch")
+        self.assertEqual(self.workspace.read_file("solution.py")["content"], IMPLEMENTED)
+
+    async def test_memory_does_not_leak_between_runs_or_into_other_roles(self):
+        sequence = [response(""), response(""), response(json.dumps({"summary": "Independent Analyst",
+            "requirements": [{"id": "R1", "description": "Independent task"}], "acceptance_criteria": ["Done"]}))]
+        payloads = []
+        def handler(request):
+            payloads.append(json.loads(request.content))
+            return httpx.Response(200, json=sequence.pop(0))
+        client = LLMClient(LLMConfig(model="test-model"), log_path=Path(self.temp.name) / "isolation.jsonl",
+                           transport=httpx.MockTransport(handler))
+        runner = DemoAgentRunner(self.registry, client, self.tools, provenance={})
+        request = {"run_id": "one", "task_id": "task", "work_id": "task", "scope": "task", "round": 1}
+        try:
+            await runner("Coder", request)
+            await runner("Coder", {**request, "run_id": "two"})
+            await runner("Analyst", request)
+        finally:
+            await client.aclose()
+        for payload in payloads:
+            self.assertNotIn("role_memory", json.loads(payload["messages"][1]["content"]))
+        self.assertEqual(len(list((Path(self.temp.name) / "memory").glob("*.json"))), 2)
+        events = [json.loads(line) for line in (Path(self.temp.name) / "isolation.jsonl").read_text().splitlines()]
+        self.assertTrue(any(event["event"] == "memory_saved" and event.get("entry") for event in events))
+        self.assertFalse(any(event["event"] == "llm_request" for event in events))
+
+    async def test_invalid_tool_arguments_are_saved_in_memory(self):
+        sequence = [response(tool_calls=[{"id": "invalid-json", "type": "function", "function": {
+            "name": "read_file", "arguments": "not-json"}}]),
+            response(tool_calls=[{"id": "invalid-batch", "type": "function", "function": {
+                "name": "read_files", "arguments": json.dumps({"files": []})}}]), response("")]
+        client = LLMClient(LLMConfig(model="test-model"), log_path=Path(self.temp.name) / "bad-args.jsonl",
+                           transport=httpx.MockTransport(lambda _: httpx.Response(200, json=sequence.pop(0))))
+        runner = DemoAgentRunner(self.registry, client, self.tools, provenance={})
+        try:
+            await runner("Coder", {"run_id": "bad-args", "task_id": "task", "work_id": "task", "scope": "task"})
+        finally:
+            await client.aclose()
+        memory = json.loads(next((Path(self.temp.name) / "memory").glob("*.json")).read_text())
+        failures = [entry for entry in memory["entries"] if entry.get("kind") == "tool"
+                    and entry.get("observation", {}).get("ok") is False]
+        self.assertEqual([entry["tool"] for entry in failures], ["read_file", "read_files"])
+
+    async def test_disabled_memory_does_not_create_a_store(self):
+        from raac.harness.layer2_core.memory.short_term import ShortTermMemoryPolicy
+        client = LLMClient(LLMConfig(model="test-model"), log_path=Path(self.temp.name) / "disabled.jsonl",
+                           transport=httpx.MockTransport(lambda _: httpx.Response(200, json=response(""))))
+        runner = DemoAgentRunner(self.registry, client, self.tools, provenance={},
+                                 memory_policy=ShortTermMemoryPolicy(enabled=False))
+        try:
+            await runner("Coder", {"run_id": "off", "task_id": "task", "work_id": "task", "scope": "task"})
+        finally:
+            await client.aclose()
+        self.assertFalse((Path(self.temp.name) / "memory").exists())
+
     async def test_invalid_hunk_without_saved_code_still_aborts_without_applying_it(self):
         from raac.common.errors import AgentExecutionError
         malformed = patch_to(IMPLEMENTED).replace("@@ -1,3 +1,3 @@", "@@ -1,3 +1,99 @@")
@@ -697,6 +827,11 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1]["event"], "agent_failed")
         self.assertEqual(events[-1]["code"], "invalid_coder_patch")
         self.assertTrue(events[-1]["stack"])
+        saved = list((Path(self.temp.name) / "memory").glob("*.json"))
+        self.assertEqual(len(saved), 1)
+        memory = json.loads(saved[0].read_text())
+        self.assertTrue(any(entry.get("kind") == "failure" and entry.get("code") == "invalid_coder_patch"
+                            for entry in memory["entries"]))
 
     async def test_unchanged_code_can_proceed_to_testing_without_fake_patch(self):
         output = await self.run_coder_responses([response(json.dumps({"summary": "No changes needed"}))])
@@ -743,7 +878,11 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
         limits = ChainLimits(max_rounds=1, hard_max_rounds=3,
                              timeout_seconds=10.0, agent_timeout_seconds=3.0)
         try:
-            graph = build_chain_graph(ChainNodes(runner, budget_guard=runner.budget_guard))
+            class SkipEnvironment(ChainNodes):
+                async def environment(self, state):  # this test targets Planner usage accounting only
+                    return {"next_node": "analyst"}
+
+            graph = build_chain_graph(SkipEnvironment(runner, budget_guard=runner.budget_guard))
             state = await graph.ainvoke(initial_chain_state(work, limits), {"recursion_limit": 20})
             self.assertEqual(roles, ["Analyst", "Planner"])
             self.assertEqual(state["stop_reason"], "usage_unavailable")
@@ -782,6 +921,16 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
                 ]
 
                 def handler(request):
+                    messages = json.loads(request.content)["messages"]
+                    if "You are the **Environment**" in messages[0]["content"]:
+                        if any(message.get("role") == "tool" for message in messages[2:]):
+                            payload = response(json.dumps({"status": "ready", "summary": "Verified fake runtime", "blocking_issues": []}))
+                        else:
+                            payload = response(tool_calls=[{"id": "configure", "type": "function", "function": {
+                                "name": "configure_environment", "arguments": json.dumps({"python_executable": sys.executable,
+                                    "cwd": ".", "test_command": ["python", "-m", "unittest", "discover"],
+                                    "check_command": ["python", "-c", "import unittest"]})}}])
+                        return httpx.Response(200, json=payload)
                     return httpx.Response(200, json=sequence.pop(0))
 
                 log = Path(self.temp.name) / f"{passed}.jsonl"
@@ -802,3 +951,15 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(sequence, [])
                 finally:
                     await client.aclose()
+
+
+    async def test_previous_run_changes_repeated_by_coder_return_a_canonical_noop(self):
+        (self.workspace.root / "solution.py").write_text(IMPLEMENTED)
+        self.workspace = WorkspaceTools(self.workspace.project, self.executor)
+        self.tools = ToolOrchestrator(self.workspace)
+        output = await self.run_coder_responses([response(patch_to(IMPLEMENTED))])
+        self.assertEqual(output["patch"], "")
+        self.assertEqual(output["summary"], "No workspace changes")
+        self.assertEqual(self.workspace.code_edit_count, 0)
+        self.assertEqual(self.workspace.coder_paths, set())
+        self.assertEqual((self.workspace.root / "solution.py").read_text(), IMPLEMENTED)

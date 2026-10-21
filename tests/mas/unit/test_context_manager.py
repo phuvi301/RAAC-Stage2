@@ -177,13 +177,15 @@ class RoleContextTests(unittest.TestCase):
         self.assertFalse(metrics["checkpoint_protected_over_budget"])
         self.assertEqual(receipts, original)
 
-    def test_latest_test_report_is_protected_even_when_over_budget(self):
+    def test_latest_test_outcome_is_bounded_without_losing_failure(self):
         older = {"tool": "run_tests", "observation": {"summary": "old passing report"}}
         latest = {"tool": "run_tests", "observation": {"failed": 1, "summary": "failure " * 300}}
         kept, metrics = trim_checkpoint_receipts([older, latest], 256)
-        self.assertEqual(kept, [latest])
-        self.assertTrue(metrics["checkpoint_protected_over_budget"])
-        self.assertGreater(metrics["checkpoint_estimated_tokens"], 256)
+        self.assertEqual(kept[-1]["observation"]["result"]["failed"], 1)
+        self.assertIn("failure", kept[-1]["observation"]["result"]["summary"])
+        self.assertFalse(metrics["checkpoint_protected_over_budget"])
+        self.assertLessEqual(metrics["checkpoint_estimated_tokens"], 256)
+        self.assertEqual(latest["observation"]["summary"], "failure " * 300)
         self.assertEqual(trim_checkpoint_receipts([], 256)[0], [])
 
     def test_history_budget_preserves_requirement_and_recent_tool_protocol(self):

@@ -6,8 +6,11 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 import webbrowser
 
+from raac.collaboration.topologies import get_topology
+
 from .trace_viewer import _mapping, _summary, _text
 from .tracing import JSONLTrace
+from .memory_viewer import MemoryFeed
 from raac.llm.usage import cached_tokens
 
 
@@ -17,9 +20,19 @@ STOP_REASONS = {
     "budget_exceeded": "Vượt ngân sách token",
     "agent_call_limit": "Chạm giới hạn gọi LLM của role",
     "tests_and_review_passed": "Test đạt và Reviewer chấp thuận",
+    "environment_setup_failed": "Môi trường chưa sẵn sàng; xem báo cáo Environment",
     "max_rounds_reached": "Đã đạt số vòng tối đa",
     "timeout": "Hết thời gian chạy",
 }
+
+
+def topology_payload(name):
+    """Declared layout only (nodes and edges); progress is derived client-side from the log."""
+    topology = get_topology(name)
+    return {"topology_id": topology.topology_id, "version": topology.version,
+            "entry_node": topology.entry_node, "exit_node": topology.exit_node,
+            "steps": [{"node_id": step.node_id, "role": step.role} for step in topology.steps],
+            "edges": [list(edge) for edge in topology.edges]}
 
 
 def present_event(event, identifier):
@@ -46,7 +59,7 @@ def present_event(event, identifier):
         row["token_limit"] = effective["token_limit"]
     if kind == "run_started":
         decision = _mapping(event.get("decision"))
-        row.update(source="Người dùng", target="MAS", title="Bắt đầu run",
+        row.update(source="Người dùng", target="MAS", title="Bắt đầu run", topology=decision.get("topology"),
                    summary=f"Topology {decision.get('topology', '?')} · tối đa {decision.get('max_rounds', '?')} vòng")
         payload("Quyết định điều phối", decision)
         payload("Workspace", event.get("workspace"))
@@ -61,6 +74,11 @@ def present_event(event, identifier):
         row.update(source=role, target="Hệ thống", title="Bàn giao kết quả", tone="success",
                    summary=_summary(event.get("output", {})))
         payload("Kết quả bàn giao", event.get("output"))
+        if event.get("agent_id") == "environment":
+            blocked = _mapping(event.get("output")).get("status") == "blocked"
+            row.update(title="Môi trường chưa sẵn sàng" if blocked else "Môi trường đã xác minh",
+                       tone="error" if blocked else "success")
+            payload("Cấu hình và kiểm tra thực tế", event.get("runtime"))
     elif kind == "agent_failed":
         code = event.get("code") or event.get("error_kind")
         row.update(title="Agent dừng", tone="error", summary=STOP_REASONS.get(code, str(code or "Không rõ lỗi")))
@@ -68,10 +86,31 @@ def present_event(event, identifier):
     elif kind == "agent_final_call":
         row.update(title="Yêu cầu kết thúc lượt role", tone="warning",
                    summary="Lượt LLM cuối: trả báo cáo bàn giao, không gọi thêm tool")
+    elif kind == "coder_patch_rebased":
+        row.update(title="Chuẩn hóa đường dẫn patch", summary="Dùng Git worktree từ lệnh diff đã chạy để đưa đường dẫn về repo/.")
     elif kind == "coder_patch_rebuilt":
         row.update(title="Sinh lại patch từ file đã lưu", technical=False,
-                   summary="Diff LLM sai định dạng; framework đã sinh và kiểm tra patch từ workspace.")
+                   summary=("Diff mô tả code đã lưu; đã dùng patch chuẩn theo baseline run."
+                            if event.get("reason") == "already_applied_diff" else
+                            "Diff LLM sai định dạng; framework đã sinh và kiểm tra patch từ workspace."))
         payload("Nguồn patch", {key: event.get(key) for key in ("source", "reason", "patch_hash", "model_patch_chars", "patch_chars")})
+    elif kind in {"memory_saved", "memory_loaded", "memory_compacted"}:
+        titles = {"memory_saved": "Lưu memory Coder", "memory_loaded": "Nạp lại memory Coder",
+                  "memory_compacted": "Compact memory đã lưu"}
+        row.update(source="Hệ thống", target="Memory Coder", title=titles[kind], technical=kind == "memory_saved")
+        if kind == "memory_compacted":
+            row["summary"] = (f"{event.get('before_estimated_tokens', '?')} → {event.get('after_estimated_tokens', '?')} "
+                              f"token ước lượng · revision {event.get('revision', '?')}")
+        else:
+            entry = _mapping(event.get("entry"))
+            row["summary"] = f"Revision {event.get('revision', '?')}"
+            if entry:
+                row["summary"] += " · " + str(entry.get("tool") or entry.get("kind", ""))
+            if event.get("after_estimated_tokens") is not None:
+                row["summary"] += f" · ~{event['after_estimated_tokens']} token"
+        payload("Thông tin memory", {key: event[key] for key in ("path", "revision", "compactions", "stored_entries") if key in event})
+        payload("Hành động được ghi vào memory", event.get("entry"))
+        payload("Memory được nạp" if kind == "memory_loaded" else "Memory sau compact", event.get("memory"))
     elif kind == "llm_request":
         request = _mapping(event.get("request"))
         row.update(title="Gửi context tới LLM", technical=True,
@@ -204,6 +243,7 @@ class TraceFeed:
 
 def create_trace_server(path, *, port=0, agent=None):
     feed = TraceFeed(path)
+    memory_feed = MemoryFeed(path)
     with feed.path.open("rb"):
         pass  # Fail before opening the browser if the log is unavailable.
 
@@ -231,11 +271,34 @@ def create_trace_server(path, *, port=0, agent=None):
             assets = {"/": ("index.html", "text/html; charset=utf-8"),
                       "/viewer.css": ("viewer.css", "text/css; charset=utf-8"),
                       "/usage.mjs": ("usage.mjs", "text/javascript; charset=utf-8"),
+                      "/memory.mjs": ("memory.mjs", "text/javascript; charset=utf-8"),
+                      "/graph.mjs": ("graph.mjs", "text/javascript; charset=utf-8"),
                       "/viewer.js": ("viewer.js", "text/javascript; charset=utf-8")}
             try:
                 if request.path in assets:
                     name, kind = assets[request.path]
                     self.respond(200, (ASSETS / name).read_bytes(), kind)
+                elif request.path in {"/api/memory/history", "/api/memory/change"}:
+                    query = parse_qs(request.query)
+                    identifier = query.get("id", [None])[0]
+                    result = (memory_feed.history(identifier, int(query.get("cursor", ["0"])[0]))
+                              if request.path.endswith("history") else
+                              memory_feed.change(identifier, int(query.get("revision", ["0"])[0])))
+                    self.respond(200, json.dumps(result, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+                elif request.path == "/api/memory":
+                    query = parse_qs(request.query)
+                    identifier = query.get("id", [None])[0]
+                    result = (memory_feed.journal(identifier, int(query.get("cursor", ["0"])[0]))
+                              if identifier else memory_feed.snapshots())
+                    self.respond(200, json.dumps(result, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+                elif request.path == "/api/topology":
+                    name = parse_qs(request.query).get("name", ["chain"])[0]
+                    try:
+                        body = json.dumps(topology_payload(name), ensure_ascii=False).encode()
+                    except ValueError:
+                        self.respond(404, b"Unknown topology", "text/plain")
+                    else:
+                        self.respond(200, body, "application/json; charset=utf-8")
                 elif request.path == "/api/events":
                     cursor = int(parse_qs(request.query).get("cursor", ["0"])[0])
                     result = feed.read(cursor)

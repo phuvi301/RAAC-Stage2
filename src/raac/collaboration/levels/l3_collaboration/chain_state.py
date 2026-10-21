@@ -6,6 +6,7 @@ ChainState owns collaboration, not an agent's Layer 1 lifecycle.
 """
 
 from dataclasses import dataclass, field
+import json
 import operator
 import time
 from typing import Annotated, Any, Literal
@@ -73,6 +74,20 @@ class PlannerOutput(StructuredOutput):
         return self
 
 
+class EnvironmentOutput(StructuredOutput):
+    status: Literal["ready", "blocked"]
+    summary: Text
+    blocking_issues: list[Text] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def consistent_status(self):
+        if self.status == "ready" and self.blocking_issues:
+            raise ValueError("Ready environment cannot have blockers")
+        if self.status == "blocked" and not self.blocking_issues:
+            raise ValueError("Blocked environment must explain its blockers")
+        return self
+
+
 class CoderOutput(RootModel[str]):
     """Unified diff on the wire; empty text explicitly represents a no-op."""
     model_config = ConfigDict(strict=True)
@@ -133,7 +148,7 @@ class OutputFormatError(ValueError):
 
 
 JSON_OUTPUT_MODELS = {"analyst": AnalystOutput, "planner": PlannerOutput,
-                      "tester": TesterOutput, "reviewer": ReviewerOutput}
+                      "tester": TesterOutput, "reviewer": ReviewerOutput, "environment": EnvironmentOutput}
 ROLE_OUTPUT_MODELS = {**JSON_OUTPUT_MODELS, "coder": CoderOutput}
 
 
@@ -143,6 +158,32 @@ def role_output_model(role: str):
     return ROLE_OUTPUT_MODELS[role.lower()]
 
 
+def _embedded_json_objects(text: str) -> list[dict[str, Any]]:
+    """Top-level JSON objects inside prose or fences, in order of appearance."""
+    decoder, found, index = json.JSONDecoder(), [], 0
+    while (start := text.find("{", index)) != -1:
+        try:
+            value, end = decoder.raw_decode(text, start)
+        except ValueError:
+            index = start + 1
+            continue
+        if isinstance(value, dict):
+            found.append(value)
+        index = end
+    return found
+
+
+def _recover_embedded(model, text: str):
+    """Models sometimes narrate before the report. Accept the last JSON object that fully
+    satisfies the role schema; prose alone, or an object that breaks the schema, stays an error."""
+    for candidate in reversed(_embedded_json_objects(text)):
+        try:
+            return model.model_validate(candidate)
+        except ValidationError:
+            continue
+    return None
+
+
 def parse_role_output(role: str, output: str | dict[str, Any]):
     model = role_output_model(role)
     try:
@@ -150,6 +191,10 @@ def parse_role_output(role: str, output: str | dict[str, Any]):
             return model.model_validate(output)
         return model.model_validate_json(output) if isinstance(output, str) else model.model_validate(output)
     except (ValidationError, ValueError) as exc:
+        if role.lower() != "coder" and isinstance(output, str):
+            recovered = _recover_embedded(model, output)
+            if recovered is not None:
+                return recovered
         if isinstance(exc, ValidationError):
             details = "; ".join(f"{'.'.join(map(str, error['loc'])) or '<root>'}: {error['msg']}"
                                 for error in exc.errors(include_input=False, include_url=False))
@@ -180,10 +225,13 @@ class CodeOutput(StructuredOutput):
 
 class TestReport(TesterOutput):
     """Role report plus observed execution/revision used by Chain control nodes."""
+    observation_ref: str | None = None
     patch_hash: Text
     status: Literal["passed", "failed", "error"]
     tests_run: int = Field(ge=0)
     failed: int = Field(ge=0)
+    skipped: int = Field(default=0, ge=0)
+    expected_failures: int = Field(default=0, ge=0)
     test_cases: list[Text] = Field(default_factory=list)
     summary: Text
 
@@ -191,6 +239,8 @@ class TestReport(TesterOutput):
     def consistent_counts(self):
         if self.failed > self.tests_run or (self.status == "passed" and self.failed):
             raise ValueError("Observed test counts are inconsistent")
+        if not 0 <= self.expected_failures <= self.skipped <= self.tests_run - self.failed:
+            raise ValueError("Observed skipped/expected failure counts are inconsistent")
         return self
 
 
@@ -212,11 +262,16 @@ def execution_report(output: dict, runtime: dict, patch_hash: str) -> TestReport
         "passed" if output["verdict"] == "pass" and all(item["status"] == "passed" for item in results) else "failed")
     observed = {"patch_hash": patch_hash, "status": status, "tests_run": len(results),
                 "failed": failed, "test_cases": [item["test"] for item in results],
+                "skipped": sum(item["status"] == "skipped" for item in results), "expected_failures": 0,
                 "summary": "\n".join(f"{item['test']}: {item['status']} {item['details']}" for item in results)}
     for key in observed:
         if key in runtime:
             observed[key] = runtime[key]
-    return TestReport.model_validate({**output, **observed})
+    if "skipped" not in runtime:
+        # A zero-test adapter can carry a placeholder skipped result. It is
+        # not an executed skip and must not replace the actual suite count.
+        observed["skipped"] = min(observed["skipped"], max(0, observed["tests_run"] - observed["failed"]))
+    return TestReport.model_validate({**output, **observed, "observation_ref": runtime.get("observation_ref")})
 
 
 class WorkItem(StructuredOutput):
@@ -254,6 +309,7 @@ class ChainLimits(StructuredOutput):
 class ChainState(TypedDict):
     work: dict[str, Any]
     limits: dict[str, Any]
+    environment_report: dict[str, Any] | None
     deadline_at: float
     round_number: int
     rounds_completed: int
@@ -286,5 +342,6 @@ def initial_chain_state(work: WorkItem, limits: ChainLimits) -> ChainState:
         "coder_evidence": [], "coder_summary": None, "repository_changes": [],
         "test_report": None, "review_report": None, "tests_passed": False,
         "verdict": None, "stop_reason": None, "error": None,
+        "environment_report": None,
         "next_node": "analyst", "events": [], "result": None,
     }

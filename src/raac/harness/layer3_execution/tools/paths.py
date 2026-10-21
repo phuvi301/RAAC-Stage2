@@ -1,6 +1,7 @@
 """Repository-relative paths shared by file tools, patches and local commands."""
 
 from pathlib import PurePosixPath, PureWindowsPath
+import re
 
 
 EXCLUDED_DIRS = {".git", ".hg", ".svn", ".venv", "venv", "node_modules", "__pycache__",
@@ -8,6 +9,20 @@ EXCLUDED_DIRS = {".git", ".hg", ".svn", ".venv", "venv", "node_modules", "__pyca
 SECRET_FILES = {".npmrc", ".pypirc", ".netrc", "id_rsa", "id_ed25519"}
 WINDOWS_DEVICES = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)),
                    *(f"lpt{i}" for i in range(1, 10))}
+
+
+def excluded_runtime_name(name: str) -> bool:
+    """Reserve hidden local Python installations, venvs and their installers.
+
+    Match version suffixes narrowly so source such as .python-tools and
+    venv_helpers.py remains part of the repository.
+    """
+    return bool(re.fullmatch(r"\.(?:venv|python)(?:[-_]?\d+(?:[._-]\d+)*)?", name, re.I)
+                or re.fullmatch(r"\.python-\d+\.\d+\.\d+-installer\.exe", name, re.I))
+
+
+def excluded_directory(name: str) -> bool:
+    return name.lower() in EXCLUDED_DIRS or excluded_runtime_name(name)
 
 
 def repo_path(name: str, *, allow_root=False) -> str:
@@ -21,7 +36,7 @@ def repo_path(name: str, *, allow_root=False) -> str:
             or any(part in {"", ".", ".."} or ":" in part or part.rstrip(". ") != part
                    or part.split(".")[0].lower() in WINDOWS_DEVICES for part in parts)):
         raise ValueError("Use a relative path inside repo")
-    if any(part.lower() in EXCLUDED_DIRS | SECRET_FILES or part.lower() == ".env" or part.lower().startswith(".env.")
+    if any(excluded_directory(part) or part.lower() in SECRET_FILES or part.lower() == ".env" or part.lower().startswith(".env.")
            or part.lower().endswith((".pem", ".key")) for part in parts):
         raise ValueError("Credential or excluded path")
     return "/".join(parts)

@@ -25,7 +25,7 @@ class CoordinatorConfig(StructuredOutput):
 
 class CoordinatorDecision(StructuredOutput):
     topology: Literal["chain"] = "chain"
-    topology_version: str = "2"
+    topology_version: str = "5"
     max_rounds: int = Field(ge=1)
     source: Literal["fixed_default"] = "fixed_default"
 

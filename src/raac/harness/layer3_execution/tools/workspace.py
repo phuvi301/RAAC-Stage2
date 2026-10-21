@@ -9,11 +9,13 @@ import difflib  # So sánh các dòng văn bản để sinh unified diff nhiều
 import hashlib  # Tính SHA-256 để định danh nội dung file và baseline.
 import json  # Chuyển manifest thành JSON trước khi tính hash tổng.
 import os  # Duyệt cây thư mục bằng os.walk().
+import subprocess  # Hỏi git những file untracked bị .gitignore loại (chỉ đọc).
 from pathlib import Path  # Biểu diễn đường dẫn, ghép path và đọc/ghi file.
 
-from .patching import apply_repo_patch  # Áp patch vào dữ liệu trong RAM, chưa ghi ổ đĩa.
-# EXCLUDED_DIRS: thư mục bỏ qua; repo_path: kiểm tra tên; test_path: đoán file test theo tên.
-from .paths import EXCLUDED_DIRS, repo_path, test_path
+from .patching import apply_repo_patch, rebase_repo_patch  # Áp patch vào dữ liệu trong RAM, chưa ghi ổ đĩa.
+# excluded_directory: thư mục bỏ qua; repo_path: kiểm tra tên; test_path: đoán file test theo tên.
+from .paths import excluded_directory, excluded_runtime_name, repo_path, test_path
+from raac.common.errors import WorkspaceSnapshotError
 
 
 class EditConflictError(ValueError):
@@ -27,8 +29,8 @@ class EditConflictError(ValueError):
 
 class WorkspaceTools:
     # Đây là giới hạn tài nguyên của tool, không phải quy ước cấu trúc project.
-    max_file_bytes = 2 * 1024 * 1024  # Tối đa 2 MiB cho từng file.
-    max_repo_bytes = 16 * 1024 * 1024  # Tối đa 16 MiB cho các file trong snapshot.
+    max_file_bytes = 4 * 1024 * 1024  # Tối đa 4 MiB cho từng file.
+    max_repo_bytes = 64 * 1024 * 1024  # Tối đa 64 MiB cho các file trong snapshot.
     max_files = 2000  # Tối đa 2.000 file sau khi loại trừ cache/credential.
 
     # project là thư mục cha chứa repo/ và requirement/; executor chạy lệnh local.
@@ -57,6 +59,8 @@ class WorkspaceTools:
         # Đếm thao tác Coder thành công, không phải số file khác nhau.
         self.code_edit_count = 0
         self.test_spec = None
+        from ..environment import EnvironmentManager
+        self.environment = EnvironmentManager(self)
 
         # Sắp xếp tên ổn định rồi tạo danh sách (tên file, SHA-256 nội dung).
         manifest = [(name, hashlib.sha256(data).hexdigest()) for name, data in sorted(self.baseline_files.items())]
@@ -99,8 +103,37 @@ class WorkspaceTools:
         # UTF-8-sig đọc UTF-8 và bỏ BOM đầu file nếu có; binary không decode được sẽ lỗi.
         return path.read_text(encoding="utf-8-sig")
 
+    # File sinh ra khi cài đặt (build/, *.pyd, .c do Cython sinh, egg-info) nằm trong .gitignore.
+    # Đó không phải source: agent không sửa chúng và chúng có thể làm repo phình gấp đôi sau khi cài.
+    # Repo git có thể nằm ở thư mục con của repo/ (vd repo/astropy), nên tìm .git sâu tối đa 2 cấp.
+    # Không có git hoặc git lỗi thì trả tập rỗng: snapshot quay về hành vi cũ, không đoán.
+    def _git_ignored(self) -> set[str]:
+        key = lambda path: os.path.normcase(os.path.normpath(str(path)))  # noqa: E731
+        roots = []
+        for directory, dirs, names in os.walk(self.root, followlinks=False):
+            if ".git" in dirs or ".git" in names:
+                roots.append(Path(directory))
+            depth = len(Path(directory).relative_to(self.root).parts)
+            dirs[:] = [name for name in dirs if name != ".git" and not excluded_directory(name)] if depth < 2 else []
+        ignored = set()
+        for root in roots:
+            try:
+                done = subprocess.run(
+                    ["git", "-C", str(root), "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"],
+                    capture_output=True, timeout=60, stdin=subprocess.DEVNULL)
+            except (OSError, subprocess.SubprocessError):
+                continue
+            if done.returncode:
+                continue
+            for item in done.stdout.decode("utf-8", errors="replace").split("\0"):
+                if item:
+                    ignored.add(key(root / item.rstrip("/")))
+        return ignored
+
     # Mỗi lần gọi đọc lại repo hiện tại; baseline_files chỉ được gán lúc khởi tạo.
     def _snapshot(self) -> dict[str, bytes]:
+        ignored = self._git_ignored()
+        ignore_key = lambda path: os.path.normcase(os.path.normpath(str(path)))  # noqa: E731
         # files chứa snapshot; total đếm tổng byte của các file được chọn.
         files, total = {}, 0
         # os.walk trả thư mục hiện tại, danh sách thư mục con và tên file.
@@ -111,10 +144,13 @@ class WorkspaceTools:
             # Sắp xếp giúp thứ tự xử lý ổn định giữa các lần chạy.
             for name in sorted(dirs):
                 # So tên không phân biệt hoa/thường với danh sách cache/VCS bị loại trừ.
-                if name.lower() in EXCLUDED_DIRS:
+                if excluded_directory(name):
                     continue
                 # Tạo Path thư mục con rồi kiểm tra symlink/junction/path escape.
                 candidate = Path(directory) / name
+                # Thư mục bị .gitignore loại (build/, egg-info...) không thuộc snapshot.
+                if ignore_key(candidate) in ignored:
+                    continue
                 self._checked_path(candidate, self.project)
                 # Thư mục qua kiểm tra được giữ lại cho bước duyệt đệ quy.
                 kept.append(name)
@@ -124,6 +160,9 @@ class WorkspaceTools:
             for name in sorted(names):
                 # Ghép đường dẫn đầy đủ tới file.
                 path = Path(directory) / name
+                # File untracked bị .gitignore loại (.pyd, .c sinh ra...) không thuộc snapshot.
+                if ignore_key(path) in ignored:
+                    continue
                 # Chuyển thành tên dưới repo, dùng '/' nhất quán cả trên Windows.
                 relative = path.relative_to(self.root).as_posix()
                 try:
@@ -137,12 +176,12 @@ class WorkspaceTools:
                 # Lấy kích thước file theo byte.
                 size = path.stat().st_size
                 if size > self.max_file_bytes:
-                    raise ValueError("Repository file exceeds size limit")
+                    raise WorkspaceSnapshotError("workspace_file_too_large")
                 # Cộng file hiện tại trước khi kiểm tra tổng dung lượng.
                 total += size
                 # len(files) đếm file đã thêm; >= max_files chặn thêm file vượt trần.
                 if len(files) >= self.max_files or total > self.max_repo_bytes:
-                    raise ValueError("Repository snapshot exceeds configured limits")
+                    raise WorkspaceSnapshotError("workspace_snapshot_limit")
                 # Đọc nguyên bytes để giữ được cả source, test và binary asset.
                 files[relative] = path.read_bytes()
         # Snapshot nằm trong RAM, không tạo thư mục workspace hoặc artifact kết quả.
@@ -222,6 +261,96 @@ class WorkspaceTools:
         # Ví dụ Coder sửa 1→2 rồi 2→3, patch trả về thể hiện baseline 1→current 3.
         return patch
 
+
+    def patch_matches_current(self, patch: str) -> bool:
+        """Recognize an already-applied diff without writing or trusting its old baseline."""
+        try:
+            current = {}
+            for name, data in self._snapshot().items():
+                try:
+                    current[name] = data.decode("utf-8-sig").replace("\r\n", "\n")
+                except UnicodeError:
+                    continue
+            undone = apply_repo_patch(current, patch, reverse=True)
+            for name in set(undone) - self.coder_paths:
+                # A previous run's changes may already be the entire new run's
+                # baseline. Recognize them as no-op, without attributing them to
+                # this Coder or accepting unrelated external modifications.
+                data = self.baseline_files.get(name)
+                baseline = data.decode("utf-8-sig").replace("\r\n", "\n") if data is not None else None
+                if current.get(name) != baseline:
+                    return False
+            before = dict(current)
+            for name, content in undone.items():
+                if content is None:
+                    before.pop(name, None)
+                else:
+                    before[name] = content
+            replayed = apply_repo_patch(before, patch)
+            return all(current.get(name) == content for name, content in replayed.items())
+        except (ValueError, OSError):
+            return False
+
+    def select_coder_patch(self, patch, *, git_cwds=()):
+        """Return a uniquely applicable patch, or a verified already-saved no-op."""
+        candidates = [patch]
+        for cwd in git_cwds:
+            directory = Path(cwd).resolve()
+            if not directory.is_relative_to(self.root):
+                continue
+            while directory.is_relative_to(self.root):
+                if (directory / ".git").exists():
+                    prefix = directory.relative_to(self.root).as_posix()
+                    if prefix != ".":
+                        rebased = rebase_repo_patch(patch, prefix)
+                        if rebased not in candidates:
+                            candidates.append(rebased)
+                    break
+                if directory == self.root:
+                    break
+                directory = directory.parent
+        for candidate in candidates:
+            if self.patch_matches_current(candidate):
+                return candidate, True
+        applicable = []
+        for candidate in candidates:
+            try:
+                changes = apply_repo_patch(self._baseline_text(), candidate)
+                for name in changes:
+                    self._path(name)
+                    self._can_write("Coder", name)
+            except (ValueError, OSError, UnicodeError):
+                continue
+            applicable.append(candidate)
+        if len(applicable) != 1:
+            raise ValueError("Coder patch has no unique validated workspace base")
+        return applicable[0], False
+
+    def python_candidates(self, limit=20):
+        """Discover local runtime paths without scanning packages or running code.
+
+        Candidates are hints only; Environment must verify startup/imports/tests.
+        Ignore symlink/junction directories and preserve executable symlink identity.
+        """
+        candidates = []
+        for directory, dirs, _ in os.walk(self.root, followlinks=False):
+            kept = []
+            for name in sorted(dirs):
+                path = Path(directory) / name
+                if path.is_symlink() or getattr(path, "is_junction", lambda: False)():
+                    continue
+                if excluded_runtime_name(name) or name.lower() == "venv":
+                    for relative in ("Scripts/python.exe", "bin/python", "python.exe", "bin/python3"):
+                        executable = path / relative
+                        if executable.is_file():
+                            candidates.append(str(executable.absolute()))
+                            if len(candidates) >= limit:
+                                return candidates
+                            break
+                elif not excluded_directory(name):
+                    kept.append(name)
+            dirs[:] = kept
+        return candidates
 
     # Liệt kê đường dẫn và dung lượng các file trong repo; hỗ trợ chọn thư mục, đệ quy, giới hạn kết quả.
     def list_files(self, path=".", recursive=True, limit=200):
@@ -381,18 +510,18 @@ class WorkspaceTools:
 
     # Agent dùng tool này để chạy code, build hoặc kiểm tra runtime trên laptop.
     # cwd được kiểm tra trong repo; đây không phải cơ chế cách ly tiến trình.
-    async def run_command(self, *, command, cwd=".", env=None, timeout_seconds=None):
+    async def run_command(self, *, command, cwd=".", env=None, timeout_seconds=None, unlimited=False):
         directory = self._path(cwd, allow_root=True)
         if not directory.is_dir():
             raise ValueError("Command cwd is not a repository directory")
         return await self.executor.run_command(self.root, command=command, cwd=cwd,
-                                               env=env, timeout_seconds=timeout_seconds)
+                                               env=env, timeout_seconds=timeout_seconds, **({"unlimited": True} if unlimited else {}))
 
     # async/await cho phép chờ tiến trình local mà không chặn toàn bộ event loop.
     # command là argv, cwd tính từ repo, env bổ sung cho môi trường tiến trình local;
     # report_path là báo cáo test mà runner đọc. require_generated là tham số cũ,
     # còn giữ cho tương thích nhưng hiện không được dùng trong thân hàm.
-    async def run_tests(self, *, command=None, cwd=None, env=None, report_path=None, require_generated=True):
+    async def run_tests(self, *, command=None, cwd=None, env=None, report_path=None, require_generated=True, unlimited=False):
         # Lấy cả source và test hiện tại, kể cả test có sẵn trong repo.
         files = self._snapshot()
         if command is not None:
@@ -420,7 +549,7 @@ class WorkspaceTools:
             raise ValueError("Test cwd is not a repository directory")
         # **spec bung dict thành keyword arguments; executor chạy test trực tiếp
         # trên repo thật và trả report, không đưa code qua container.
-        return await self.executor.run_tests(self.root, **spec)
+        return await self.executor.run_tests(self.root, **spec, **({"unlimited": True} if unlimited else {}))
     
 
 

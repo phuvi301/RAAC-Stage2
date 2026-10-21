@@ -5,6 +5,7 @@ import hashlib
 import json
 
 from pydantic import BaseModel, ConfigDict, Field
+from raac.common.report_context import compact_test_report, compact_environment_report, clip_text
 from langchain_core.messages import HumanMessage, trim_messages
 from langchain_core.messages.utils import count_tokens_approximately
 
@@ -115,6 +116,12 @@ def _observation(value, limit, tool_name, files=None):
         execution.pop("stdout", None)
         if not execution.get("stderr"):
             execution.pop("stderr", None)
+    if tool_name == "run_tests":
+        data = compact_test_report(data, max(256, limit - 100))
+        result["result"] = data
+    elif tool_name == "configure_environment":
+        data = compact_environment_report(data, max(256, limit - 100))
+        result["result"] = data
     for key in ("content", "summary", "stdout", "stderr"):
         if isinstance(data.get(key), str) and len(data[key]) > limit:
             data[key] = _clip(data[key], limit)
@@ -181,14 +188,44 @@ def _receipts(group, limit, files=None):
 def trim_checkpoint_receipts(receipts, maximum):
     """Use LangChain's trimmer on complete receipts, never on live tool pairs.
 
-    Keep the latest historical test result even if it alone exceeds the budget;
-    losing the result could make an agent overlook a blocker. API usage remains
-    authoritative: this library counter is only an approximation.
+    Keep the latest test outcome using a bounded receipt if necessary. Full
+    results stay in the audit. API usage remains authoritative; this library
+    counter is only an approximation.
     """
     messages = [HumanMessage(content=_json(receipt), id=str(index)) for index, receipt in enumerate(receipts)]
     latest_test = next((index for index in range(len(receipts) - 1, -1, -1)
                         if receipts[index].get("tool") == "run_tests"), None)
     protected = [messages[latest_test]] if latest_test is not None else []
+    if protected and count_tokens_approximately(protected) > maximum:
+        receipt = receipts[latest_test]
+        observation = receipt.get("observation", {})
+        data = observation.get("result", observation) if isinstance(observation, dict) else {}
+        data = data if isinstance(data, dict) else {"summary": str(data)}
+        minimal = {key: deepcopy(data[key]) for key in
+                   ("status", "tests_run", "failed", "patch_hash", "observation_ref") if key in data}
+        minimal["summary"] = clip_text(str(data.get("summary", "")), 256)
+        minimal["context_note"] = "Latest test outcome retained; full details in run audit/read_tool_result."
+        failures = [item for item in data.get("results", []) if isinstance(item, dict) and item.get("status") in {"failed", "error"}]
+        if failures:
+            minimal["failure_sample"] = {key: clip_text(failures[0].get(key, ""), 120)
+                                         for key in ("test", "status", "details")}
+        if data.get("blocking_issues"):
+            minimal["blocking_issue_count"] = len(data["blocking_issues"])
+            minimal["blocking_issue_sample"] = clip_text(str(data["blocking_issues"][0]), 120)
+        bounded = {"tool": "run_tests", "observation": {"ok": observation.get("ok", True) if isinstance(observation, dict) else True, "result": minimal}}
+        protected = [HumanMessage(content=_json(bounded), id=str(latest_test))]
+        while count_tokens_approximately(protected) > maximum:
+            # Counts/status/ref remain protected even with pathological prose.
+            for field in ("summary", "failure_sample", "blocking_issue_sample", "context_note"):
+                minimal.pop(field, None)
+                protected = [HumanMessage(content=_json(bounded), id=str(latest_test))]
+                if count_tokens_approximately(protected) <= maximum:
+                    break
+            else:
+                break
+        messages[latest_test] = protected[0]
+        receipts = deepcopy(receipts)
+        receipts[latest_test] = bounded
     available = max(0, maximum - count_tokens_approximately(protected))
     candidates = [message for index, message in enumerate(messages) if index != latest_test]
     kept = trim_messages(candidates, max_tokens=available, token_counter=count_tokens_approximately,

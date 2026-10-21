@@ -1,0 +1,20 @@
+id: environment
+role: Environment
+group: core
+prompt: prompts/environment.md
+prompt_version: chain-v5
+tools:
+  - read_tool_result
+  - list_files
+  - read_file
+  - read_files
+  - search_repo
+  - run_command
+  - run_commands
+  - provision_environment
+  - configure_environment
+model:
+  ref: environment
+cost_weight: 1.0
+max_llm_calls: 20
+timeout_seconds: null

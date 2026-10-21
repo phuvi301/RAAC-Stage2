@@ -2,9 +2,11 @@
 
 from copy import deepcopy
 
+from raac.common.report_context import compact_environment_report, compact_test_report
+
 
 def _select_task_input(request, *, role=None):
-    """Send raw chat only to Analyst/Reviewer, as a Chain handoff rule."""
+    """Send raw chat only to Environment/Analyst/Reviewer, as a Chain handoff rule."""
     result = deepcopy(request)
     if role not in {"Planner", "Coder", "Tester"}:
         return result
@@ -45,6 +47,18 @@ def prepare_role_request(request: dict, *, role: str) -> dict:
             if reference is not None:
                 del incoming[key]
                 incoming[key + "_ref"] = reference
+    if isinstance(artifacts, dict):
+        if isinstance(artifacts.get("test_report"), dict):
+            artifacts["test_report"] = compact_test_report(artifacts["test_report"])
+        # Runtime is shared once at the top level, not copied in artifacts.
+        if artifacts.get("environment_report") == result.get("environment_report"):
+            artifacts.pop("environment_report", None)
+    if isinstance(result.get("environment_report"), dict):
+        result["environment_report"] = compact_environment_report(result["environment_report"])
+    if isinstance(incoming, dict):
+        for key, value in incoming.items():
+            if key.endswith("_ref") and value == "artifacts.environment_report" and "environment_report" not in artifacts:
+                incoming[key] = "environment_report"
     # Resolve duplicate incoming payloads first, so they cannot reintroduce a
     # full plan after filtering. The generated references still resolve here.
     plan = artifacts.get("plan") if isinstance(artifacts, dict) else None

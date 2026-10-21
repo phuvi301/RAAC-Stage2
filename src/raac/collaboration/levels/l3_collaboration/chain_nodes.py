@@ -12,7 +12,7 @@ from copy import deepcopy
 from typing import Any, Callable, Protocol
 
 from raac.collaboration.topologies import CHAIN
-from raac.common.errors import AgentExecutionError, RunGuardError
+from raac.common.errors import AgentExecutionError, RunGuardError, WorkspaceSnapshotError
 
 from .chain_handoff import prepare_role_request
 from .chain_state import (
@@ -98,16 +98,26 @@ class ChainNodes:
             "round": round_number, "max_rounds": state["limits"]["max_rounds"],
             "incoming_message": incoming, "artifacts": {"ac_catalog": state["ac_catalog"], **artifacts},
             "repository_changes": state.get("repository_changes", []),
+            "environment_report": state.get("environment_report"),
             "output_format": "unified_diff" if role == "Coder" else "json",
             "output_schema": role_output_model(role).model_json_schema(),
         }, role=role)
         events = [self._event(state, node, "agent_started", role=role, round=round_number)]
+        started_at = time.time()
+        deadline_extension = 0.0
         try:
-            timeout = min(
-                state["limits"]["agent_timeout_seconds"],
-                max(0, state["deadline_at"] - time.time()),
-            )
+            default = None if role == "Environment" else state["limits"]["agent_timeout_seconds"]
+            resolver = getattr(self.runner, "role_timeout", None)
+            timeout = resolver(role, default) if resolver else default
+            if role != "Environment":
+                remaining = max(0, state["deadline_at"] - time.time())
+                timeout = remaining if timeout is None else min(timeout, remaining)
             raw = await asyncio.wait_for(self.runner(role, request), timeout=timeout)
+            if role == "Environment":
+                # Environment preparation has its own clock. Preserve the time
+                # remaining for development even after a long dependency install.
+                deadline_extension = time.time() - started_at
+                state = {**state, "deadline_at": state["deadline_at"] + deadline_extension}
             runtime = deepcopy(raw.runtime) if isinstance(raw, RoleHandoff) else {}
             payload = raw.output if isinstance(raw, RoleHandoff) else raw
             output = RoleHandoff(parse_role_output(role, payload).model_dump(), runtime)
@@ -117,6 +127,8 @@ class ChainNodes:
             return None, self._abort(state, node, exc.code, events=events), []
         except TimeoutError:
             return None, self._abort(state, node, "timeout", events=events), []
+        except WorkspaceSnapshotError as exc:
+            return None, self._abort(state, node, exc.code, events=events), []
         except (ValueError, TypeError):
             return None, self._abort(state, node, "invalid_output", events=events), []
         except Exception as exc:
@@ -130,6 +142,8 @@ class ChainNodes:
             interrupted["events"] = events + interrupted["events"]
             return None, interrupted, []
         events.append(self._event(state, node, "agent_completed", role=role, round=round_number))
+        if deadline_extension:
+            output = RoleHandoff(output.output, {**output.runtime, "deadline_at": state["deadline_at"]})
         return output, None, events
 
     async def analyst(self, state: ChainState) -> dict:
@@ -170,6 +184,26 @@ class ChainNodes:
             return self._abort(state, "planner", "incomplete_plan", events=events)
         return {"plan": output, "next_node": "coder", "events": events}
 
+    async def environment(self, state: ChainState) -> dict:
+        # First node: verify the runtime before spending Analyst/Planner tokens.
+        # No spec/plan exists yet, so it selects the suite from the raw requirement and repository.
+        output, failure, events = await self._call(
+            state, "environment", "Environment",
+            {"from": "caller", "requirement": state["work"]["requirement"]}, {},
+        )
+        if failure:
+            return failure
+        report = {**output.output, "configuration": output.runtime.get("configuration"),
+                  "verification": output.runtime.get("verification", []),
+                  "smoke_report": output.runtime.get("smoke_report"),
+                  "observation_ref": output.runtime.get("observation_ref")}
+        if output.output["status"] != "ready" or output.runtime.get("verified") is not True:
+            return {**self._abort(state, "environment", "environment_setup_failed", events=events),
+                    "environment_report": report}
+        return {"environment_report": report, "next_node": "analyst",
+                "deadline_at": output.runtime.get("deadline_at", state["deadline_at"]),
+                "events": [*events, self._event(state, "environment", "environment_verified", target="analyst")]}
+
     async def coder(self, state: ChainState) -> dict:
         if state["round_number"] >= state["limits"]["max_rounds"]:
             return self._abort(state, "coder", "max_rounds_reached")
@@ -200,7 +234,8 @@ class ChainNodes:
             "coder_summary": output["summary"],
             "round_number": state["round_number"] + 1,
             "test_report": None, "review_report": None, "tests_passed": False,
-            "verdict": None, "stop_reason": None, "next_node": "tester", "events": events,
+            "verdict": None, "stop_reason": None,
+            "next_node": "tester", "events": events,
         }
 
     async def tester(self, state: ChainState) -> dict:
@@ -289,7 +324,7 @@ class ChainNodes:
                 "completed" if state["verdict"] == "PASS" else "rejected"
             ),
             **{key: deepcopy(state[key]) for key in (
-                "spec", "ac_catalog", "plan", "patch", "patch_hash", "coder_evidence", "coder_summary", "repository_changes", "test_report", "review_report",
+                "environment_report", "spec", "ac_catalog", "plan", "patch", "patch_hash", "coder_evidence", "coder_summary", "repository_changes", "test_report", "review_report",
                 "verdict", "stop_reason", "error", "round_number", "rounds_completed",
             )},
         }
