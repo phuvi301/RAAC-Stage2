@@ -266,7 +266,7 @@ Ghi chú tuần 9
 
 ### Bản ghi kết quả (`benchmark/run_record.py`)
 
-- [ ] Định nghĩa schema gồm trạng thái, patch, kết quả test, token, số lần gọi, latency, số message, số vòng, agent được kích hoạt, lỗi
+- [~] Định nghĩa schema gồm trạng thái, patch, kết quả test, token, số lần gọi, latency, số message, số vòng, agent được kích hoạt, lỗi — Task 1 đã có RunRecord/RunUsage/RunTiming strict, độc lập verdict agent/evaluator, usage thiếu là unknown, writer atomic có redaction; chưa tích hợp runner và trace latency.
 - [ ] Ghi commit hash, version registry, version prompt và cấu hình model vào mỗi bản ghi
 - [ ] Mỗi bản ghi lưu version từ `registry/VERSION`, version/hash từng file config đã dùng và snapshot cấu hình hiệu lực không chứa secret; kiểm tra không trộn cấu hình khi resume
 
@@ -450,6 +450,8 @@ Ghi chú tuần 9
 ---
 
 # Nhật ký vấn đề và quyết định
+
+- 2026-10-22 | Triển khai plan MAS candidate benchmark — Task 1: RunRecord/RunUsage/RunTiming, kiểm tra tổng token/cache/thời gian, ghi atomically và lọc secret. | Agent hỗ trợ Vinh | RED: import thiếu API; GREEN: 9 test test_benchmark_record.py qua (0,64s). Chưa có runner/container, giữ bản ghi tổng hợp [~]; không gọi API/Docker hoặc push.
 
 - 2026-10-22 | Người dùng yêu cầu lập kế hoạch và thực hiện luồng MAS candidate benchmark. Đã khảo sát và viết đặc tả docs/superpowers/specs/2026-10-22-mas-candidate-benchmark-design.md cùng kế hoạch docs/superpowers/plans/2026-10-22-mas-candidate-benchmark.md: record → Docker executor → workspace/Environment → candidate patch → trace → Chain adapter → một task chấm độc lập → batch/resume → report/pilot. | Agent hỗ trợ Vinh/Vũ/Tuấn | Chờ review tài liệu theo workflow trước khi sửa runtime; không coi plan là tính năng đã hiện thực. Docker daemon hiện không kết nối được (pipe dockerDesktopLinuxEngine không tồn tại), chưa thể kiểm chứng container thật. Giữ nguyên trạng thái các checkbox triển khai; không chạy model, không push.
 
