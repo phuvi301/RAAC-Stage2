@@ -15,6 +15,8 @@ python -m raac.cli benchmark batch --task-id psf__requests-6027 --task-id psf__r
 Chọn task ID tồn tại trong dataset của `--config` (mặc định
 `configs/benchmark.yaml`, tập 105 task). Cấu hình model/endpoint ở
 `configs/llm.yaml` và biến môi trường host; không chuyển credential vào container.
+Cả sáu role hiện dùng `ref: default`: `LLM_MODEL` trong `.env` ghi đè model
+cấp gốc của YAML; nếu bỏ trống thì giữ model YAML.
 Mỗi attempt có run ID, container và memory mới. `agent_run_timeout_seconds` là
 thời gian tối đa toàn run, gồm setup, agent và evaluator; token guard dùng harness hiện có.
 
@@ -45,6 +47,14 @@ trạng thái và usage nhưng bỏ nội dung command/output.
 Dùng terminal/web trace viewer hiện có với `llm.jsonl` của run để theo dõi
 command output, file thay đổi và candidate đã xuất; xem lệnh viewer trong
 [hướng dẫn Chain](chain_demo.md).
+Ví dụ theo dõi run đang chạy (thay RUN_ID bằng benchmark-...):
+
+```powershell
+python -m raac.mas_cli show-log --run-id RUN_ID --follow --details
+python -m raac.mas_cli show-log --run-id RUN_ID --web
+```
+
+CLI nhận cả ID `chain-*` và `benchmark-*`.
 Terminal `show-log --follow` chờ phase cuối của benchmark, gồm evaluator và cleanup;
 event MAS `run_completed` chưa kết thúc toàn benchmark.
 

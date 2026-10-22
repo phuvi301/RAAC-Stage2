@@ -377,10 +377,10 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(record["execution"]["mode"], "local")
         self.assertNotIn("evaluation", record)
         self.assertNotIn("sandbox_image_id", record)
-        self.assertEqual(record["provenance"]["registry_version"], "0.18.6")
+        self.assertEqual(record["provenance"]["registry_version"], "0.18.7")
         declaration = record["provenance"]["registry_snapshot"]["roles"]["planner"]
         self.assertEqual(declaration["role"], "Planner")
-        self.assertEqual(declaration["model"], {"ref": "planner"})
+        self.assertEqual(declaration["model"], {"ref": "default"})
         self.assertEqual(declaration["cost_weight"], 1.0)
         self.assertEqual(declaration["prompt"], "prompts/planner.md")
         self.assertEqual(record["provenance"]["effective_config"]["llm"]["model"], "http-mock-verification")

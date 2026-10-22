@@ -10,6 +10,6 @@ tools:
   - read_files
   - search_repo
 model:
-  ref: reviewer
+  ref: default
 cost_weight: 1.0  # TODO: calibrate cost weight (default 1.0 until pilot data exists)
 max_llm_calls: 6

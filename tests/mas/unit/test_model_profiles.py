@@ -14,7 +14,7 @@ import yaml
 
 from raac.common.errors import RunGuardError
 from raac.llm.client import LLMClient, LLMError
-from raac.llm.config import LLMConfig, load_llm_config
+from raac.llm.config import LLMConfig, load_dotenv, load_llm_config
 from raac.registry.loader import load_registry
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -71,6 +71,20 @@ def test_cli_and_environment_override_only_default_model(tmp_path):
         assert "test-private" not in json.dumps(config.model_dump())
     with patch.dict(os.environ, {}, clear=True):
         assert load_llm_config(path).resolve_model().model == "yaml-model"
+
+
+@pytest.mark.parametrize("model", ["provider/env-model", ""])
+def test_deployed_roles_use_default_model_from_dotenv(tmp_path, model):
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(f"LLM_MODEL={model}\n")
+    with patch.dict(os.environ, {}, clear=True):
+        load_dotenv(dotenv)
+        config = load_llm_config(ROOT / "configs/llm.yaml")
+        registry = load_registry(ROOT / "registry")
+        models = config.resolve_role_models({role.id: role.model.ref for role in registry.roles.values()})
+    expected = model or yaml.safe_load((ROOT / "configs/llm.yaml").read_text())["model"]
+    assert len(models) == 6
+    assert all(settings.model == expected for settings in models.values())
 
 
 def test_loader_keeps_named_refs_for_runtime_resolution(tmp_path):

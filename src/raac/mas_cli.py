@@ -203,8 +203,8 @@ def main(argv=None) -> int:
     if args.command == "show-log":
         if bool(args.run_id) == bool(args.log):
             parser.error("show-log requires exactly one of --run-id ID or --log PATH")
-        if args.run_id and (Path(args.run_id).name != args.run_id or not args.run_id.startswith("chain-")):
-            parser.error("--run-id must be a chain-* run ID, not a path")
+        if args.run_id and (Path(args.run_id).name != args.run_id or not args.run_id.startswith(("chain-", "benchmark-"))):
+            parser.error("--run-id must be a chain-* or benchmark-* run ID, not a path")
         if not 0 <= args.port <= 65535:
             parser.error("--port must be between 0 and 65535")
         from raac.common.trace_viewer import show_trace

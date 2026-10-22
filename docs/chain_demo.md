@@ -84,7 +84,7 @@ Environment không tăng số vòng Coder–Tester. Chưa sẵn sàng thì dừn
 `environment_setup_failed`, giữ báo cáo và patch đã có; không lặp sửa code vì thiếu dependency.
 
 Khai báo ở `registry/roles/core/environment.yaml`, prompt ở
-`registry/prompts/environment.md`; profile riêng `environment` vẫn dùng `cx/gpt-5.6-sol`.
+`registry/prompts/environment.md`; Environment dùng model mặc định chung, có thể ghi đè bằng `LLM_MODEL`.
 Role đọc manifest/CI/README, chọn Python tương thích, tạo hoặc dùng lại `.venv`,
 cài runtime/build/test dependency bằng `run_command` hoặc `run_commands`.
 Prompt yêu cầu giữ cài đặt trong virtualenv của project và không sửa source/test để né lỗi.
@@ -274,10 +274,10 @@ Không thêm description/output_format vào YAML.
 
 ### Chọn model cho từng role
 
-Cấu hình hiện tại có năm profile riêng: analyst, planner, coder, tester, reviewer;
-mỗi role dùng model.ref trùng ID của mình. Tất cả profile đang dùng
-`cx/gpt-5.6-sol`, kế thừa temperature/max_tokens cấp gốc. Đổi model trong từng
-profile ở configs/llm.yaml để chọn riêng; --model chỉ tác động ref default.
+Cấu hình hiện tại dùng `model.ref: default` cho cả sáu role. Đặt `LLM_MODEL`
+trong `.env` để đổi model chung; nếu bỏ trống thì dùng model cấp gốc trong
+`configs/llm.yaml`. Các profile có tên vẫn có thể được chọn riêng bằng cách
+đổi `model.ref` của role tương ứng.
 
 `ref: default` dùng `model`, `temperature`, `max_tokens` ở cấp gốc của
 `configs/llm.yaml`. Riêng model mặc định có thứ tự ưu tiên:

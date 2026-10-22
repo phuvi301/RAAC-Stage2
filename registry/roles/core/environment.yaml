@@ -14,7 +14,7 @@ tools:
   - provision_environment
   - configure_environment
 model:
-  ref: environment
+  ref: default
 cost_weight: 1.0
 max_llm_calls: 20
 timeout_seconds: null
