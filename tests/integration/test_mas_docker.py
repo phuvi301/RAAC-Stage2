@@ -83,3 +83,53 @@ async def test_streaming_output_precedes_completion(workspace):
         await asyncio.sleep(0.02)
     assert events and not task.done()
     assert (await task)["exit_code"] == 0
+
+
+@pytest.mark.asyncio
+async def test_file_tools_and_shell_share_container_source(workspace):
+    from raac.harness.layer3_execution.tools.docker_workspace import (
+        DockerWorkspaceTools,
+    )
+
+    executor = DockerExecutor(workspace, DockerExecutionPolicy())
+    tools = DockerWorkspaceTools("Fix value", executor)
+    tools.edit_file(role="Coder", path="value.py", content="VALUE = 1\n")
+    assert tools.read_file("value.py")["content"] == "VALUE = 1\n"
+    tools.active_role = "Coder"
+    result = await tools.run_command(command=["python", "-c", "open('new.py','w').write('NEW = 2\\n')"])
+    assert result["exit_code"] == 0
+    assert tools.coder_paths == {"value.py", "new.py"}
+    assert tools.list_files()["total"] == 2
+    tools.delete_file(role="Coder", path="value.py")
+    assert "value.py" not in tools.readable
+
+
+@pytest.mark.asyncio
+async def test_container_environment_uses_container_interpreter(workspace):
+    from raac.harness.layer3_execution.tools.docker_workspace import (
+        DockerWorkspaceTools,
+    )
+
+    executor = DockerExecutor(workspace, DockerExecutionPolicy())
+    tools = DockerWorkspaceTools("Fix value", executor)
+    tools.edit_file(role="Tester", path="test_value.py", content="import unittest\nclass TestValue(unittest.TestCase):\n def test_ok(self): self.assertTrue(True)\n")
+    configured = await tools.environment.configure(python_executable="python", cwd=".",
+        test_command=["python", "-m", "unittest", "discover"], check_command=["python", "-c", "import unittest"])
+    assert configured["ready"] is True
+    assert configured["configuration"]["python_executable"].startswith("/usr/")
+    tools.active_role = "Tester"
+    report = await tools.run_tests()
+    assert report["status"] == "passed", report
+
+
+@pytest.mark.asyncio
+async def test_source_symlink_cannot_be_read_as_a_file(workspace):
+    from raac.harness.layer3_execution.tools.docker_workspace import (
+        DockerWorkspaceTools,
+    )
+
+    executor = DockerExecutor(workspace, DockerExecutionPolicy())
+    tools = DockerWorkspaceTools("Fix value", executor)
+    await executor.run_command("/workspace", command=["python", "-c", "import os; os.symlink('/etc/passwd','escape.py')"])
+    with pytest.raises(ValueError):
+        tools.read_file("escape.py")

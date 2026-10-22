@@ -20,12 +20,15 @@ class EnvironmentManager:
         workspace = self.workspace
         if not workspace._path(cwd, allow_root=True).is_dir():
             raise ValueError("Environment cwd must be a repository directory")
-        candidate = Path(python_executable)
-        if not candidate.is_absolute():
-            candidate = workspace.root / cwd / candidate
-        candidate = candidate.absolute()  # Preserve venv/bin/python symlink identity.
-        if not candidate.is_file():
-            raise ValueError("Python executable must exist")
+        if hasattr(workspace, "resolve_runtime"):
+            candidate = workspace.resolve_runtime(python_executable, cwd)
+        else:
+            candidate = Path(python_executable)
+            if not candidate.is_absolute():
+                candidate = workspace.root / cwd / candidate
+            candidate = candidate.absolute()  # Preserve venv/bin/python symlink identity.
+            if not candidate.is_file():
+                raise ValueError("Python executable must exist")
         # Check candidate directly, before replacing the previous runtime binding.
         old = getattr(workspace.executor, "environment", None)
         workspace.executor.environment = None
