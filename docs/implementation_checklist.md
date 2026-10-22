@@ -451,6 +451,8 @@ Ghi chú tuần 9
 
 # Nhật ký vấn đề và quyết định
 
+- 2026-10-22 | MAS benchmark Task 2: DockerRunWorkspace/DockerExecutor có policy không mount/network/credential host, user1000, command argv, output cap, deadline/cancel và test report trong container; tái sử dụng helper test hiện có, runtime quá cũ báo lỗi rõ. | Agent hỗ trợ Vinh | 6 unit + 4 Docker integration thật qua (5,30s); timeout dừng container, stream output xuất hiện trước completion, unittest chạy thật. Chưa nối runner/profile/workspace file; A3 và benchmark giữ [~]/chưa nghiệm thu.
+
 - 2026-10-22 | Triển khai plan MAS candidate benchmark — Task 1: RunRecord/RunUsage/RunTiming, kiểm tra tổng token/cache/thời gian, ghi atomically và lọc secret. | Agent hỗ trợ Vinh | RED: import thiếu API; GREEN: 9 test test_benchmark_record.py qua (0,64s). Chưa có runner/container, giữ bản ghi tổng hợp [~]; không gọi API/Docker hoặc push.
 
 - 2026-10-22 | Người dùng yêu cầu lập kế hoạch và thực hiện luồng MAS candidate benchmark. Đã khảo sát và viết đặc tả docs/superpowers/specs/2026-10-22-mas-candidate-benchmark-design.md cùng kế hoạch docs/superpowers/plans/2026-10-22-mas-candidate-benchmark.md: record → Docker executor → workspace/Environment → candidate patch → trace → Chain adapter → một task chấm độc lập → batch/resume → report/pilot. | Agent hỗ trợ Vinh/Vũ/Tuấn | Chờ review tài liệu theo workflow trước khi sửa runtime; không coi plan là tính năng đã hiện thực. Docker daemon hiện không kết nối được (pipe dockerDesktopLinuxEngine không tồn tại), chưa thể kiểm chứng container thật. Giữ nguyên trạng thái các checkbox triển khai; không chạy model, không push.
