@@ -451,6 +451,8 @@ Ghi chú tuần 9
 
 # Nhật ký vấn đề và quyết định
 
+- 2026-10-22 | MAS benchmark Task 7 đang thực hiện: runner một task và CLI benchmark run đã nối prepare image/Docker workspace → Chain → candidate → sandbox evaluator riêng; record có phase/time/provenance và lỗi setup. | Agent hỗ trợ Vinh | 3 unit runner RED→GREEN, 5 test runner/adapter qua (1,80s); chưa kiểm chứng end-to-end candidate evaluator bằng fixture Docker hoặc model thật, không nghiệm thu.
+
 - 2026-10-22 | MAS benchmark Task 6: adapter run_chain tái sử dụng graph/runner hiện có với Docker workspace, log phase/tool/output, giữ partial usage khi hủy và artifact agent-result.json. Docker mode không đưa interpreter host vào request. | Agent hỗ trợ Vinh/Vũ/Tuấn | 5 test adapter/local CLI qua (4,02s); fixture đủ sáu role qua HTTP mock + Docker tool/test thật PASS (7,89s), candidate chỉ solution.py. Chưa gọi model thật/chấm candidate bằng sandbox evaluator end-to-end; không push.
 
 - 2026-10-22 | MAS benchmark Task 5: mở rộng trace terminal/web cho stdout/stderr Docker, phase/lifecycle và thay đổi workspace/candidate hash; content-off giữ activity/byte, lọc secret. | Agent hỗ trợ Vinh/Tuấn | 3 test trace RED→GREEN, hồi quy viewer chạy cùng; streaming thật đã kiểm chứng Task 2. Chưa có pilot benchmark/model thật; không push.

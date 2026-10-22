@@ -244,6 +244,8 @@ class DockerWorkspaceTools(WorkspaceTools):
         if changed - self.coder_paths - self.tester_paths:
             raise ValueError("Candidate has unattributed source changes")
         for name in changed & self.coder_paths:
+            if name in getattr(self, "setup_generated_paths", set()):
+                raise ValueError("unsupported edit to setup-generated source")
             before, after = self.baseline_files.get(name), current.get(name)
             old_mode, mode = self.baseline_modes.get(name, 0o644), self.current_modes.get(name, 0o644)
             if (old_mode ^ mode) & 0o111 or (before is None and mode & 0o111):

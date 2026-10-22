@@ -23,7 +23,7 @@ from .dataset import Task
 
 
 async def run_chain(task: Task, *, run_id: str, workspace, registry, llm_config,
-                    harness: dict, level_config: dict, output_dir: Path) -> dict:
+                    harness: dict, level_config: dict, output_dir: Path, trace=None) -> dict:
     root = Path(__file__).resolve().parents[3]
     decision = coordinate_chain(level_config)
     limits = ChainLimits(max_rounds=decision.max_rounds, hard_max_rounds=level_config["hard_max_rounds"],
@@ -37,6 +37,8 @@ async def run_chain(task: Task, *, run_id: str, workspace, registry, llm_config,
     provenance["task_snapshot"] = workspace.baseline_ref
     output_dir.mkdir(parents=True, exist_ok=True)
     client = LLMClient(llm_config, log_path=output_dir / "llm.jsonl", trace_content=harness["trace_content"])
+    if trace is not None:
+        client.trace = trace
     context = {"run_id": run_id, "task_id": task.id, "level": "L3"}
 
     def trace_tool(call_context, event, **payload):
