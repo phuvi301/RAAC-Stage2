@@ -35,6 +35,7 @@ async def run_chain(task: Task, *, run_id: str, workspace, registry, llm_config,
     provenance = collect_provenance(root, registry, [root / "configs/llm.yaml", root / "configs/harness.yaml",
         root / "configs/levels/l3_collaboration.yaml"], effective)
     provenance["task_snapshot"] = workspace.baseline_ref
+    provenance["candidate_contract"] = "implementation-only-v1"
     output_dir.mkdir(parents=True, exist_ok=True)
     client = LLMClient(llm_config, log_path=output_dir / "llm.jsonl", trace_content=harness["trace_content"])
     if trace is not None:

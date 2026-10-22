@@ -199,6 +199,13 @@ class DockerWorkspaceTools(WorkspaceTools):
         # Container root is the repo root; no nested host Git path normalization.
         return super().select_coder_patch(patch, git_cwds=())
 
+    def _can_write(self, role, name):
+        if role == "Coder" and test_path(name):
+            raise PermissionError("Coder may edit implementation only; Tester creates separate development tests")
+        if role == "Tester" and (not test_path(name) or name in self.baseline_files):
+            raise PermissionError("Tester may write separate new development tests only; baseline tests are read-only")
+        return super()._can_write(role, name)
+
     async def _mutating_command(self, role, call):
         before = self._snapshot()
         before_modes = dict(self.current_modes)
@@ -211,6 +218,12 @@ class DockerWorkspaceTools(WorkspaceTools):
         changed = {name for name in before.keys() | after.keys() if before.get(name) != after.get(name)
                    or before_modes.get(name) != self.current_modes.get(name)}
         for name in changed:
+            if role == "Coder" and test_path(name):
+                self.integrity_error = "Coder modified tests under implementation-only contract"
+                raise PermissionError("Coder shell modified test files")
+            if role == "Tester" and name in self.baseline_files:
+                self.integrity_error = "Tester modified baseline tests"
+                raise PermissionError("Tester shell modified baseline tests; create separate development tests")
             if role == "Tester" and (name in self.coder_paths or not test_path(name)):
                 self.integrity_error = "Tester modified implementation or Coder source"
                 raise PermissionError("Tester shell modified implementation or Coder files")
@@ -246,6 +259,8 @@ class DockerWorkspaceTools(WorkspaceTools):
         if changed - self.coder_paths - self.tester_paths:
             raise ValueError("Candidate has unattributed source changes")
         for name in changed & self.coder_paths:
+            if test_path(name):
+                raise ValueError("Candidate violates implementation-only contract: Coder modified tests")
             if name in getattr(self, "setup_generated_paths", set()):
                 raise ValueError("unsupported edit to setup-generated source")
             before, after = self.baseline_files.get(name), current.get(name)

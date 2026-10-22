@@ -20,8 +20,12 @@ thời gian tối đa toàn run, gồm setup, agent và evaluator; token guard d
 
 Host lưu snapshot baseline từ container và đối chiếu source base commit trước khi
 agent chạy. Sau đó host tính candidate từ thay đổi thực tế của Coder, kiểm tra
-attribution và xuất `results/benchmark-<id>/candidate.patch`. Test riêng của Tester
-không đi vào candidate. Binary, đổi executable bit và một số thay đổi không biểu diễn
+attribution và xuất `results/benchmark-<id>/candidate.patch`. Hợp đồng benchmark
+`implementation-only-v1` được người dùng duyệt ngày 2026-10-22: Coder chỉ sửa
+implementation; Tester chỉ tạo/sửa test phát triển mới, không sửa test baseline.
+Test riêng của Tester không đi vào candidate. File tools, kiểm tra sau shell và
+export kiểm tra quyền này; local demo giữ hành vi cũ. Provenance ghi candidate_contract.
+Binary, đổi executable bit và một số thay đổi không biểu diễn
 được sẽ báo lỗi rõ. Container evaluator mới áp candidate lên base commit rồi mới
 nạp test đánh giá F2P/P2P; verdict của Reviewer được giữ riêng với kết quả evaluator.
 
@@ -87,3 +91,13 @@ và protected `tests/test_utils.py` nên evaluator trả `protected_test_error`.
 Report hai pilot ở `results/mas-benchmark-plan/final-pilot-resource-report.json`.
 Mốc pilot MAS có candidate được chấm F2P/P2P vẫn chưa đạt; không lọc test khỏi patch
 hoặc tự retry để chọn kết quả tốt hơn.
+
+Sau kết quả trên, người dùng duyệt đổi hợp đồng cho các run tương lai sang
+`implementation-only-v1`. Pilot mới `benchmark-ce36a0a672404019ae26e24b50fa0727`
+(Astropy cùng task/model) đạt MAS PASS và evaluator **resolved**: 2/2 F2P và
+13/13 P2P pass, baseline hợp lệ, candidate chỉ sửa `astropy/modeling/separable.py`.
+Run dùng 94901 token (87823 input, 7078 output), 19 call, 224,422 giây, 1 vòng;
+evaluator riêng `1ba56322af1e499f8c4f4d1cda8f5f13` thực thi đủ 15 selector.
+Container đã dọn; report riêng ở `results/mas-benchmark-plan/implementation-only-resource-report.json`.
+Các pilot trước giữ nguyên và không gộp thành so sánh cùng hợp đồng với run mới.
+Đã kiểm chứng phạm vi plan L3; chưa nghiệm thu A5/bốn level hoặc full dataset.

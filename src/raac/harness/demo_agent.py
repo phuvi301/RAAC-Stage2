@@ -128,6 +128,11 @@ class DemoAgentRunner:
         }
         if docker_mode:
             request["execution_environment"]["policy"] = "Prebuilt offline container; verify its installed runtime. No host access or dependency downloads."
+            request["execution_environment"]["benchmark_contract"] = (
+                "implementation-only-v1: Coder edits implementation only; never create, edit or delete test files, "
+                "including via shell or final patch. Tester creates separate NEW development test files only, "
+                "never edits baseline tests or implementation. All roles may read existing tests. "
+                "Coder candidate excludes Tester development tests. This benchmark contract overrides local demo test-edit guidance.")
         if name == "Environment":
             request["execution_environment"]["python_candidates"] = self.tools.workspace.python_candidates()
         if name == "Coder" and self.memory_policy.enabled:

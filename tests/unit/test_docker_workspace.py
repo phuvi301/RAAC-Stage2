@@ -36,6 +36,7 @@ async def test_test_execution_cannot_overwrite_coder_source(status):
     snapshots = iter([{"value.py": b"1"}, {"value.py": b"999"}])
     tools._snapshot = lambda: next(snapshots)
     tools.current_modes = {"value.py": 420}
+    tools.baseline_files = {"value.py": b"1"}
     tools.coder_paths, tools.tester_paths = {"value.py"}, set()
     tools.executor = SimpleNamespace(trace=None)
 
@@ -44,3 +45,28 @@ async def test_test_execution_cannot_overwrite_coder_source(status):
 
     with pytest.raises(PermissionError, match="Tester"):
         await tools._mutating_command("Tester", execute)
+
+
+@pytest.mark.parametrize("role,path", [("Coder", "tests/test_value.py"), ("Tester", "tests/test_existing.py"), ("Tester", "new_source.py")])
+def test_benchmark_roles_keep_tests_separate(role, path):
+    tools = object.__new__(DockerWorkspaceTools)
+    tools.baseline_files = {"tests/test_existing.py": b"assert True\n"}
+    tools.coder_paths, tools.tester_paths = set(), set()
+    with pytest.raises(PermissionError):
+        tools._can_write(role, path)
+
+
+@pytest.mark.asyncio
+async def test_coder_shell_cannot_add_test_to_candidate():
+    tools = object.__new__(DockerWorkspaceTools)
+    snapshots = iter([{}, {"tests/test_value.py": b"assert True\n"}])
+    tools._snapshot = lambda: next(snapshots)
+    tools.current_modes = {}
+    tools.baseline_files, tools.coder_paths, tools.tester_paths = {}, set(), set()
+    tools.executor = SimpleNamespace(trace=None)
+
+    async def execute():
+        return {"status": "completed"}
+
+    with pytest.raises(PermissionError, match="Coder"):
+        await tools._mutating_command("Coder", execute)
