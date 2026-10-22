@@ -199,17 +199,22 @@ class DockerWorkspaceTools(WorkspaceTools):
 
     async def _mutating_command(self, role, call):
         before = self._snapshot()
+        before_modes = dict(self.current_modes)
         result = await call
         if result.get("status") != "completed":
             return result
         after = self._snapshot()
-        changed = {name for name in before.keys() | after.keys() if before.get(name) != after.get(name)}
+        changed = {name for name in before.keys() | after.keys() if before.get(name) != after.get(name)
+                   or before_modes.get(name) != self.current_modes.get(name)}
         for name in changed:
             if role == "Tester" and (name in self.coder_paths or not test_path(name)):
+                self.integrity_error = "Tester modified implementation or Coder source"
                 raise PermissionError("Tester shell modified implementation or Coder files")
             if role not in {"Coder", "Tester", "Environment"}:
+                self.integrity_error = "Read-only role modified source"
                 raise PermissionError("Read-only role modified source")
             if role == "Environment":
+                self.integrity_error = "Environment modified source"
                 raise PermissionError("Environment modified tracked source; rebuild its profile")
         if role == "Coder":
             self.coder_paths.update(changed)
@@ -224,3 +229,39 @@ class DockerWorkspaceTools(WorkspaceTools):
 
     async def run_tests(self, **kwargs):
         return await self._mutating_command(self.active_role, super().run_tests(**kwargs))
+
+    def export_candidate(self, output):
+        current = self._snapshot()
+        if getattr(self, "integrity_error", None):
+            raise ValueError("Candidate attribution failed: " + self.integrity_error)
+        changed = {name for name in self.baseline_files.keys() | current.keys()
+                   if self.baseline_files.get(name) != current.get(name)
+                   or self.baseline_modes.get(name) != self.current_modes.get(name)}
+        if changed - self.coder_paths - self.tester_paths:
+            raise ValueError("Candidate has unattributed source changes")
+        for name in changed & self.coder_paths:
+            before, after = self.baseline_files.get(name), current.get(name)
+            old_mode, mode = self.baseline_modes.get(name, 0o644), self.current_modes.get(name, 0o644)
+            if (old_mode ^ mode) & 0o111 or (before is None and mode & 0o111):
+                raise ValueError("unsupported executable mode change")
+            for data in (before, after):
+                if data is not None:
+                    if b"\0" in data:
+                        raise ValueError("unsupported binary change")
+                    try:
+                        data.decode("utf-8-sig")
+                    except UnicodeError:
+                        raise ValueError("unsupported binary encoding") from None
+            if (before is None and after == b"") or (before == b"" and after is None):
+                raise ValueError("unsupported empty file creation/deletion")
+        patch = self.current_patch()
+        if current != self._snapshot():
+            raise ValueError("Source changed during candidate export")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        raw = patch.encode("utf-8")
+        if len(raw) > 4194304:
+            raise ValueError("Candidate patch exceeds size limit")
+        with output.open("xb") as stream:
+            stream.write(raw)
+        return {"path": str(output), "sha256": hashlib.sha256(raw).hexdigest(),
+                "baseline_ref": self.baseline_ref, "changed_paths": sorted(changed & self.coder_paths)}

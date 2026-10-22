@@ -451,6 +451,8 @@ Ghi chú tuần 9
 
 # Nhật ký vấn đề và quyết định
 
+- 2026-10-22 | MAS benchmark Task 4: export candidate từ baseline host, gồm file mới/xóa/shell; kiểm tra attribution và áp lại diff, chặn binary/executable/empty-file metadata chưa hỗ trợ thay vì bỏ sót. | Agent hỗ trợ Vinh | 5 test export RED→GREEN; chưa nối evaluator/runner, chưa có pilot candidate end-to-end.
+
 - 2026-10-22 | MAS benchmark Task 3: DockerWorkspaceTools dùng file RPC có giới hạn trong container, kế thừa patch/tool logic; Environment xác minh runtime ở container, provisioning offline không cài host. | Agent hỗ trợ Vinh | 25 test qua (22,99s), gồm 7 Docker integration thật, 7 snapshot unit và hồi quy Environment. Chưa nối runner/evaluator, chưa nghiệm thu benchmark; không push.
 
 - 2026-10-22 | MAS benchmark Task 2: DockerRunWorkspace/DockerExecutor có policy không mount/network/credential host, user1000, command argv, output cap, deadline/cancel và test report trong container; tái sử dụng helper test hiện có, runtime quá cũ báo lỗi rõ. | Agent hỗ trợ Vinh | 6 unit + 4 Docker integration thật qua (5,30s); timeout dừng container, stream output xuất hiện trước completion, unittest chạy thật. Chưa nối runner/profile/workspace file; A3 và benchmark giữ [~]/chưa nghiệm thu.
