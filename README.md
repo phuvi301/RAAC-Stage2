@@ -6,15 +6,42 @@ Khung dự án Python >= 3.11 / LangGraph để xây dựng và so sánh bốn c
 - Quy tắc agent: [.agents/rules/progress.md](.agents/rules/progress.md).
 - Kiến trúc: harness 4 layer bao quanh mỗi agent, collaboration engine dùng LangGraph.
 - CLI sandbox Docker và MAS/L3 Chain chạy local đã hiện thực; Engine chung và các level còn lại chưa hoàn tất. Xem [hướng dẫn sandbox](docs/sandbox.md).
-- requirements.lock chưa chứa dependency đã khóa; cần resolve và kiểm tra ở D01.
+- `requirements.lock` ghim dependency runtime, dev/test và setuptools; cài file này trước khi cài project.
 - WASM, A2A và long-term memory được đặc tả là stub/tuỳ chọn trong kế hoạch.
 
 ## Khởi tạo môi trường
 
     python -m venv .venv
     .venv\Scripts\Activate.ps1
-    python -m pip install -e ".[dev]"
-    python -m pytest
+    python -m pip install -r requirements.lock
+    python -m pip install --no-deps --no-build-isolation -e .
+    make test
+
+GNU Make tự chọn Python trong `.venv` (Windows/Linux); có thể ghi đè bằng
+`make test PYTHON=/path/to/python TEST_ARGS="-q"`. Nếu chưa có Make, chạy
+`python -m pytest` trực tiếp. Windows có thể dùng GNU Make trong MSYS2.
+
+    make pilot TASK=psf__requests-6027
+    make freeze
+
+`pilot` chạy kiểm chứng môi trường sandbox cho một task bằng CLI hiện có, cần Docker
+và dataset/evaluator đã chuẩn bị; đây chưa phải pilot agent trên bốn level.
+Chọn cấu hình khác bằng `CONFIG=configs/benchmark.yaml`.
+
+`freeze` tạo file JSON riêng trong `results/freezes/`, lưu snapshot và SHA-256 của
+các YAML cấu hình, Registry (role/tool/prompt/VERSION), `pyproject.toml` và lock.
+Không đọc `.env`; lọc secret theo bộ lọc hiện có. Hash tính trên file gốc trước khi
+lọc, nên nội dung đã lọc có thể khác hash. Có thể chỉ định
+`FREEZE_OUTPUT="results/freezes/my-freeze.json"`; file đã tồn tại sẽ không bị ghi đè.
+Lệnh không thay cấu hình đang dùng và không thay thế quyết định đóng băng của nhóm.
+
+Khi chủ động cập nhật dependency, dùng uv và chạy lại kiểm thử:
+
+    uv pip compile pyproject.toml --extra dev --universal --python-version 3.11 -o requirements.lock --no-annotate
+
+Lệnh giữ các pin hiện có khi còn hợp lệ; chỉ thêm `--upgrade` khi muốn nâng phiên bản.
+Các bản lock được resolve cho Python >= 3.11 và có marker theo nền tảng;
+kiểm chứng cài đặt hiện tại dùng Windows/Python 3.11.
 
 Không commit API key hoặc dữ liệu nhạy cảm. CLI sandbox và MAS Chain đã có; CLI benchmark tổng quát và các level còn lại chưa hoàn tất.
 

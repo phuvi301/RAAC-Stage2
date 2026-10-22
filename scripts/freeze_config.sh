@@ -1,1 +1,4 @@
-# TODO: Implement; see docs/implementation_checklist.md.
+#!/usr/bin/env sh
+set -eu
+cd "$(dirname "$0")/.."
+exec make freeze "$@"
