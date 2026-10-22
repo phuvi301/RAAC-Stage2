@@ -260,6 +260,8 @@ Ghi chú tuần 9
 
 ### Harness chạy hàng loạt (`benchmark/runner.py`)
 
+- 2026-10-22 | Pilot model thật sau khi người dùng cấu hình key: astropy__astropy-12906, llm-v4/9router, cc/claude-opus-5-5, run benchmark-b9feebf7d8894d9b821cfcb6460f3633. MAS đủ 6 role, 1 vòng, verdict PASS; candidate sửa separable.py và modeling/tests/test_separable.py nên evaluator trả protected_test_error trước khi chạy test. | Agent hỗ trợ Vinh | 83606 input + 8282 output = 91888 token, 17 call, usage_complete=true/cache unknown; tổng 145,281s (setup 13,203s, agent 128,625s, evaluation 0,094s). Container đã dọn, patch/trace/record và resource report giữ nguyên trong results/. Đây là pilot thật bị từ chối candidate, chưa có kết quả resolved/unresolved độc lập, không nâng nghiệm thu A5/bốn level, không retry để cải thiện kết quả và không push.
+
 - [~] Lặp qua các cặp (task, level, lần lặp) — đã có matrix tuần tự L3 × task × repetition và test 2 task × 2 repetition; chờ adapter L1/L2/L4.
 - [ ] Chạy song song có giới hạn
 - [x] Hỗ trợ resume, bỏ qua run đã xong khi chạy lại — manifest/fingerprint, lock một writer, phục hồi record-before-manifest và attempt thiếu record; restart sạch run bị ngắt, không resume giữa node.

@@ -54,6 +54,14 @@ report ghi số mẫu thiếu và token đã quan sát. Chưa có L1/L2/L4, para
 LLM judge, utility hoặc quy đổi tiền. `make pilot` vẫn là sandbox baseline/gold
 validation; dùng `benchmark run/batch` để chạy MAS candidate.
 
-Bằng chứng hiện có là unit test, HTTP mock và fixture Docker thật (Chain xuất
-candidate, container evaluator khác chấm F2P/P2P). Đây chưa phải pilot task thật
-với model thật hoặc nghiệm thu benchmark bốn level/A5.
+Bằng chứng fixture gồm unit test, HTTP mock và Docker thật (Chain xuất candidate,
+container evaluator khác chấm F2P/P2P).
+
+Pilot model thật ngày 2026-10-22: task `astropy__astropy-12906`, model
+`cc/claude-opus-5-5` qua 9router, run `benchmark-b9feebf7d8894d9b821cfcb6460f3633`.
+MAS trả PASS sau một vòng, nhưng candidate sửa cả `astropy/modeling/tests/test_separable.py`
+thuộc test được bảo vệ nên evaluator trả `protected_test_error` trước khi chạy test.
+Run dùng 91888 token (83606 input, 8282 output), 17 call, 145,281 giây;
+usage token đầy đủ, cache usage chưa biết. Record/trace/patch giữ nguyên trong thư mục run,
+resource report ở `results/mas-benchmark-plan/live-pilot-resource-report.json`.
+Không có kết quả resolved/unresolved độc lập từ pilot này; chưa nghiệm thu bốn level/A5.
