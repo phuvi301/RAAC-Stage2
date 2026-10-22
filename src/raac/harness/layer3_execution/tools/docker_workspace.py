@@ -139,6 +139,8 @@ class DockerPath:
 
 
 class DockerWorkspaceTools(WorkspaceTools):
+    execution_mode = "docker"
+
     def __init__(self, requirement: str, executor):
         if not requirement.strip():
             raise ValueError("Empty requirement")

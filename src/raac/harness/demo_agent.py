@@ -118,12 +118,16 @@ class DemoAgentRunner:
             raise
         request["repository_files"] = [entry["path"] for entry in listing["files"]]
         request["repository_listing_truncated"] = listing["truncated"]
+        docker_mode = getattr(self.tools.workspace, "execution_mode", "local") == "docker"
+        default_python = self.tools.workspace.python_candidates()[0] if docker_mode else sys.executable
         request["execution_environment"] = {
-            "mode": "local", "platform": sys.platform,
+            "mode": "docker" if docker_mode else "local", "platform": "linux" if docker_mode else sys.platform,
             "repo_dir": str(self.tools.workspace.root),
-            "python_executable": (self.tools.workspace.environment.configuration or {}).get("python_executable", sys.executable),
+            "python_executable": (self.tools.workspace.environment.configuration or {}).get("python_executable", default_python),
             "prepared": deepcopy(self.tools.workspace.environment.configuration),
         }
+        if docker_mode:
+            request["execution_environment"]["policy"] = "Prebuilt offline container; verify its installed runtime. No host access or dependency downloads."
         if name == "Environment":
             request["execution_environment"]["python_candidates"] = self.tools.workspace.python_candidates()
         if name == "Coder" and self.memory_policy.enabled:

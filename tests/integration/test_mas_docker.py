@@ -133,3 +133,79 @@ async def test_source_symlink_cannot_be_read_as_a_file(workspace):
     await executor.run_command("/workspace", command=["python", "-c", "import os; os.symlink('/etc/passwd','escape.py')"])
     with pytest.raises(ValueError):
         tools.read_file("escape.py")
+
+
+@pytest.mark.asyncio
+async def test_complete_chain_with_http_mock_uses_real_container_tools(workspace, tmp_path, monkeypatch):
+    import json
+    from pathlib import Path
+
+    import httpx
+    import yaml
+
+    import raac.benchmark.chain_runner as module
+    from raac.benchmark.dataset import Task
+    from raac.harness.layer3_execution.tools.docker_workspace import (
+        DockerWorkspaceTools,
+    )
+    from raac.llm.config import ModelProfile, load_llm_config
+    from raac.registry import load_registry
+
+    root = Path(__file__).resolve().parents[2]
+    executor = DockerExecutor(workspace, DockerExecutionPolicy())
+    await executor.run_command("/workspace", command=["python", "-c",
+        "open('solution.py','w').write('VALUE = 0\\n'); open('test_value.py','w').write('import unittest\\nfrom solution import VALUE\\nclass TestValue(unittest.TestCase):\\n def test_value(self): self.assertEqual(VALUE, 1)\\n')"])
+    tools = DockerWorkspaceTools("Make VALUE equal 1", executor)
+    registry = load_registry(root / "registry")
+    config = load_llm_config(root / "configs/llm.yaml")
+    config.profiles = {r.model.ref: ModelProfile(model="mock") for r in registry.roles.values()}
+    counts = {}
+    patch = "--- a/solution.py\n+++ b/solution.py\n@@ -1 +1 @@\n-VALUE = 0\n+VALUE = 1\n"
+
+    def handler(request):
+        payload = json.loads(request.content)
+        messages = payload["messages"]
+        system = messages[0]["content"].replace("**", "")
+        role = next(name for name in ("Environment", "Analyst", "Planner", "Coder", "Tester", "Reviewer") if system.startswith("You are the " + name))
+        counts[role] = counts.get(role, 0) + 1
+        work = json.loads(messages[1]["content"])
+        assert work["execution_environment"]["mode"] == "docker"
+        assert not work["execution_environment"]["python_executable"].startswith("C:")
+        calls = None
+        if role == "Environment" and counts[role] == 1:
+            calls = [{"id": "env", "type": "function", "function": {"name": "configure_environment", "arguments": json.dumps({
+                "python_executable": "python", "cwd": ".", "test_command": ["python", "-m", "unittest", "discover"],
+                "check_command": ["python", "-c", "import unittest"]})}}]
+            output = None
+        elif role == "Environment":
+            output = {"status": "ready", "summary": "Verified container", "blocking_issues": []}
+        elif role == "Analyst":
+            output = {"summary": "Fix value", "requirements": [{"id": "R1", "description": "Set value to one"}], "acceptance_criteria": ["Value equals one"]}
+        elif role == "Planner":
+            output = {"steps": [{"id": 1, "description": "Change value", "files": ["solution.py"], "depends_on": [], "ac_ids": ["AC1"]}], "covered_ac_ids": ["AC1"]}
+        elif role == "Coder" and counts[role] == 1:
+            calls = [{"id": "write", "type": "function", "function": {"name": "edit_file", "arguments": json.dumps({"path": "solution.py", "content": "VALUE = 1\n"})}}]
+            output = None
+        elif role == "Coder":
+            output = patch
+        elif role == "Tester":
+            output = {"tests_to_run": ["test_value.TestValue.test_value"], "results": [{"test": "test_value.TestValue.test_value", "status": "passed", "details": "Observed container test"}], "verdict": "pass", "covered_ac_ids": ["AC1"]}
+        else:
+            output = {"decision": "approve", "summary": "Correct value", "comments": [], "covered_ac_ids": ["AC1"]}
+        message = {"role": "assistant", "content": output if isinstance(output, str) else json.dumps(output) if output else None}
+        if calls:
+            message["tool_calls"] = calls
+        return httpx.Response(200, json={"model": "mock", "choices": [{"message": message, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 1, "prompt_tokens_details": {"cached_tokens": 0}}})
+
+    original = module.LLMClient
+    monkeypatch.setattr(module, "LLMClient", lambda *args, **kwargs: original(*args, transport=httpx.MockTransport(handler), **kwargs))
+    result = await module.run_chain(Task("fixture__repo-1", "fixture/repo", "https://github.com/fixture/repo", "Fix value", "Make VALUE equal 1", "a" * 40),
+        run_id="benchmark-chain-fixture", workspace=tools, registry=registry, llm_config=config,
+        harness=yaml.safe_load((root / "configs/harness.yaml").read_text()),
+        level_config=yaml.safe_load((root / "configs/levels/l3_collaboration.yaml").read_text()), output_dir=tmp_path)
+    assert result["verdict"] == "PASS", result
+    assert set(counts) == {"Environment", "Analyst", "Planner", "Coder", "Tester", "Reviewer"}
+    assert result["usage"]["total_tokens"] == sum(counts.values()) * 11
+    artifact = tools.export_candidate(tmp_path / "candidate.patch")
+    assert artifact["changed_paths"] == ["solution.py"]
