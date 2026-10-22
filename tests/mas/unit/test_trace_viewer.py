@@ -12,6 +12,23 @@ from raac.common.trace_viewer import TraceViewer, show_trace
 
 
 class TraceViewerTests(unittest.TestCase):
+    def test_cli_accepts_benchmark_id_for_terminal_and_web(self):
+        run_id = "benchmark-3dc0162bbfff472f91c6ba7affae9235"
+        for flags, target in [(["--follow", "--details"], "raac.common.trace_viewer.show_trace"),
+                              (["--web", "--no-open"], "raac.common.trace_web.serve_trace")]:
+            with self.subTest(flags=flags), patch(target) as viewer, \
+                    patch.object(cli, "execute") as execute, patch("sys.stdout", io.StringIO()):
+                self.assertEqual(cli.main(["show-log", "--run-id", run_id, *flags]), 0)
+                self.assertEqual(viewer.call_args.args[0].parts[-3:], ("results", run_id, "llm.jsonl"))
+                execute.assert_not_called()
+
+    def test_cli_rejects_paths_as_run_ids(self):
+        for run_id in ["benchmark-../outside", "benchmark-..\\outside", "../chain-demo", "other-demo"]:
+            with self.subTest(run_id=run_id), patch("sys.stderr", io.StringIO()), \
+                    patch("sys.stdout", io.StringIO()), self.assertRaises(SystemExit) as error:
+                cli.main(["show-log", "--run-id", run_id])
+            self.assertEqual(error.exception.code, 2)
+
     def test_unknown_usage_explains_why_transport_request_is_not_retried(self):
         rows = TraceViewer().render({"event": "llm_call", "agent_id": "planner",
             "status": None, "usage": None, "error": "ReadTimeout", "retry_scheduled": False,
