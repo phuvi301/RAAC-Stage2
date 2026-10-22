@@ -1,7 +1,7 @@
 import json
 from types import SimpleNamespace
 
-from raac.common.trace_viewer import TraceViewer
+from raac.common.trace_viewer import TraceViewer, show_trace
 from raac.common.trace_web import present_event
 from raac.common.tracing import JSONLTrace
 from raac.harness.layer3_execution.docker_execution import (
@@ -35,3 +35,17 @@ def test_existing_viewers_show_live_container_events():
     row = present_event(event, 1)
     assert not row["technical"]
     assert "building source" in str(row["payloads"])
+
+
+def test_follow_waits_for_benchmark_evaluation_after_agent_completes(tmp_path):
+    path = tmp_path / "trace.jsonl"
+    events = [
+        {"event": "benchmark_phase_started", "phase": "agent"},
+        {"event": "run_completed", "status": "completed"},
+        {"event": "benchmark_phase_started", "phase": "evaluation"},
+        {"event": "benchmark_phase_failed", "phase": "evaluation", "status": "error"},
+    ]
+    path.write_text("".join(json.dumps(event) + "\n" for event in events))
+    lines = []
+    show_trace(path, follow=True, emit=lines.append)
+    assert any("evaluation" in line for line in lines)

@@ -97,6 +97,18 @@ def test_candidate_cannot_modify_evaluation_test(tmp_path):
     runner.client.info.assert_not_called()
 
 
+def test_empty_candidate_is_a_noop_that_reaches_evaluation(tmp_path):
+    patch = tmp_path / "empty.patch"
+    patch.write_bytes(b"")
+    runner = DockerSandbox(client=Mock())
+    runner.config["results"] = str(tmp_path / "results")
+    runner.connect = Mock(side_effect=RuntimeError("fixture Docker boundary"))
+    record = runner.run("psf__requests-6027", patch_path=patch)
+    runner.connect.assert_called_once()
+    assert record["patch_sha256"]
+    assert "fixture Docker boundary" in record["error"]
+
+
 def test_fingerprint_covers_test_mode_and_artifacts(tmp_path):
     sandbox = DockerSandbox()
     dataset = ROOT / "data/tasks/cleaned_benchmark.json"

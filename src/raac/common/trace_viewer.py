@@ -1,14 +1,15 @@
 """Read audit JSONL as a terminal timeline without creating another artifact."""
 
-from datetime import datetime, timedelta, timezone
 import json
-from pathlib import Path
 import re
 import time
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
-from .tracing import JSONLTrace
-from .memory_viewer import MemoryFeed
 from raac.llm.usage import cached_tokens
+
+from .memory_viewer import MemoryFeed
+from .tracing import JSONLTrace
 
 
 def _mapping(value):
@@ -245,6 +246,7 @@ def show_trace(path: Path, *, details=False, agent=None, follow=False, memory=Fa
     emit("Giờ Việt Nam (UTC+7) | --details: mở nội dung | --agent: lọc role")
     with Path(path).open(encoding="utf-8-sig", errors="replace") as stream:
         line_number = 0
+        benchmark = False
         while True:
             position = stream.tell()
             line = stream.readline()
@@ -264,7 +266,11 @@ def show_trace(path: Path, *, details=False, agent=None, follow=False, memory=Fa
                 continue
             for rendered in viewer.render(redactor.redact(event)):
                 emit(rendered)
-            if follow and event.get("event") == "run_completed":
+            kind = event.get("event")
+            benchmark = benchmark or kind == "benchmark_phase_started"
+            finished = (kind in {"benchmark_phase_completed", "benchmark_phase_failed"}
+                        and event.get("status") in {"completed", "error", "timeout", "interrupted"})
+            if follow and (finished or (kind == "run_completed" and not benchmark)):
                 break
     if memory:
         show_memory(path, details=details, agent=agent, emit=emit)

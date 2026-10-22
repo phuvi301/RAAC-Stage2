@@ -52,6 +52,40 @@ async def test_retry_errors_requires_resume_before_side_effects(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_two_batch_writers_cannot_start_the_same_run(tmp_path, monkeypatch):
+    import asyncio
+
+    import raac.benchmark.runner as module
+
+    config = yaml.safe_load((ROOT / "configs/benchmark.yaml").read_text())
+    config["results"] = str(tmp_path / "results")
+    config["dataset"] = str(ROOT / config["dataset"])
+    config_path = tmp_path / "benchmark.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    task_id = next(iter(load_tasks(Path(config["dataset"]))))
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def run(task, *, output_dir, level, repetition, **kwargs):
+        entered.set()
+        await release.wait()
+        value = RunRecord(run_id=output_dir.name, task_id=task.id, base_commit=task.base_commit,
+            level=level, repetition=repetition, status="completed", evaluation_status="unresolved")
+        write_record(output_dir / "record.json", value)
+        return value
+
+    monkeypatch.setattr(module, "run_task", run)
+    kwargs = {"config_path": config_path, "task_ids": [task_id], "levels": ["L3"], "repetitions": 1, "batch_id": "concurrent"}
+    first = asyncio.create_task(run_benchmark_batch(**kwargs))
+    try:
+        await asyncio.wait_for(entered.wait(), 10)
+        with pytest.raises(TimeoutError):
+            await run_benchmark_batch(**kwargs, resume=True)
+    finally:
+        release.set()
+        await first
+
+
+@pytest.mark.asyncio
 async def test_missing_second_attempt_record_recovers_its_attempt_number(tmp_path, monkeypatch):
     import json
 
