@@ -18,12 +18,14 @@ from .tools.paths import repo_path
 
 # Python 2.7 compatible so the task image need not contain the host RAAC runtime.
 COMMAND_WRAPPER = """
-import os, signal, subprocess, sys
+import json, os, signal, subprocess, sys
 root = '/workspace'
 cwd = os.path.realpath(sys.argv[1])
 if cwd != root and not cwd.startswith(root + '/'):
     raise ValueError('cwd escapes workspace')
-p = subprocess.Popen(sys.argv[2:], cwd=cwd, preexec_fn=os.setsid)
+environment = os.environ.copy()
+environment.update(json.loads(sys.argv[2]))
+p = subprocess.Popen(sys.argv[3:], cwd=cwd, env=environment, preexec_fn=os.setsid)
 try:
     code = p.wait()
 finally:
@@ -151,8 +153,8 @@ class DockerExecutor:
         if selected[0] in {"python", "python3"} and self.environment:
             selected[0] = self.environment["python_executable"]
         directory = str(PurePosixPath("/workspace") / relative)
-        request = {"container": self.container.id, "cmd": ["python", "-c", COMMAND_WRAPPER, directory, *selected],
-                   "user": "1000:1000", "workdir": "/workspace", "environment": environment,
+        request = {"container": self.container.id, "cmd": ["python", "-E", "-s", "-S", "-c", COMMAND_WRAPPER, directory, json.dumps(environment), *selected],
+                   "user": "1000:1000", "workdir": "/",
                    "stdout": True, "stderr": True, "stdin": False, "tty": False}
         result = {"mode": "docker", "command": selected, "cwd": directory, "status": "error",
                   "exit_code": None, "summary": "Docker command failed"}

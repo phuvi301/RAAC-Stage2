@@ -227,7 +227,9 @@ số khi còn task chưa chạy. Xem [quy tắc, lệnh chạy và giới hạn]
 
 Đã ghép MAS Chain Analyst → Planner → Coder ⇄ Tester → Reviewer, chạy local
 trên repo và user chat. Coordinator hiện cố định Chain; chưa tích hợp Engine
-chung hoặc benchmark. Cấu hình nằm trong `configs/`, role/prompt trong
+chung. Đã có đường benchmark L3 tạo candidate trong Docker và chấm độc lập;
+xem [cách chạy candidate benchmark và giới hạn kiểm chứng](docs/candidate_benchmark.md).
+Cấu hình nằm trong `configs/`, role/prompt trong
 `registry/roles/core/` và `registry/prompts/`; CLI sandbox hiện có giữ nguyên.
 
 Chạy `python -m raac.mas_cli run-chain --project-dir PATH` với `PYTHONPATH=src`,

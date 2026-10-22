@@ -1,4 +1,4 @@
-import json
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -73,3 +73,24 @@ async def test_unsupported_level_fails_before_creating_output(tmp_path):
     with pytest.raises(ValueError):
         await run_task(task, level="L4", repetition=1, output_dir=tmp_path / "run", config_path=ROOT / "configs/benchmark.yaml")
     assert not (tmp_path / "run").exists()
+
+
+@pytest.mark.asyncio
+async def test_cancellation_after_preparation_completes_still_cleans_container(tmp_path, monkeypatch):
+    import raac.benchmark.runner as module
+
+    task = next(iter(load_tasks(ROOT / "data/tasks/benchmark105-v1.json").values()))
+    removed = []
+    session = SimpleNamespace(__exit__=lambda *args: removed.append(True))
+    monkeypatch.setattr(module, "prepare_workspace", lambda *args: (session, object(), {}))
+
+    async def cancel_after_done(worker):
+        await worker
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(module.asyncio, "shield", cancel_after_done)
+    output = tmp_path / "benchmark-cancel"
+    with pytest.raises(asyncio.CancelledError):
+        await run_task(task, level="L3", repetition=1, output_dir=output, config_path=ROOT / "configs/benchmark.yaml")
+    assert removed == [True]
+    assert RunRecord.model_validate_json((output / "record.json").read_text()).status == "interrupted"

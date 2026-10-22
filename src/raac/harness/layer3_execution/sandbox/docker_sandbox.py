@@ -71,7 +71,7 @@ def resolve_path(root, value):
 
 
 @contextmanager
-def cache_lock(path, timeout=120, on_wait=None):
+def cache_lock(path, timeout=120, on_wait=None, notify_interval=10):
     """Cross-process advisory lock; OS releases the lock after a process crash."""
     path.parent.mkdir(parents=True, exist_ok=True)
     handle = path.open("a+b")
@@ -93,7 +93,7 @@ def cache_lock(path, timeout=120, on_wait=None):
                 fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
             break
         except OSError:
-            if on_wait and time.monotonic() - notified >= 10:
+            if on_wait and time.monotonic() - notified >= notify_interval:
                 try:
                     on_wait()
                 except BaseException:
@@ -758,7 +758,11 @@ class DockerSandbox:
 
     def run(self, *args, **kwargs):
         # All entrypoints share one workload slot, including separate CLI processes.
-        with cache_lock(self.root / "data/sandbox-run.lock", timeout=1800):
+        timeout = kwargs.pop("lock_timeout", 1800)
+        progress = kwargs.get("progress")
+        with cache_lock(self.root / "data/sandbox-run.lock", timeout=timeout,
+                        on_wait=(lambda: progress({"phase": "waiting_for_lock"})) if progress else None,
+                        notify_interval=0.1):
             return self._run(*args, **kwargs)
 
     def _run(

@@ -22,8 +22,11 @@ pytestmark = pytest.mark.skipif(os.getenv("RAAC_DOCKER_TESTS") != "1", reason="S
 def image():
     client = docker.from_env()
     image, _ = client.images.build(fileobj=io.BytesIO(
-        b"FROM python:3.11-slim-bookworm\nRUN mkdir /workspace && chown 1000:1000 /workspace\n"
-    ), rm=True)
+        b"FROM python:3.11-slim-bookworm\n"
+        b"RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*\n"
+        b"RUN python -m pip install pytest==8.3.5\n"
+        b"RUN mkdir /workspace && chown 1000:1000 /workspace\n"
+    ), rm=True, use_config_proxy=False)
     yield image.id
     client.images.remove(image.id)
     client.close()
@@ -37,6 +40,22 @@ def workspace(image):
         yield session.container
     assert not client.containers.list(all=True, filters={"label": "raac.mas.run_id=" + run_id})
     client.close()
+
+
+@pytest.mark.asyncio
+async def test_repository_cannot_shadow_trusted_helpers(workspace):
+    from raac.harness.layer3_execution.tools.docker_workspace import (
+        DockerWorkspaceTools,
+    )
+
+    workspace.exec_run(["python", "-c", "open('/workspace/json.py','w').write(\"print('[]'); raise SystemExit(0)\"); open('/workspace/hidden.py','w').write('VALUE=1')"], user="1000:1000")
+    executor = DockerExecutor(workspace, DockerExecutionPolicy())
+    tools = DockerWorkspaceTools("fixture", executor)
+    assert set(tools.baseline_files) == {"json.py", "hidden.py"}
+    result = await executor.run_command("/workspace", command=["/bin/echo", "trusted-wrapper"])
+    assert result["exit_code"] == 0 and result["stdout"].strip() == "trusted-wrapper"
+    result = await executor.run_command("/workspace", command=["/bin/echo", "safe-env"], env={"PATH": "/workspace", "PYTHONPATH": "/workspace"})
+    assert result["exit_code"] == 0 and result["stdout"].strip() == "safe-env"
 
 
 @pytest.mark.asyncio
@@ -209,3 +228,33 @@ async def test_complete_chain_with_http_mock_uses_real_container_tools(workspace
     assert result["usage"]["total_tokens"] == sum(counts.values()) * 11
     artifact = tools.export_candidate(tmp_path / "candidate.patch")
     assert artifact["changed_paths"] == ["solution.py"]
+
+    # Reuse the exact production evaluator, but seed a separate image with pristine source.
+    from raac.harness.layer3_execution.sandbox.docker_sandbox import DockerSandbox
+    from raac.harness.layer3_execution.sandbox.evaluation import grade, payload
+
+    client = workspace.client
+    image, _ = client.images.build(fileobj=io.BytesIO((
+        "FROM " + workspace.image.id + "\n"
+        "RUN python -c \"open('/workspace/solution.py','w').write('VALUE = 0\\\\n')\"\n"
+        "RUN chown -R 1000:1000 /workspace\n"
+    ).encode()), rm=True, use_config_proxy=False)
+    try:
+        hidden_patch = "--- /dev/null\n+++ b/test_official.py\n@@ -0,0 +1,5 @@\n+from solution import VALUE\n+def test_fix():\n+    assert VALUE == 1\n+def test_preserve():\n+    assert 2 + 2 == 4\n"
+        row = {"repo": "fixture/repo", "FAIL_TO_PASS": ["test_official.py::test_fix"],
+               "PASS_TO_PASS": ["test_official.py::test_preserve"], "test_patch": hidden_patch}
+        profile = {"test_command": ["python", "-m", "pytest"]}
+        evaluation = {"test_patch": hidden_patch, "selectors": payload(row, profile),
+            "runner_source": (root / "src/raac/harness/layer3_execution/sandbox/issue_runner.py").read_bytes()}
+        sandbox = DockerSandbox(client=client)
+        command = ["python", "/tmp/raac-issue-runner.py", "/tmp/raac-selectors.json"]
+        baseline = await asyncio.to_thread(sandbox.execute, image, command, tmp_path, "baseline", profile=profile, evaluation=evaluation)
+        candidate = await asyncio.to_thread(sandbox.execute, image, command, tmp_path, "candidate", (tmp_path / "candidate.patch").read_bytes(), profile=profile, evaluation=evaluation)
+        assert grade(row, baseline, baseline=True)["valid"], baseline
+        assert grade(row, candidate)["valid"], candidate
+        assert "test_official.py" not in tools.readable
+        assert executor.read_file("/workspace/solution.py", 1024) == b"VALUE = 1\n"
+        assert not client.containers.list(all=True, filters={"label": "raac=" + tmp_path.name})
+        assert not client.volumes.list(filters={"label": "raac=" + tmp_path.name})
+    finally:
+        client.images.remove(image.id)

@@ -69,6 +69,19 @@ def test_paths_lock_and_stats(tmp_path):
     )
 
 
+def test_sandbox_lock_wait_observes_cancellation(tmp_path):
+    sandbox = object.__new__(DockerSandbox)
+    sandbox.root = tmp_path
+
+    def cancelled(event):
+        assert event["phase"] == "waiting_for_lock"
+        raise InterruptedError("fixture cancellation")
+
+    with (cache_lock(tmp_path / "data/sandbox-run.lock"),
+          pytest.raises(InterruptedError, match="fixture cancellation")):
+        sandbox.run("fixture", progress=cancelled, lock_timeout=0.5)
+
+
 def test_profile_override(tmp_path):
     path = tmp_path / "p.yaml"
     data = {

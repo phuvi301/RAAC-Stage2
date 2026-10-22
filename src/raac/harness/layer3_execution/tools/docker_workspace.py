@@ -152,7 +152,7 @@ class DockerWorkspaceTools(WorkspaceTools):
         self.coder_paths, self.tester_paths = set(), set()
         self.code_edit_count, self.test_spec = 0, None
         self.active_role = "Environment"
-        self.environment = EnvironmentManager(self)
+        self.environment = DockerEnvironmentManager(self)
         manifest = [(name, hashlib.sha256(data).hexdigest()) for name, data in sorted(self.baseline_files.items())]
         self.baseline_ref = hashlib.sha256((json.dumps(manifest) + "\0" + requirement).encode()).hexdigest()
 
@@ -164,8 +164,8 @@ class DockerWorkspaceTools(WorkspaceTools):
                    "max_repo_bytes": self.max_repo_bytes, **values}
         path = "/tmp/raac-rpc-" + uuid4().hex + ".json"
         self.executor.put_file(path, json.dumps(request).encode())
-        result = self.executor.container.exec_run(["python", "-c", FILE_RPC, path],
-                                                 user="1000:1000", workdir="/workspace")
+        result = self.executor.container.exec_run(["python", "-E", "-s", "-S", "-c", FILE_RPC, path],
+                                                 user="1000:1000", workdir="/")
         if result.exit_code != 0 or len(result.output) > self.max_repo_bytes * 2 + 1048576:
             raise ValueError("Container file operation failed or exceeded its limit")
         return json.loads(result.output)
@@ -202,9 +202,11 @@ class DockerWorkspaceTools(WorkspaceTools):
     async def _mutating_command(self, role, call):
         before = self._snapshot()
         before_modes = dict(self.current_modes)
-        result = await call
-        if result.get("status") != "completed":
-            return result
+        try:
+            result = await call()
+        except BaseException:
+            self.integrity_error = "Command failed before mutation verification"
+            raise
         after = self._snapshot()
         changed = {name for name in before.keys() | after.keys() if before.get(name) != after.get(name)
                    or before_modes.get(name) != self.current_modes.get(name)}
@@ -228,11 +230,11 @@ class DockerWorkspaceTools(WorkspaceTools):
         return result
 
     async def run_command(self, *, command, cwd=".", env=None, timeout_seconds=None, unlimited=False):
-        return await self._mutating_command(self.active_role, self.executor.run_command(
+        return await self._mutating_command(self.active_role, lambda: self.executor.run_command(
             self.root, command=command, cwd=cwd, env=env, timeout_seconds=timeout_seconds, unlimited=unlimited))
 
     async def run_tests(self, **kwargs):
-        return await self._mutating_command(self.active_role, super().run_tests(**kwargs))
+        return await self._mutating_command(self.active_role, lambda: super(DockerWorkspaceTools, self).run_tests(**kwargs))
 
     def export_candidate(self, output):
         current = self._snapshot()
@@ -274,3 +276,9 @@ class DockerWorkspaceTools(WorkspaceTools):
                                                       "patch_sha256": hashlib.sha256(raw).hexdigest()})
         return {"path": str(output), "sha256": hashlib.sha256(raw).hexdigest(),
                 "baseline_ref": self.baseline_ref, "changed_paths": sorted(changed & self.coder_paths)}
+
+
+class DockerEnvironmentManager(EnvironmentManager):
+    async def configure(self, **kwargs):
+        return await self.workspace._mutating_command(
+            "Environment", lambda: super(DockerEnvironmentManager, self).configure(**kwargs))

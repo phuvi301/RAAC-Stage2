@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import re
 import tarfile
 import tempfile
 import threading
@@ -11,18 +12,30 @@ from pathlib import Path
 from uuid import uuid4
 
 import yaml
+from docker.errors import DockerException
+from requests.exceptions import RequestException
 
-from raac.common.tracing import JSONLTrace
 from raac.common.provenance import collect_provenance
-from raac.harness.layer3_execution.docker_execution import DockerExecutor, DockerExecutionPolicy, DockerRunWorkspace
-from raac.harness.layer3_execution.sandbox.docker_sandbox import DockerSandbox, archive_repo, resolve_path
+from raac.common.tracing import JSONLTrace
+from raac.harness.layer3_execution.docker_execution import (
+    DockerExecutionPolicy,
+    DockerExecutor,
+    DockerRunWorkspace,
+)
+from raac.harness.layer3_execution.sandbox.batch import atomic_json
+from raac.harness.layer3_execution.sandbox.docker_sandbox import (
+    DockerSandbox,
+    archive_repo,
+    cache_lock,
+    resolve_path,
+)
 from raac.harness.layer3_execution.tools.docker_workspace import DockerWorkspaceTools
 from raac.harness.layer3_execution.tools.paths import repo_path
 from raac.llm.config import load_dotenv, load_llm_config
 from raac.registry import load_registry
 
 from .chain_runner import run_chain
-from .dataset import Task, load_tasks
+from .dataset import Task, load_tasks, source_dataset
 from .run_record import RunRecord, RunUsage, write_record
 
 FRAMEWORK_ROOT = Path(__file__).resolve().parents[3]
@@ -48,21 +61,22 @@ def prepare_workspace(task, config_path, output_dir, policy, cancel, deadline):
 
     try:
         prepared = sandbox.run(task.id, prepare=True, run_id="prepare-" + uuid4().hex,
-                               build_timeout=max(1, int(deadline - time.monotonic())), progress=progress)
+                               build_timeout=max(1, int(deadline - time.monotonic())),
+                               lock_timeout=max(0, deadline - time.monotonic()), progress=progress)
         progress({})
         if prepared["status"] != "prepared":
-            raise RuntimeError("Task image preparation failed")
+            raise DockerException("Task image preparation failed")
         session = DockerRunWorkspace(sandbox.client, prepared["image_id"], output_dir.name, policy=policy)
         session.__enter__()
         executor = DockerExecutor(session.container, policy, deadline=deadline)
-        cleaned = session.container.exec_run(["python", "-c", REMOVE_HISTORY], user="1000:1000")
+        cleaned = session.container.exec_run(["python", "-E", "-s", "-S", "-c", REMOVE_HISTORY], user="1000:1000", workdir="/")
         if cleaned.exit_code != 0:
             raise RuntimeError("Unable to isolate task history")
         workspace = DockerWorkspaceTools(task.title + "\n\n" + task.body, executor)
         # Check source against the actual base commit, not a mutable image Git index.
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            archive_repo(task, resolve_path(sandbox.root, sandbox.config["repo_cache"]), directory)
+            archive_repo(task, resolve_path(sandbox.root, sandbox.config["repo_cache"]), directory, deadline=deadline)
             source = {}
             with tarfile.open(directory / "source.tar") as archive:
                 for member in archive:
@@ -98,13 +112,14 @@ def evaluate_candidate(task, *, config_path, patch_path, remaining, cancel=None)
 
     try:
         return sandbox.run(task.id, patch_path=patch_path, test_mode="issue", validate=False,
-                           build_timeout=max(1, int(remaining)), test_timeout=max(1, int(remaining)), progress=progress)
+                           build_timeout=max(1, int(remaining)), test_timeout=max(1, int(remaining)),
+                           lock_timeout=max(0, remaining), progress=progress)
     finally:
         if sandbox.client:
             sandbox.client.close()
 
 
-async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path, config_path: Path) -> RunRecord:
+async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path, config_path: Path, attempt: int = 1) -> RunRecord:
     if level != "L3" or type(repetition) is not int or repetition < 1:
         raise ValueError("Benchmark currently supports only L3 and positive repetitions")
     config_path = Path(config_path).resolve()
@@ -120,7 +135,7 @@ async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path,
         run_timeout_seconds=float(config.get("agent_run_timeout_seconds", 9000.0)))
     output_dir = Path(output_dir).resolve()
     record = RunRecord(run_id=output_dir.name, task_id=task.id, base_commit=task.base_commit,
-                       level=level, repetition=repetition)
+                       level=level, repetition=repetition, attempt=attempt)
     output_dir.mkdir(parents=True, exist_ok=False)
     record_path = output_dir / "record.json"
     trace = JSONLTrace(output_dir / "llm.jsonl", secrets=(llm_config.api_key.get_secret_value(),))
@@ -178,6 +193,8 @@ async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path,
                 if event.get("event") == "agent_started":
                     name = event.get("role", event.get("node", "unknown"))
                     record.agent_activations[name] = record.agent_activations.get(name, 0) + 1
+            record.messages = sum(record.agent_activations.values())
+            record.provenance["metric_definitions"] = {"messages": "incoming role handoffs"}
             if record.stop_reason == "environment_setup_failed":
                 raise RuntimeError("Environment verification failed")
             phase("export")
@@ -196,19 +213,20 @@ async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path,
         record.status = "interrupted"
         record.errors.append({"phase": record.phase, "kind": "CancelledError"})
         raise
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 -- persist a safe record for every failed runtime boundary.
         record.status = "timeout" if isinstance(error, TimeoutError) else "error"
-        record.errors.append({"phase": record.phase, "kind": type(error).__name__})
+        retryable = record.phase in {"setup", "evaluation"} and isinstance(error, (DockerException, RequestException, OSError))
+        record.errors.append({"phase": record.phase, "kind": type(error).__name__, "retryable": str(retryable).lower()})
     finally:
         cancel.set()
-        if evaluation_task is not None and not evaluation_task.done():
+        if evaluation_task is not None:
             results = await asyncio.gather(evaluation_task, return_exceptions=True)
             if results and isinstance(results[0], dict):
                 record.evaluation = results[0]
                 record.evaluation_status = results[0]["status"]
         if evaluation_started is not None:
             record.timing.evaluation_seconds = time.monotonic() - evaluation_started
-        if prepare_task is not None and not prepare_task.done():
+        if prepare_task is not None and session is None:
             result = await asyncio.gather(prepare_task, return_exceptions=True)
             if result and isinstance(result[0], tuple):
                 session, workspace, _ = result[0]
@@ -220,7 +238,7 @@ async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path,
             try:
                 await asyncio.to_thread(session.__exit__, None, None, None)
                 trace.emit(context, event="container_removed")
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 -- cleanup must not erase the primary failure.
                 record.errors.append({"phase": "cleanup", "kind": type(error).__name__})
                 record.status = "error"
             finally:
@@ -238,6 +256,12 @@ async def execute(args):
     config_path = resolve_path(FRAMEWORK_ROOT, args.config or "configs/benchmark.yaml")
     config = yaml.safe_load(config_path.read_text(encoding="utf-8-sig"))
     tasks = load_tasks(resolve_path(FRAMEWORK_ROOT, config["dataset"]))
+    if args.command == "batch":
+        summary = await run_benchmark_batch(config_path=config_path, task_ids=args.task_id,
+            levels=[args.level], repetitions=args.repetitions, batch_id=args.batch_id,
+            resume=args.resume, retry_errors=args.retry_errors)
+        print(json.dumps(summary))
+        return 0 if summary["completed"] == summary["total"] else 1
     if args.task_id not in tasks:
         raise ValueError("Unknown task selection")
     output = resolve_path(FRAMEWORK_ROOT, config["results"]) / ("benchmark-" + uuid4().hex)
@@ -247,3 +271,114 @@ async def execute(args):
                       "agent_status": record.agent_status, "evaluation_status": record.evaluation_status,
                       "record": str(output / "record.json")}))
     return 0 if record.evaluation_status == "resolved" and record.status == "completed" else 1
+
+
+def benchmark_fingerprint(config_path, config, selection):
+    dataset = resolve_path(FRAMEWORK_ROOT, config["dataset"])
+    paths = {Path(config_path), dataset, source_dataset(dataset),
+             resolve_path(FRAMEWORK_ROOT, config["evaluation"]), FRAMEWORK_ROOT / "requirements.lock",
+             FRAMEWORK_ROOT / "docker/Dockerfile.sandbox"}
+    paths.update(resolve_path(FRAMEWORK_ROOT, p) for p in config["profiles"].values())
+    paths.update((FRAMEWORK_ROOT / "src").rglob("*.py"))
+    paths.update(p for p in (FRAMEWORK_ROOT / "registry").rglob("*") if p.is_file())
+    paths.update((FRAMEWORK_ROOT / "configs").rglob("*.yaml"))
+    load_dotenv(FRAMEWORK_ROOT / ".env")
+    effective = load_llm_config(FRAMEWORK_ROOT / "configs/llm.yaml").model_dump(mode="json")
+    contents = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted(paths)}
+    contents["framework_commit"] = collect_provenance(FRAMEWORK_ROOT, load_registry(FRAMEWORK_ROOT / "registry"), [], {})["framework_commit"]
+    return hashlib.sha256(json.dumps({"files": contents, "selection": selection, "effective_llm": effective},
+                                    sort_keys=True).encode()).hexdigest()
+
+
+async def run_benchmark_batch(*, config_path: Path, task_ids: list[str], levels: list[str], repetitions: int,
+                              batch_id: str, resume: bool = False, retry_errors: bool = False) -> dict:
+    if retry_errors and not resume:
+        raise ValueError("retry-errors requires resume")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}", batch_id):
+        raise ValueError("Invalid batch ID")
+    if levels != ["L3"] or type(repetitions) is not int or repetitions < 1:
+        raise ValueError("Only L3 with positive repetitions is supported")
+    config_path = Path(config_path).resolve()
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8-sig"))
+    tasks = load_tasks(resolve_path(FRAMEWORK_ROOT, config["dataset"]))
+    ids = list(dict.fromkeys(task_ids))
+    if not ids or set(ids) - tasks.keys():
+        raise ValueError("Select known task IDs explicitly")
+    selection = [[task, "L3", repetition] for task in ids for repetition in range(1, repetitions + 1)]
+    signature = benchmark_fingerprint(config_path, config, selection)
+    results = resolve_path(FRAMEWORK_ROOT, config["results"])
+    directory = results / "benchmark-batches" / batch_id
+    directory.mkdir(parents=True, exist_ok=True)
+    manifest_path = directory / "manifest.json"
+
+    def read_attempt(run_id, task_id, repetition, attempt):
+        if not isinstance(run_id, str) or not re.fullmatch(r"benchmark-[0-9a-f]{32}", run_id):
+            raise ValueError("Invalid run ID in manifest")
+        path = results / run_id / "record.json"
+        if not path.resolve().is_relative_to(results.resolve()):
+            raise ValueError("Record path escapes results")
+        if path.exists():
+            record = RunRecord.model_validate_json(path.read_text(encoding="utf-8"))
+            if (record.run_id, record.task_id, record.level, record.repetition) != (run_id, task_id, "L3", repetition):
+                raise ValueError("Batch record identity mismatch")
+            if record.attempt != attempt:
+                raise ValueError("Batch attempt identity mismatch")
+        else:
+            record = RunRecord(run_id=run_id, task_id=task_id, level="L3", repetition=repetition,
+                               base_commit=tasks[task_id].base_commit, attempt=attempt)
+        if record.status in {"pending", "running"}:
+            record.status = "interrupted"
+            record.errors.append({"phase": record.phase, "kind": "RecoveredInterruptedAttempt"})
+            write_record(path, record)
+        return record
+
+    with cache_lock(directory / "batch.lock", timeout=0):
+        if resume:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if manifest["fingerprint"] != signature:
+                raise ValueError("Batch fingerprint changed; create a new batch")
+            if [[entry["task_id"], entry["level"], entry["repetition"]] for entry in manifest["entries"]] != selection:
+                raise ValueError("Batch manifest selection mismatch")
+        else:
+            if manifest_path.exists():
+                raise ValueError("Batch exists; use resume")
+            manifest = {"schema_version": 1, "fingerprint": signature, "status": "running",
+                        "entries": [{"task_id": task, "level": level, "repetition": repetition, "attempts": []}
+                                    for task, level, repetition in selection]}
+        active = manifest.pop("active", None)
+        if active:
+            entry = manifest["entries"][active["index"]]
+            position = entry["attempts"].index(active["run_id"]) + 1 if active["run_id"] in entry["attempts"] else len(entry["attempts"]) + 1
+            read_attempt(active["run_id"], entry["task_id"], entry["repetition"], position)
+            if active["run_id"] not in entry["attempts"]:
+                entry["attempts"].append(active["run_id"])
+        manifest["status"] = "running"
+        atomic_json(manifest_path, manifest)
+        for index, entry in enumerate(manifest["entries"]):
+            if benchmark_fingerprint(config_path, config, selection) != signature:
+                raise ValueError("Batch fingerprint changed during execution")
+            if entry["attempts"]:
+                previous = read_attempt(entry["attempts"][-1], entry["task_id"], entry["repetition"], len(entry["attempts"]))
+                retryable = any(error.get("retryable") == "true" for error in previous.errors)
+                if previous.status != "interrupted" and not (retry_errors and retryable and previous.status in {"error", "timeout"}):
+                    continue
+            run_id = "benchmark-" + uuid4().hex
+            manifest["active"] = {"index": index, "run_id": run_id}
+            atomic_json(manifest_path, manifest)
+            try:
+                await run_task(tasks[entry["task_id"]], level=entry["level"], repetition=entry["repetition"],
+                    attempt=len(entry["attempts"]) + 1, output_dir=results / run_id, config_path=config_path)
+            except BaseException:
+                manifest["status"] = "interrupted"
+                atomic_json(manifest_path, manifest)
+                raise
+            entry["attempts"].append(run_id)
+            manifest.pop("active", None)
+            atomic_json(manifest_path, manifest)
+        manifest["status"] = "processed"
+        atomic_json(manifest_path, manifest)
+        latest = [read_attempt(entry["attempts"][-1], entry["task_id"], entry["repetition"], len(entry["attempts"])) for entry in manifest["entries"]]
+        return {"batch_id": batch_id, "status": "processed", "total": len(latest),
+                "completed": sum(record.status == "completed" for record in latest),
+                "resolved": sum(record.evaluation_status == "resolved" for record in latest),
+                "attempts": sum(len(entry["attempts"]) for entry in manifest["entries"]), "manifest": str(manifest_path)}

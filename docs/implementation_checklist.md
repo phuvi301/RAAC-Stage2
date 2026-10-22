@@ -32,10 +32,10 @@ Thư mục liên quan là `src/raac/harness/`, `src/raac/llm/`, `src/raac/regist
 
 ### LLM client dùng chung (`src/raac/llm/`)
 
-- [~] `client.py` gọi API, retry với backoff, đo latency (Vinh) — đang làm dở: đã có client HTTP OpenAI-compatible Chat Completions không streaming, cấu hình endpoint/model, retry/backoff, latency và usage guard cho MAS/9router; chưa tích hợp và nghiệm thu benchmark chung. Endpoint khác có thể cấu hình nhưng chưa kiểm chứng ngoài 9router.
+- [~] `client.py` gọi API, retry với backoff, đo latency (Vinh) — đang làm dở: đã có client HTTP OpenAI-compatible Chat Completions không streaming, cấu hình endpoint/model, retry/backoff, latency và usage guard cho MAS/9router; đã tích hợp adapter L3 candidate benchmark; còn pilot model thật và các level khác. Endpoint khác có thể cấu hình nhưng chưa kiểm chứng ngoài 9router.
 - [~] Đọc số token vào và ra từ trường usage của API (Vinh) — có trong client MAS, thiếu usage thì dừng; thêm cached_tokens từ response, phân biệt thiếu cache/0, kiểm chứng HTTP mock.
 - [~] Ghi mọi lần gọi ra JSONL kèm `run_id`, `task_id`, `level`, `agent_id` (Vinh) — MAS có JSONL, tool/role handoff và memory_saved/loaded/compacted, terminal và web viewer đọc snapshot/journal; chưa logging benchmark tổng quát.
-- [~] `usage.py` cộng dồn token theo run, agent và level (Vinh) — đã chuyển bộ đếm MAS và test phân tách run/agent/level; thêm cached_tokens/cache_usage_complete, giữ nguyên tổng token và budget; chưa tích hợp benchmark chung. Quy đổi tiền ngoài phạm vi nghiên cứu từ 2026-10-22.
+- [~] `usage.py` cộng dồn token theo run, agent và level (Vinh) — đã chuyển bộ đếm MAS và test phân tách run/agent/level; thêm cached_tokens/cache_usage_complete, giữ nguyên tổng token và budget; đã tích hợp L3 candidate benchmark; còn pilot và các level khác. Quy đổi tiền ngoài phạm vi nghiên cứu từ 2026-10-22.
 - [ ] `pricing.py` quy đổi token ra chi phí theo model (Vinh) — ngoài phạm vi nghiên cứu theo xác nhận người dùng 2026-10-22: chỉ so sánh tài nguyên bằng token/thời gian, không triển khai quy đổi tiền; không coi là mục chặn nghiệm thu phạm vi này.
 - [ ] `mock_llm.py` trả về phản hồi giả có thể cấu hình, dùng cho unit test và 1-2 ngày đầu (Vinh)
 
@@ -251,30 +251,30 @@ Ghi chú tuần 9
 
 ### Dataset và môi trường chạy
 
-- [~] `benchmark/dataset.py` đọc task gồm nội dung issue, repo, base commit, file test — Task đọc schema Stage1 (issue/repo/base commit), không chứa test đánh giá. Test theo issue được lưu riêng tại data/evaluation/swe_bench_verified.json dưới dạng test_patch và selector FAIL_TO_PASS/PASS_TO_PASS, sandbox nạp qua load_evaluation; đã đối chiếu 105/105 task chọn có mapping repo/base, test/gold patch và F2P. Chưa tích hợp hợp đồng này vào runner benchmark chung; không đưa test/gold vào đầu vào agent.
+- [x] `benchmark/dataset.py` đọc task gồm nội dung issue, repo, base commit, file test — Task đọc issue/repo/base commit; test đánh giá được lưu riêng tại data/evaluation/swe_bench_verified.json, sandbox nạp test_patch/F2P/P2P sau khi MAS xuất candidate. Đã đối chiếu 105/105 mapping và kiểm thử Docker evaluator độc lập; không đưa test/gold vào đầu vào agent.
 - [x] Chuẩn hóa task về một schema duy nhất
 - [x] Dựng pipeline Docker, mỗi run checkout repo, áp patch, chạy pytest có timeout, thu kết quả rồi dọn container
 - [x] Xác nhận mỗi run bắt đầu từ môi trường sạch
 
 ### Harness chạy hàng loạt (`benchmark/runner.py`)
 
-- [ ] Lặp qua các cặp (task, level, lần lặp)
+- [~] Lặp qua các cặp (task, level, lần lặp) — đã có matrix tuần tự L3 × task × repetition và test 2 task × 2 repetition; chờ adapter L1/L2/L4.
 - [ ] Chạy song song có giới hạn
-- [ ] Hỗ trợ resume, bỏ qua run đã xong khi chạy lại
-- [ ] Có retry và timeout cho từng run
-- [ ] Có budget guard dừng run khi vượt trần token
+- [x] Hỗ trợ resume, bỏ qua run đã xong khi chạy lại — manifest/fingerprint, lock một writer, phục hồi record-before-manifest và attempt thiếu record; restart sạch run bị ngắt, không resume giữa node.
+- [x] Có retry và timeout cho từng run — hard deadline toàn run; retry có opt-in chỉ cho lỗi hạ tầng được phân loại, giữ attempt cũ; không retry lỗi agent/unresolved/rejected. Unit test và Docker timeout/cancel qua.
+- [~] Có budget guard dừng run khi vượt trần token — adapter L3 tái dùng guard của Chain; chưa tích hợp các level còn lại.
 
 ### Bản ghi kết quả (`benchmark/run_record.py`)
 
-- [~] Định nghĩa schema gồm trạng thái, patch, kết quả test, token, số lần gọi, latency, số message, số vòng, agent được kích hoạt, lỗi — Task 1 đã có RunRecord/RunUsage/RunTiming strict, độc lập verdict agent/evaluator, usage thiếu là unknown, writer atomic có redaction; chưa tích hợp runner và trace latency.
-- [ ] Ghi commit hash, version registry, version prompt và cấu hình model vào mỗi bản ghi
-- [ ] Mỗi bản ghi lưu version từ `registry/VERSION`, version/hash từng file config đã dùng và snapshot cấu hình hiệu lực không chứa secret; kiểm tra không trộn cấu hình khi resume
+- [~] Định nghĩa schema gồm trạng thái, patch, kết quả test, token, số lần gọi, latency, số message, số vòng, agent được kích hoạt, lỗi — RunRecord/RunUsage/RunTiming strict đã tích hợp runner L3, độc lập verdict agent/evaluator, usage thiếu là unknown, writer atomic/redaction và trace latency từng call; chưa nghiệm thu dữ liệu pilot thật.
+- [x] Ghi commit hash, version registry, version prompt và cấu hình model vào mỗi bản ghi — provenance ngay từ setup và snapshot Registry/role/model của adapter L3.
+- [x] Mỗi bản ghi lưu version từ `registry/VERSION`, version/hash từng file config đã dùng và snapshot cấu hình hiệu lực không chứa secret; kiểm tra không trộn cấu hình khi resume — gồm benchmark config, source/lock hash và effective model/config; test đổi fingerprint từ chối resume.
 
 ### Cấu hình và kiểm tra
 
-- [~] Gom cấu hình LLM (model, temperature, seed nếu có, prompt version) vào `configs/llm.yaml` có version — llm-v3 có cấu hình mặc định và profiles theo role, endpoint/auth/retry chung; prompt version vẫn thuộc Registry. Kiểm chứng HTTP mock/local, chưa tích hợp benchmark chung.
+- [~] Gom cấu hình LLM (model, temperature, seed nếu có, prompt version) vào `configs/llm.yaml` có version — llm-v3 có cấu hình mặc định và profiles theo role, endpoint/auth/retry chung; prompt version vẫn thuộc Registry. Kiểm chứng HTTP mock/local, đã tích hợp L3 candidate benchmark; còn pilot và các level khác.
 - [ ] Viết `dummy level` chỉ gọi LLM một lần để kiểm tra harness trước khi L1 xong
-- [~] Viết `cli.py` với lệnh chạy một (task, level) — đã có sandbox check/prepare/run theo task; chưa tích hợp level hoặc LLM.
+- [~] Viết `cli.py` với lệnh chạy một (task, level) — có benchmark run/batch cho L3 Chain trong Docker và evaluator candidate độc lập; L1/L2/L4 chưa có adapter, chưa pilot model thật.
 
 Tiêu chí thành công tuần 8
 
@@ -283,6 +283,8 @@ Tiêu chí thành công tuần 8
 - [ ] Cấu hình LLM nằm trong một file config duy nhất và có version
 
 Ghi chú tuần 8
+
+- 2026-10-22 | Sau khi push thay đổi cũ b1667bc theo yêu cầu (loại docs/superpowers), hiện thực RunRecord, Docker executor/workspace, trusted candidate export, trace viewer, adapter Chain và CLI benchmark run/batch tuần tự L3. Resume có fingerprint/lock/attempt recovery; retry phân loại lỗi hạ tầng, giữ nguyên kết quả và tài nguyên attempt cũ. | Agent hỗ trợ Vinh/Vũ/Tuấn | Docker Desktop đã bật: 9 test Docker thật qua, gồm Chain HTTP mock xuất candidate rồi evaluator khác chấm F2P/P2P. Review độc lập phát hiện và đã sửa import shadow, attribution sau test, race cleanup/cancel, retry sai loại lỗi, chờ lock và phục hồi attempt thiếu record; có regression test. Bộ kiểm thử sửa lỗi: 45 passed; toàn suite: 579 passed, 28 skipped, 153 subtests passed, 4 lỗi prompt Analyst/Planner có sẵn (Output format, summary/steps). Xem docs/candidate_benchmark.md và results/mas-benchmark-plan/. Chưa có pilot task/model thật, parallel batch hoặc L1/L2/L4/Engine/A5; không push code triển khai.
 
 - 2026-10-22 | Người dùng yêu cầu lập kế hoạch và thực hiện luồng MAS candidate benchmark. Đã khảo sát và viết đặc tả docs/superpowers/specs/2026-10-22-mas-candidate-benchmark-design.md cùng kế hoạch docs/superpowers/plans/2026-10-22-mas-candidate-benchmark.md: record → Docker executor → workspace/Environment → candidate patch → trace → Chain adapter → một task chấm độc lập → batch/resume → report/pilot. | Agent hỗ trợ Vinh/Vũ/Tuấn | Chờ review tài liệu theo workflow trước khi sửa runtime; không coi plan là tính năng đã hiện thực. Docker daemon hiện không kết nối được (pipe dockerDesktopLinuxEngine không tồn tại), chưa thể kiểm chứng container thật. Giữ nguyên trạng thái các checkbox triển khai; không chạy model, không push.
 
@@ -306,7 +308,7 @@ Ghi chú tuần 8
 
 ### Phân tích pilot và chi phí (`benchmark/analysis/`)
 
-- [ ] `pilot_report.py` tính trung bình và độ lệch của từng metric theo level
+- [~] `pilot_report.py` tính trung bình và độ lệch của từng metric theo level — đã có mean/stddev token/thời gian, n=1, đếm quality/error và gộp tài nguyên mọi attempt; phân biệt task/repetition, báo usage thiếu. Test qua; chưa đủ metric evaluator/level và dữ liệu pilot thật.
 - [ ] Kiểm tra level cao có thật sự tốn token hơn không và metric nào không phân biệt được các level
 - [ ] `cost_estimator.py` ước tính tổng token và thời gian full run từ số liệu pilot — phạm vi tài nguyên theo xác nhận 2026-10-22, không quy đổi tiền
 - [ ] Đưa ra vài phương án kích thước dataset phù hợp ngân sách token/thời gian
@@ -324,6 +326,8 @@ Tiêu chí thành công tuần 9
 - [ ] Có bản nháp utility function và kế hoạch tuần 10-11 sẵn sàng
 
 Ghi chú tuần 9
+
+- 2026-10-22 | analysis/pilot_report.py đã đọc RunRecord L3, tính mean/stddev token/thời gian theo task/repetition, cộng mọi attempt, ghi số mẫu thiếu usage và tách lỗi retryable. | Agent hỗ trợ Vinh | Unit test qua cho retry/incomplete/n=1/repetition. Chưa có số liệu pilot model thật, metric LLM judge/quality/conflict hay so sánh bốn level; không nghiệm thu tuần 9/A5.
 
 - 2026-10-22 | Người dùng xác nhận nghiên cứu chỉ so sánh tài nguyên bằng token/thời gian; pricing/quy đổi tiền ngoài phạm vi, giữ token guard và timeout. Đối chiếu mã: benchmark/runner.py, run_record.py, evaluator/{completion,coverage,quality,conflict}.py, analysis/{pilot_report,cost_estimator,utility}.py và Engine/L1/L2/L4 vẫn TODO. Sandbox có batch/resume/retry, baseline/gold/candidate và F2P/P2P; đây chưa là runner (task, level, lần lặp). MAS/L3 Chain có usage theo run/agent/level và latency từng call; chưa có báo cáo tổng hợp thời gian/token chung cho bốn level. Cần chốt thời gian toàn run so với thời gian gọi model/setup để so sánh nhất quán. | Agent hỗ trợ Vinh | Kiểm tra mới `python -m raac.cli sandbox profiles check --config configs/benchmark.yaml`: valid, 105/105 task thuộc 12 repo, không lỗi; không đồng nghĩa vừa chạy/validated lại 105 task. Chưa chạy model/Docker hoặc đánh dấu hoàn tất benchmark/evaluator/A5.
 
