@@ -43,7 +43,7 @@ Lệnh giữ các pin hiện có khi còn hợp lệ; chỉ thêm `--upgrade` kh
 Các bản lock được resolve cho Python >= 3.11 và có marker theo nền tảng;
 kiểm chứng cài đặt hiện tại dùng Windows/Python 3.11.
 
-Không commit API key hoặc dữ liệu nhạy cảm. CLI sandbox và MAS Chain đã có; CLI benchmark tổng quát và các level còn lại chưa hoàn tất.
+CLI sandbox và MAS Chain đã có; CLI benchmark tổng quát và các level còn lại chưa hoàn tất.
 
 ## Cấu trúc thư mục
 
@@ -221,7 +221,7 @@ Dùng `--config configs/benchmark105.yaml` cho các lệnh sandbox của tập n
 `configs/benchmark.yaml` và `configs/benchmark.compatibility.yaml` cũng mặc định chọn 105 task để tránh build nhầm nhóm bị loại.
 Manifest 105 và danh sách 15 task bị loại nằm trong `data/tasks/`; dữ liệu gốc
 và evaluator không đổi. Điểm chính là `100 × resolved / 105`, không thu nhỏ mẫu
-số khi còn task chưa chạy. Xem [quy tắc, lệnh chạy và giới hạn](docs/benchmark105.md).
+số khi còn task chưa chạy.
 
 ## MAS/L3 Chain
 

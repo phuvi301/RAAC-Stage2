@@ -190,7 +190,8 @@ Thư mục `src/raac/harness/layer4_connectors/`.
 
 ### Tài liệu
 
-- [ ] Viết `docs/level_definitions.md` mô tả biến cố định và biến tự do ở từng level
+- [~] Viết `docs/level_definitions.md` mô tả biến cố định và biến tự do ở từng level — đã viết theo Proposal_DACN.pdf mục 2, 5.4, 6.2/Bảng 1, 6.3–6.5 và 7.2; có bảng quyền L1–L4, ví dụ/ranh giới, escalation, điều kiện đối chứng và tiêu chí nghiệm thu. Chờ nhóm review, không coi Chain hiện tại là L3 thích ứng đầy đủ.
+  - 2026-10-22 | Agent hỗ trợ Vũ: đọc proposal 25 trang, đối chiếu trực quan Bảng 1 tại trang in 15/PDF16, kiểm tra coordinator/topology hiện tại qua CodeGraph; quy tắc vận hành bổ sung được ghi rõ là diễn giải cần review. Chỉ sửa tài liệu, không đổi runtime hoặc tự nghiệm thu level; không commit/push.
 - [ ] Viết `docs/architecture.md` với sơ đồ 4 layer và phần collaboration
 
 Tiêu chí thành công tuần 8
@@ -466,6 +467,10 @@ Ghi chú tuần 9
 ---
 
 # Nhật ký vấn đề và quyết định
+
+- 2026-10-22 | Người dùng làm rõ ý proposal: ladder kế thừa cộng dồn, L3 kế thừa routing L2 rồi thêm topology/số vòng; L4 kế thừa L3 rồi thêm team formation. Sửa bảng và định nghĩa trong level_definitions.md; danh mục vai trò L3 cố định nhưng tập kích hoạt được thay đổi. | Agent hỗ trợ Vũ | Đã hiệu chỉnh diễn giải trước đó; không đổi runtime hoặc trạng thái nghiệm thu, không commit/push.
+
+- 2026-10-22 | Viết level_definitions.md từ proposal: giữ ranh giới L2 routing/L3 topology-vòng/L4 formation; phân biệt định nghĩa nghiên cứu với Chain fixed_default đang có. Quy ước log/benchmark là diễn giải vận hành chờ review, không thay proposal hoặc tự duyệt L4. | Agent hỗ trợ Vũ theo yêu cầu người dùng | Đã đọc PDF/kiểm tra Bảng 1 và nguồn code, liên kết Markdown/diff check qua; mục tài liệu [~] chờ nhóm review. Không đổi runtime, không commit/push.
 
 - 2026-10-22 | MAS benchmark Task 7 đang thực hiện: runner một task và CLI benchmark run đã nối prepare image/Docker workspace → Chain → candidate → sandbox evaluator riêng; record có phase/time/provenance và lỗi setup. | Agent hỗ trợ Vinh | 3 unit runner RED→GREEN, 5 test runner/adapter qua (1,80s); chưa kiểm chứng end-to-end candidate evaluator bằng fixture Docker hoặc model thật, không nghiệm thu.
 
