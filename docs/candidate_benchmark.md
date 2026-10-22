@@ -65,3 +65,9 @@ Run dùng 91888 token (83606 input, 8282 output), 17 call, 145,281 giây;
 usage token đầy đủ, cache usage chưa biết. Record/trace/patch giữ nguyên trong thư mục run,
 resource report ở `results/mas-benchmark-plan/live-pilot-resource-report.json`.
 Không có kết quả resolved/unresolved độc lập từ pilot này; chưa nghiệm thu bốn level/A5.
+
+Theo yêu cầu chạy lại và ghi đè log, thư mục run trên hiện chứa **attempt 2**:
+96895 token (87426 input, 9469 output), 17 call, 159,172 giây,
+evaluator vẫn `protected_test_error`. Log attempt 1 giữ tại
+`results/mas-benchmark-plan/previous-pilot-20261022T112836Z`; số liệu đoạn trước
+mô tả attempt 1. Mỗi lượt dùng container và memory sạch.
