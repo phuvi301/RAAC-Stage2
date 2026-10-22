@@ -25,6 +25,9 @@ không đi vào candidate. Binary, đổi executable bit và một số thay đ�
 được sẽ báo lỗi rõ. Container evaluator mới áp candidate lên base commit rồi mới
 nạp test đánh giá F2P/P2P; verdict của Reviewer được giữ riêng với kết quả evaluator.
 
+Snapshot bỏ cache/build và artifact biên dịch `.so`, `.pyd`, `.o`, `.a` do cài dependency
+tạo ra. File nguồn tại base commit vẫn phải khớp baseline; không cho profile sửa source.
+
 Mỗi thư mục run có `record.json`, `agent-result.json`, `llm.jsonl` và memory.
 Record chứa usage, thời gian setup/agent/evaluation/total, identity, lỗi,
 registry/prompt/config snapshot và hash source/lock. Usage thiếu được ghi unknown;

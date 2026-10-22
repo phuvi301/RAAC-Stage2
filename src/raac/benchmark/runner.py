@@ -76,7 +76,7 @@ def prepare_workspace(task, config_path, output_dir, policy, cancel, deadline):
         # Check source against the actual base commit, not a mutable image Git index.
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            archive_repo(task, resolve_path(sandbox.root, sandbox.config["repo_cache"]), directory, deadline=deadline)
+            archive_repo(task, resolve_path(sandbox.root, sandbox.config["repo_cache"]), directory / "source.tar", deadline=deadline)
             source = {}
             with tarfile.open(directory / "source.tar") as archive:
                 for member in archive:

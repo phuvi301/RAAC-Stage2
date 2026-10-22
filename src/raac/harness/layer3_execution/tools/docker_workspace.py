@@ -38,7 +38,7 @@ def excluded(name):
     return (lower in request['excluded'] or lower in request['secrets']
         or lower == '.env' or lower.startswith('.env.') or lower.endswith(('.pem','.key'))
         or bool(re.match(r'^\.(?:venv|python)(?:[-_]?\d+(?:[._-]\d+)*)?$',lower))
-        or lower == 'build' or lower == 'dist' or lower.endswith(('.egg-info','.pyc','.pyo')))
+        or lower == 'build' or lower == 'dist' or lower.endswith(('.egg-info','.pyc','.pyo','.so','.pyd','.o','.a')))
 operation = request['operation']
 if operation == 'snapshot':
     result, total = [], 0

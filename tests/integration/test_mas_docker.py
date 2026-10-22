@@ -43,6 +43,17 @@ def workspace(image):
 
 
 @pytest.mark.asyncio
+async def test_snapshot_excludes_generated_compiled_extensions(workspace):
+    from raac.harness.layer3_execution.tools.docker_workspace import (
+        DockerWorkspaceTools,
+    )
+
+    workspace.exec_run(["python", "-c", "open('/workspace/module.cpython-39-x86_64-linux-gnu.so','wb').truncate(5000000); open('/workspace/module.py','w').write('VALUE=1')"], user="1000:1000")
+    tools = DockerWorkspaceTools("fixture", DockerExecutor(workspace, DockerExecutionPolicy()))
+    assert tools.baseline_files == {"module.py": b"VALUE=1"}
+
+
+@pytest.mark.asyncio
 async def test_repository_cannot_shadow_trusted_helpers(workspace):
     from raac.harness.layer3_execution.tools.docker_workspace import (
         DockerWorkspaceTools,

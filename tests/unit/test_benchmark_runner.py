@@ -1,4 +1,8 @@
 import asyncio
+import io
+import tarfile
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,6 +13,32 @@ from raac.benchmark.run_record import RunRecord
 from raac.benchmark.runner import run_task
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_preparation_passes_archive_file_path(tmp_path, monkeypatch):
+    import raac.benchmark.runner as module
+
+    task = next(iter(load_tasks(ROOT / "data/tasks/benchmark105-v1.json").values()))
+    client = SimpleNamespace(close=lambda: None)
+    sandbox = SimpleNamespace(root=tmp_path, config={"repo_cache": "repos"}, client=client,
+        run=lambda *args, **kwargs: {"status": "prepared", "image_id": "fixture"})
+    session = SimpleNamespace(client=client, __enter__=lambda: None, __exit__=lambda *args: None,
+        container=SimpleNamespace(exec_run=lambda *args, **kwargs: SimpleNamespace(exit_code=0)))
+    monkeypatch.setattr(module, "DockerSandbox", lambda **kwargs: sandbox)
+    monkeypatch.setattr(module, "DockerRunWorkspace", lambda *args, **kwargs: session)
+    monkeypatch.setattr(module, "DockerWorkspaceTools", lambda *args: SimpleNamespace(
+        max_file_bytes=4194304, baseline_files={"value.py": b"1"}))
+
+    def archive(task, cache, destination, **kwargs):
+        assert destination.name == "source.tar"
+        with tarfile.open(destination, "w") as stream:
+            info = tarfile.TarInfo("value.py")
+            info.size = 1
+            stream.addfile(info, io.BytesIO(b"1"))
+
+    monkeypatch.setattr(module, "archive_repo", archive)
+    module.prepare_workspace(task, ROOT / "configs/benchmark.yaml", tmp_path / "run",
+        module.DockerExecutionPolicy(), threading.Event(), time.monotonic() + 60)
 
 
 @pytest.mark.asyncio
