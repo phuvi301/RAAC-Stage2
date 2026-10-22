@@ -25,6 +25,11 @@ không đi vào candidate. Binary, đổi executable bit và một số thay đ�
 được sẽ báo lỗi rõ. Container evaluator mới áp candidate lên base commit rồi mới
 nạp test đánh giá F2P/P2P; verdict của Reviewer được giữ riêng với kết quả evaluator.
 
+Candidate rỗng vẫn được chấm như source không đổi; không gửi patch rỗng vào `git apply`.
+Lỗi agent được giữ trong record ngay cả khi evaluator trả resolved/unresolved.
+Candidate sửa file test được evaluator bảo vệ vẫn bị từ chối với `protected_test_error`;
+harness không tự bỏ phần test khỏi patch và không retry lỗi này.
+
 Snapshot bỏ cache/build và artifact biên dịch `.so`, `.pyd`, `.o`, `.a` do cài dependency
 tạo ra. File nguồn tại base commit vẫn phải khớp baseline; không cho profile sửa source.
 
@@ -36,6 +41,8 @@ trạng thái và usage nhưng bỏ nội dung command/output.
 Dùng terminal/web trace viewer hiện có với `llm.jsonl` của run để theo dõi
 command output, file thay đổi và candidate đã xuất; xem lệnh viewer trong
 [hướng dẫn Chain](chain_demo.md).
+Terminal `show-log --follow` chờ phase cuối của benchmark, gồm evaluator và cleanup;
+event MAS `run_completed` chưa kết thúc toàn benchmark.
 
 Manifest batch nằm ở `results/benchmark-batches/<batch-id>/manifest.json`.
 Resume bỏ attempt đã kết thúc, phục hồi run bị ngắt rồi chạy lại từ môi trường sạch;
@@ -65,3 +72,9 @@ Run dùng 91888 token (83606 input, 8282 output), 17 call, 145,281 giây;
 usage token đầy đủ, cache usage chưa biết. Record/trace/patch giữ nguyên trong thư mục run,
 resource report ở `results/mas-benchmark-plan/live-pilot-resource-report.json`.
 Không có kết quả resolved/unresolved độc lập từ pilot này; chưa nghiệm thu bốn level/A5.
+
+Kiểm chứng tiếp theo ngày 2026-10-22 (không gọi LLM, không thay log pilot):
+evaluator thật của cùng task chấm candidate rỗng, run `d2ad4a1d92224016bcaf1d9fd9862721`,
+kết quả `unresolved`. Baseline hợp lệ, 2/2 F2P vẫn fail và 13/13 P2P pass;
+evidence ở `results/mas-benchmark-plan/empty-candidate-astropy-evaluation.json`.
+Đây là kiểm tra evaluator trên task thật, không phải kết quả chấm lại candidate của pilot MAS.

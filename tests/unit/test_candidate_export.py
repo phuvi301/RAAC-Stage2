@@ -50,3 +50,20 @@ def test_unattributed_change_blocks_export(tmp_path):
     workspace.coder_paths.clear()
     with pytest.raises(ValueError, match="attribut"):
         workspace.export_candidate(tmp_path / "candidate.patch")
+
+
+@pytest.mark.parametrize("before,after", [(b"old", b"new"), (b"old\n", b"new"), (b"old", b"new\n")])
+def test_export_preserves_missing_final_newline(tmp_path, before, after):
+    workspace = fixture_workspace({"value.py": before}, {"value.py": after})
+    path = tmp_path / "candidate.patch"
+    workspace.export_candidate(path)
+    assert apply_repo_patch({"value.py": before.decode()}, path.read_text()) == {"value.py": after.decode()}
+
+
+def test_empty_candidate_and_tester_changes_do_not_invent_coder_patch(tmp_path):
+    workspace = fixture_workspace({"value.py": b"1\n"}, {"value.py": b"1\n", "test_value.py": b"assert True\n"})
+    workspace.coder_paths = {"value.py"}
+    workspace.tester_paths = {"test_value.py"}
+    path = tmp_path / "candidate.patch"
+    artifact = workspace.export_candidate(path)
+    assert path.read_bytes() == b"" and artifact["changed_paths"] == []

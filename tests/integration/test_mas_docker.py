@@ -28,7 +28,7 @@ def image():
         b"RUN mkdir /workspace && chown 1000:1000 /workspace\n"
     ), rm=True, use_config_proxy=False)
     yield image.id
-    client.images.remove(image.id)
+    client.images.remove(image.id, noprune=True)
     client.close()
 
 
@@ -130,6 +130,10 @@ async def test_file_tools_and_shell_share_container_source(workspace):
     assert result["exit_code"] == 0
     assert tools.coder_paths == {"value.py", "new.py"}
     assert tools.list_files()["total"] == 2
+    assert tools.search_repo("NEW")["matches"][0]["path"] == "new.py"
+    tools.replace_text(role="Coder", path="new.py", old_text="NEW = 2", new_text="NEW = 3")
+    tools.apply_patch("--- a/new.py\n+++ b/new.py\n@@ -1 +1 @@\n-NEW = 3\n+NEW = 4\n")
+    assert tools.read_file("new.py")["content"] == "NEW = 4\n"
     tools.delete_file(role="Coder", path="value.py")
     assert "value.py" not in tools.readable
 
@@ -166,8 +170,58 @@ async def test_source_symlink_cannot_be_read_as_a_file(workspace):
 
 
 @pytest.mark.asyncio
+async def test_hardlinks_fail_closed_in_file_tools_and_snapshot(workspace):
+    from raac.harness.layer3_execution.tools.docker_workspace import (
+        DockerWorkspaceTools,
+    )
+
+    executor = DockerExecutor(workspace, DockerExecutionPolicy())
+    tools = DockerWorkspaceTools("fixture", executor)
+    await executor.run_command("/workspace", command=["python", "-c",
+        "import os; open('value.py','w').write('VALUE=1'); os.link('value.py','alias.py')"])
+    with pytest.raises(ValueError):
+        tools.read_file("alias.py")
+    with pytest.raises(ValueError):
+        tools._snapshot()
+
+
+@pytest.mark.asyncio
+async def test_git_head_and_index_cannot_hide_coder_changes(workspace, tmp_path):
+    from raac.harness.layer3_execution.tools.docker_workspace import (
+        DockerWorkspaceTools,
+    )
+
+    executor = DockerExecutor(workspace, DockerExecutionPolicy())
+    await executor.run_command("/workspace", command=["python", "-c", "open('value.py','w').write('VALUE = 0\\n')"])
+    tools = DockerWorkspaceTools("fixture", executor)
+    tools.active_role = "Coder"
+    result = await tools.run_command(command=["/bin/sh", "-c",
+        ("git init -q && git config user.email fixture@example.invalid && git config user.name Fixture && "
+        "git add value.py && git commit -qm base && printf 'VALUE = 1\\n' > value.py && "
+        "git add value.py && git commit -qm edited && git diff --exit-code")])
+    assert result["exit_code"] == 0
+    path = tmp_path / "candidate.patch"
+    tools.export_candidate(path)
+    assert "-VALUE = 0" in path.read_text() and "+VALUE = 1" in path.read_text()
+
+
+@pytest.mark.asyncio
+async def test_environment_verification_cannot_mutate_source(workspace):
+    from raac.harness.layer3_execution.tools.docker_workspace import (
+        DockerWorkspaceTools,
+    )
+
+    executor = DockerExecutor(workspace, DockerExecutionPolicy())
+    tools = DockerWorkspaceTools("fixture", executor)
+    with pytest.raises(PermissionError, match="Environment"):
+        await tools.environment.configure(python_executable="python", cwd=".",
+            test_command=["python", "-m", "unittest", "discover"],
+            check_command=["python", "-c", "open('value.py','w').write('VALUE=9')"])
+    assert tools.integrity_error
+
+
+@pytest.mark.asyncio
 async def test_complete_chain_with_http_mock_uses_real_container_tools(workspace, tmp_path, monkeypatch):
-    import json
     from pathlib import Path
 
     import httpx
@@ -190,43 +244,8 @@ async def test_complete_chain_with_http_mock_uses_real_container_tools(workspace
     config = load_llm_config(root / "configs/llm.yaml")
     config.profiles = {r.model.ref: ModelProfile(model="mock") for r in registry.roles.values()}
     counts = {}
-    patch = "--- a/solution.py\n+++ b/solution.py\n@@ -1 +1 @@\n-VALUE = 0\n+VALUE = 1\n"
 
-    def handler(request):
-        payload = json.loads(request.content)
-        messages = payload["messages"]
-        system = messages[0]["content"].replace("**", "")
-        role = next(name for name in ("Environment", "Analyst", "Planner", "Coder", "Tester", "Reviewer") if system.startswith("You are the " + name))
-        counts[role] = counts.get(role, 0) + 1
-        work = json.loads(messages[1]["content"])
-        assert work["execution_environment"]["mode"] == "docker"
-        assert not work["execution_environment"]["python_executable"].startswith("C:")
-        calls = None
-        if role == "Environment" and counts[role] == 1:
-            calls = [{"id": "env", "type": "function", "function": {"name": "configure_environment", "arguments": json.dumps({
-                "python_executable": "python", "cwd": ".", "test_command": ["python", "-m", "unittest", "discover"],
-                "check_command": ["python", "-c", "import unittest"]})}}]
-            output = None
-        elif role == "Environment":
-            output = {"status": "ready", "summary": "Verified container", "blocking_issues": []}
-        elif role == "Analyst":
-            output = {"summary": "Fix value", "requirements": [{"id": "R1", "description": "Set value to one"}], "acceptance_criteria": ["Value equals one"]}
-        elif role == "Planner":
-            output = {"steps": [{"id": 1, "description": "Change value", "files": ["solution.py"], "depends_on": [], "ac_ids": ["AC1"]}], "covered_ac_ids": ["AC1"]}
-        elif role == "Coder" and counts[role] == 1:
-            calls = [{"id": "write", "type": "function", "function": {"name": "edit_file", "arguments": json.dumps({"path": "solution.py", "content": "VALUE = 1\n"})}}]
-            output = None
-        elif role == "Coder":
-            output = patch
-        elif role == "Tester":
-            output = {"tests_to_run": ["test_value.TestValue.test_value"], "results": [{"test": "test_value.TestValue.test_value", "status": "passed", "details": "Observed container test"}], "verdict": "pass", "covered_ac_ids": ["AC1"]}
-        else:
-            output = {"decision": "approve", "summary": "Correct value", "comments": [], "covered_ac_ids": ["AC1"]}
-        message = {"role": "assistant", "content": output if isinstance(output, str) else json.dumps(output) if output else None}
-        if calls:
-            message["tool_calls"] = calls
-        return httpx.Response(200, json={"model": "mock", "choices": [{"message": message, "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": 10, "completion_tokens": 1, "prompt_tokens_details": {"cached_tokens": 0}}})
+    handler = fixture_handler(counts)
 
     original = module.LLMClient
     monkeypatch.setattr(module, "LLMClient", lambda *args, **kwargs: original(*args, transport=httpx.MockTransport(handler), **kwargs))
@@ -263,9 +282,155 @@ async def test_complete_chain_with_http_mock_uses_real_container_tools(workspace
         candidate = await asyncio.to_thread(sandbox.execute, image, command, tmp_path, "candidate", (tmp_path / "candidate.patch").read_bytes(), profile=profile, evaluation=evaluation)
         assert grade(row, baseline, baseline=True)["valid"], baseline
         assert grade(row, candidate)["valid"], candidate
+        noop = await asyncio.to_thread(sandbox.execute, image, command, tmp_path, "empty-candidate", b"", profile=profile, evaluation=evaluation)
+        assert noop["status"] == "test_failed", noop
+        assert grade(row, noop, baseline=True)["valid"]
+        assert not grade(row, noop)["valid"]
         assert "test_official.py" not in tools.readable
         assert executor.read_file("/workspace/solution.py", 1024) == b"VALUE = 1\n"
         assert not client.containers.list(all=True, filters={"label": "raac=" + tmp_path.name})
         assert not client.volumes.list(filters={"label": "raac=" + tmp_path.name})
     finally:
-        client.images.remove(image.id)
+        client.images.remove(image.id, noprune=True)
+
+
+@pytest.mark.asyncio
+async def test_batch_uses_fresh_containers_memory_and_independent_evaluation(image, tmp_path, monkeypatch):
+    import json
+    from pathlib import Path
+
+    import httpx
+    import yaml
+
+    import raac.benchmark.chain_runner as chain
+    from raac.benchmark import runner
+    from raac.benchmark.dataset import load_tasks
+    from raac.benchmark.run_record import RunRecord
+    from raac.harness.layer3_execution.sandbox.docker_sandbox import DockerSandbox
+    from raac.harness.layer3_execution.sandbox.evaluation import grade, payload
+    from raac.harness.layer3_execution.tools.docker_workspace import (
+        DockerWorkspaceTools,
+    )
+
+    root = Path(__file__).resolve().parents[2]
+    client = docker.from_env()
+    seeded, _ = client.images.build(fileobj=io.BytesIO((
+        "FROM " + image + "\n"
+        "RUN echo 'VALUE = 0' > /workspace/solution.py\n"
+        "RUN printf 'import unittest\\nfrom solution import VALUE\\nclass TestValue(unittest.TestCase):\\n def test_value(self): self.assertEqual(VALUE, 1)\\n' > /workspace/test_value.py\n"
+        "RUN chown -R 1000:1000 /workspace\n"
+    ).encode()), rm=True, use_config_proxy=False)
+    containers, providers = [], []
+    original_client = chain.LLMClient
+
+    def make_client(*args, **kwargs):
+        counts = {}
+        providers.append(counts)
+        return original_client(*args, transport=httpx.MockTransport(fixture_handler(counts)), **kwargs)
+
+    def prepare(task, config, output, policy, cancel, deadline):
+        connection = docker.from_env()
+        session = DockerRunWorkspace(connection, seeded.id, output.name, policy=policy)
+        session.__enter__()
+        containers.append(session.container.id)
+        tools = DockerWorkspaceTools("Make VALUE equal 1", DockerExecutor(session.container, policy, deadline=deadline))
+        assert tools.baseline_files["solution.py"] == b"VALUE = 0\n"
+        return session, tools, {"image_id": seeded.id}
+
+    hidden_patch = "--- /dev/null\n+++ b/test_official.py\n@@ -0,0 +1,5 @@\n+from solution import VALUE\n+def test_fix():\n+    assert VALUE == 1\n+def test_preserve():\n+    assert 2 + 2 == 4\n"
+    row = {"repo": "fixture/repo", "FAIL_TO_PASS": ["test_official.py::test_fix"],
+           "PASS_TO_PASS": ["test_official.py::test_preserve"], "test_patch": hidden_patch}
+    profile = {"test_command": ["python", "-m", "pytest"]}
+    evaluation = {"test_patch": hidden_patch, "selectors": payload(row, profile),
+                  "runner_source": (root / "src/raac/harness/layer3_execution/sandbox/issue_runner.py").read_bytes()}
+
+    def evaluate(task, *, patch_path, **kwargs):
+        connection = docker.from_env()
+        directory = Path(patch_path).parent
+        sandbox = DockerSandbox(client=connection)
+        try:
+            command = ["python", "/tmp/raac-issue-runner.py", "/tmp/raac-selectors.json"]
+            baseline = sandbox.execute(seeded, command, directory, "baseline", profile=profile, evaluation=evaluation)
+            candidate = sandbox.execute(seeded, command, directory, "candidate", Path(patch_path).read_bytes(), profile=profile, evaluation=evaluation)
+            assert grade(row, baseline, baseline=True)["valid"], baseline
+            verdict = grade(row, candidate)
+            return {"status": "resolved" if verdict["valid"] else "unresolved", "candidate_validation": verdict}
+        finally:
+            connection.close()
+
+    monkeypatch.setattr(chain, "LLMClient", make_client)
+    monkeypatch.setattr(runner, "prepare_workspace", prepare)
+    monkeypatch.setattr(runner, "evaluate_candidate", evaluate)
+    config = yaml.safe_load((root / "configs/benchmark.yaml").read_text())
+    config["results"], config["dataset"] = str(tmp_path / "results"), str(root / config["dataset"])
+    config_path = tmp_path / "benchmark.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    ids = list(load_tasks(Path(config["dataset"])))[:2]
+    args = {"config_path": config_path, "task_ids": ids, "levels": ["L3"], "repetitions": 2, "batch_id": "docker-matrix"}
+    try:
+        result = await runner.run_benchmark_batch(**args)
+        assert result["completed"] == 4 and len(set(containers)) == 4
+        records = [RunRecord.model_validate_json(path.read_text()) for path in (tmp_path / "results").glob("benchmark-*/record.json")]
+        assert len(records) == 4 and all(record.evaluation_status == "resolved" for record in records)
+        assert len(providers) == 4 and all(counts == providers[0] for counts in providers)
+        for record in records:
+            output = tmp_path / "results" / record.run_id
+            memories = list((output / "memory").glob("*.json"))
+            assert memories
+            for path in memories:
+                assert json.loads(path.read_text())["identity"]["run_id"] == record.run_id
+            events = [json.loads(line) for line in (output / "llm.jsonl").read_text().splitlines()]
+            assert not any(event["event"] == "memory_loaded" for event in events)
+            assert not client.containers.list(all=True, filters={"label": "raac=" + record.run_id})
+            assert not client.volumes.list(filters={"label": "raac=" + record.run_id})
+        await runner.run_benchmark_batch(**args, resume=True)
+        assert len(containers) == 4
+        assert not client.containers.list(all=True, filters={"label": "raac.mas.run_id"})
+    finally:
+        client.images.remove(seeded.id, noprune=True)
+        client.close()
+
+
+def fixture_handler(counts):
+    import json
+
+    import httpx
+
+    patch = "--- a/solution.py\n+++ b/solution.py\n@@ -1 +1 @@\n-VALUE = 0\n+VALUE = 1\n"
+    def handler(request):
+        payload = json.loads(request.content)
+        messages = payload["messages"]
+        system = messages[0]["content"].replace("**", "")
+        role = next(name for name in ("Environment", "Analyst", "Planner", "Coder", "Tester", "Reviewer") if system.startswith("You are the " + name))
+        counts[role] = counts.get(role, 0) + 1
+        work = json.loads(messages[1]["content"])
+        assert work["execution_environment"]["mode"] == "docker"
+        assert not work["execution_environment"]["python_executable"].startswith("C:")
+        calls = None
+        if role == "Environment" and counts[role] == 1:
+            calls = [{"id": "env", "type": "function", "function": {"name": "configure_environment", "arguments": json.dumps({
+                "python_executable": "python", "cwd": ".", "test_command": ["python", "-m", "unittest", "discover"],
+                "check_command": ["python", "-c", "import unittest"]})}}]
+            output = None
+        elif role == "Environment":
+            output = {"status": "ready", "summary": "Verified container", "blocking_issues": []}
+        elif role == "Analyst":
+            output = {"summary": "Fix value", "requirements": [{"id": "R1", "description": "Set value to one"}], "acceptance_criteria": ["Value equals one"]}
+        elif role == "Planner":
+            output = {"steps": [{"id": 1, "description": "Change value", "files": ["solution.py"], "depends_on": [], "ac_ids": ["AC1"]}], "covered_ac_ids": ["AC1"]}
+        elif role == "Coder" and counts[role] == 1:
+            assert "role_memory" not in work
+            calls = [{"id": "write", "type": "function", "function": {"name": "edit_file", "arguments": json.dumps({"path": "solution.py", "content": "VALUE = 1\n"})}}]
+            output = None
+        elif role == "Coder":
+            output = patch
+        elif role == "Tester":
+            output = {"tests_to_run": ["test_value.TestValue.test_value"], "results": [{"test": "test_value.TestValue.test_value", "status": "passed", "details": "Observed container test"}], "verdict": "pass", "covered_ac_ids": ["AC1"]}
+        else:
+            output = {"decision": "approve", "summary": "Correct value", "comments": [], "covered_ac_ids": ["AC1"]}
+        message = {"role": "assistant", "content": output if isinstance(output, str) else json.dumps(output) if output else None}
+        if calls:
+            message["tool_calls"] = calls
+        return httpx.Response(200, json={"model": "mock", "choices": [{"message": message, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 1, "prompt_tokens_details": {"cached_tokens": 0}}})
+    return handler
