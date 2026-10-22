@@ -20,8 +20,12 @@ thời gian tối đa toàn run, gồm setup, agent và evaluator; token guard d
 
 Host lưu snapshot baseline từ container và đối chiếu source base commit trước khi
 agent chạy. Sau đó host tính candidate từ thay đổi thực tế của Coder, kiểm tra
-attribution và xuất `results/benchmark-<id>/candidate.patch`. Test riêng của Tester
-không đi vào candidate. Binary, đổi executable bit và một số thay đổi không biểu diễn
+attribution và xuất `results/benchmark-<id>/candidate.patch`. Hợp đồng benchmark
+`implementation-only-v1` được người dùng duyệt ngày 2026-10-22: Coder chỉ sửa
+implementation; Tester chỉ tạo/sửa test phát triển mới, không sửa test baseline.
+Test riêng của Tester không đi vào candidate. File tools, kiểm tra sau shell và
+export kiểm tra quyền này; local demo giữ hành vi cũ. Provenance ghi candidate_contract.
+Binary, đổi executable bit và một số thay đổi không biểu diễn
 được sẽ báo lỗi rõ. Container evaluator mới áp candidate lên base commit rồi mới
 nạp test đánh giá F2P/P2P; verdict của Reviewer được giữ riêng với kết quả evaluator.
 
@@ -78,3 +82,22 @@ evaluator thật của cùng task chấm candidate rỗng, run `d2ad4a1d92224016
 kết quả `unresolved`. Baseline hợp lệ, 2/2 F2P vẫn fail và 13/13 P2P pass;
 evidence ở `results/mas-benchmark-plan/empty-candidate-astropy-evaluation.json`.
 Đây là kiểm tra evaluator trên task thật, không phải kết quả chấm lại candidate của pilot MAS.
+
+Pilot bổ sung theo yêu cầu hoàn tất plan: `psf__requests-6027`, run
+`benchmark-76a23ecfcd7a4469b0b0a833ddc1f5e6`, cùng model/cấu hình.
+MAS REJECT sau 3 vòng (`max_rounds_reached`); candidate sửa `requests/utils.py`
+và protected `tests/test_utils.py` nên evaluator trả `protected_test_error`.
+192793 token (171283 input, 21510 output), 43 call, 631,328 giây; container đã dọn.
+Report hai pilot ở `results/mas-benchmark-plan/final-pilot-resource-report.json`.
+Mốc pilot MAS có candidate được chấm F2P/P2P vẫn chưa đạt; không lọc test khỏi patch
+hoặc tự retry để chọn kết quả tốt hơn.
+
+Sau kết quả trên, người dùng duyệt đổi hợp đồng cho các run tương lai sang
+`implementation-only-v1`. Pilot mới `benchmark-ce36a0a672404019ae26e24b50fa0727`
+(Astropy cùng task/model) đạt MAS PASS và evaluator **resolved**: 2/2 F2P và
+13/13 P2P pass, baseline hợp lệ, candidate chỉ sửa `astropy/modeling/separable.py`.
+Run dùng 94901 token (87823 input, 7078 output), 19 call, 224,422 giây, 1 vòng;
+evaluator riêng `1ba56322af1e499f8c4f4d1cda8f5f13` thực thi đủ 15 selector.
+Container đã dọn; report riêng ở `results/mas-benchmark-plan/implementation-only-resource-report.json`.
+Các pilot trước giữ nguyên và không gộp thành so sánh cùng hợp đồng với run mới.
+Đã kiểm chứng phạm vi plan L3; chưa nghiệm thu A5/bốn level hoặc full dataset.

@@ -186,6 +186,22 @@ async def test_hardlinks_fail_closed_in_file_tools_and_snapshot(workspace):
 
 
 @pytest.mark.asyncio
+async def test_implementation_only_contract_rejects_coder_test_shell(workspace, tmp_path):
+    from raac.harness.layer3_execution.tools.docker_workspace import (
+        DockerWorkspaceTools,
+    )
+
+    tools = DockerWorkspaceTools("fixture", DockerExecutor(workspace, DockerExecutionPolicy()))
+    with pytest.raises(PermissionError, match="Coder"):
+        tools.edit_file(role="Coder", path="test_value.py", content="assert True\n")
+    tools.active_role = "Coder"
+    with pytest.raises(PermissionError, match="Coder"):
+        await tools.run_command(command=["python", "-c", "open('test_value.py','w').write('assert True')"])
+    with pytest.raises(ValueError, match="attribution"):
+        tools.export_candidate(tmp_path / "candidate.patch")
+
+
+@pytest.mark.asyncio
 async def test_git_head_and_index_cannot_hide_coder_changes(workspace, tmp_path):
     from raac.harness.layer3_execution.tools.docker_workspace import (
         DockerWorkspaceTools,
@@ -405,6 +421,7 @@ def fixture_handler(counts):
         counts[role] = counts.get(role, 0) + 1
         work = json.loads(messages[1]["content"])
         assert work["execution_environment"]["mode"] == "docker"
+        assert work["execution_environment"]["benchmark_contract"].startswith("implementation-only-v1")
         assert not work["execution_environment"]["python_executable"].startswith("C:")
         calls = None
         if role == "Environment" and counts[role] == 1:
