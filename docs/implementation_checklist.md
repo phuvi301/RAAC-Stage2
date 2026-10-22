@@ -451,6 +451,8 @@ Ghi chú tuần 9
 
 # Nhật ký vấn đề và quyết định
 
+- 2026-10-22 | MAS benchmark Task 5: mở rộng trace terminal/web cho stdout/stderr Docker, phase/lifecycle và thay đổi workspace/candidate hash; content-off giữ activity/byte, lọc secret. | Agent hỗ trợ Vinh/Tuấn | 3 test trace RED→GREEN, hồi quy viewer chạy cùng; streaming thật đã kiểm chứng Task 2. Chưa có pilot benchmark/model thật; không push.
+
 - 2026-10-22 | MAS benchmark Task 4: export candidate từ baseline host, gồm file mới/xóa/shell; kiểm tra attribution và áp lại diff, chặn binary/executable/empty-file metadata chưa hỗ trợ thay vì bỏ sót. | Agent hỗ trợ Vinh | 5 test export RED→GREEN; chưa nối evaluator/runner, chưa có pilot candidate end-to-end.
 
 - 2026-10-22 | MAS benchmark Task 3: DockerWorkspaceTools dùng file RPC có giới hạn trong container, kế thừa patch/tool logic; Environment xác minh runtime ở container, provisioning offline không cài host. | Agent hỗ trợ Vinh | 25 test qua (22,99s), gồm 7 Docker integration thật, 7 snapshot unit và hồi quy Environment. Chưa nối runner/evaluator, chưa nghiệm thu benchmark; không push.

@@ -83,6 +83,16 @@ class DockerExecutor:
         self.environment = None
         self.trace = trace
 
+    def bind_trace(self, trace, context, *, content_enabled):
+        def emit(event, data):
+            if event == "command_output":
+                data = {**data, "bytes": len(data.get("content", "").encode("utf-8"))}
+                if not content_enabled:
+                    data.pop("content", None)
+            trace.emit(context, event=event, **data)
+
+        self.trace = emit
+
     def _kill(self):
         try:
             self.container.kill()

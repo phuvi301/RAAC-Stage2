@@ -1,6 +1,7 @@
 """Candidate export uses a trusted baseline and includes shell-written files."""
 
 import hashlib
+from types import SimpleNamespace
 
 import pytest
 
@@ -16,6 +17,7 @@ def fixture_workspace(before, after, *, modes=None):
     workspace.coder_paths = set(before) | set(after)
     workspace.tester_paths = set()
     workspace.baseline_ref = "trusted-baseline"
+    workspace.executor = SimpleNamespace(trace=None)
     workspace._snapshot = lambda: after
     return workspace
 

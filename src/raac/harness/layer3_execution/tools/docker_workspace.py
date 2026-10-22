@@ -221,6 +221,8 @@ class DockerWorkspaceTools(WorkspaceTools):
             self.code_edit_count += len(changed)
         elif role == "Tester":
             self.tester_paths.update(changed)
+        if changed and self.executor.trace:
+            self.executor.trace("workspace_changed", {"role": role, "paths": sorted(changed)})
         return result
 
     async def run_command(self, *, command, cwd=".", env=None, timeout_seconds=None, unlimited=False):
@@ -263,5 +265,8 @@ class DockerWorkspaceTools(WorkspaceTools):
             raise ValueError("Candidate patch exceeds size limit")
         with output.open("xb") as stream:
             stream.write(raw)
+        if self.executor.trace:
+            self.executor.trace("candidate_exported", {"paths": sorted(changed & self.coder_paths),
+                                                      "patch_sha256": hashlib.sha256(raw).hexdigest()})
         return {"path": str(output), "sha256": hashlib.sha256(raw).hexdigest(),
                 "baseline_ref": self.baseline_ref, "changed_paths": sorted(changed & self.coder_paths)}

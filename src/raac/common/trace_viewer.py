@@ -191,6 +191,11 @@ class TraceViewer:
             message = "LLM yêu cầu: " + ", ".join(names) if calls else "LLM trả lời | " + _summary(content or {})
             if event.get("error"):
                 message = f"LLM trả lỗi | {event['error']}"
+        elif kind == "command_output":
+            message = f"Docker {event.get('stream', 'output')} | " + _text(event.get("content", f"{event.get('bytes', 0)} bytes"), 240)
+            content = event.get("content")
+        elif kind in {"workspace_changed", "candidate_exported", "benchmark_phase_started", "benchmark_phase_completed", "benchmark_phase_failed", "container_started", "container_removed"}:
+            message = kind + " | " + _text(event.get("phase") or event.get("paths") or event.get("patch_sha256") or event.get("container_id", ""), 240)
         elif kind == "tool_call_started":
             arguments = _mapping(event.get("arguments"))
             hints = [f"{key}={_text(arguments[key], 80)}" for key in ("path", "query") if key in arguments]

@@ -63,6 +63,13 @@ def present_event(event, identifier):
                    summary=f"Topology {decision.get('topology', '?')} · tối đa {decision.get('max_rounds', '?')} vòng")
         payload("Quyết định điều phối", decision)
         payload("Workspace", event.get("workspace"))
+    elif kind == "command_output":
+        row.update(source=role, target="Docker", title="Output " + str(event.get("stream", "")),
+                   summary=_text(event.get("content", f"{event.get('bytes', 0)} bytes"), 280))
+        payload("Output", event.get("content"))
+    elif kind in {"workspace_changed", "candidate_exported", "benchmark_phase_started", "benchmark_phase_completed", "benchmark_phase_failed", "container_started", "container_removed"}:
+        row.update(title=kind, summary=_text(event.get("phase") or event.get("paths") or event.get("patch_sha256") or event.get("container_id", ""), 280))
+        payload("Chi tiết", {key: event[key] for key in ("phase", "paths", "patch_sha256", "container_id") if key in event})
     elif kind == "agent_started":
         request = _mapping(event.get("request"))
         sender = _mapping(request.get("incoming_message")).get("from", "Hệ thống")
