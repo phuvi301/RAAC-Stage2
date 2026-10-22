@@ -6,15 +6,42 @@ Khung dự án Python >= 3.11 / LangGraph để xây dựng và so sánh bốn c
 - Quy tắc agent: [.agents/rules/progress.md](.agents/rules/progress.md).
 - Kiến trúc: harness 4 layer bao quanh mỗi agent, collaboration engine dùng LangGraph.
 - CLI sandbox Docker và MAS/L3 Chain chạy local đã hiện thực; Engine chung và các level còn lại chưa hoàn tất. Xem [hướng dẫn sandbox](docs/sandbox.md).
-- requirements.lock chưa chứa dependency đã khóa; cần resolve và kiểm tra ở D01.
+- `requirements.lock` ghim dependency runtime, dev/test và setuptools; cài file này trước khi cài project.
 - WASM, A2A và long-term memory được đặc tả là stub/tuỳ chọn trong kế hoạch.
 
 ## Khởi tạo môi trường
 
     python -m venv .venv
     .venv\Scripts\Activate.ps1
-    python -m pip install -e ".[dev]"
-    python -m pytest
+    python -m pip install -r requirements.lock
+    python -m pip install --no-deps --no-build-isolation -e .
+    make test
+
+GNU Make tự chọn Python trong `.venv` (Windows/Linux); có thể ghi đè bằng
+`make test PYTHON=/path/to/python TEST_ARGS="-q"`. Nếu chưa có Make, chạy
+`python -m pytest` trực tiếp. Windows có thể dùng GNU Make trong MSYS2.
+
+    make pilot TASK=psf__requests-6027
+    make freeze
+
+`pilot` chạy kiểm chứng môi trường sandbox cho một task bằng CLI hiện có, cần Docker
+và dataset/evaluator đã chuẩn bị; đây chưa phải pilot agent trên bốn level.
+Chọn cấu hình khác bằng `CONFIG=configs/benchmark.yaml`.
+
+`freeze` tạo file JSON riêng trong `results/freezes/`, lưu snapshot và SHA-256 của
+các YAML cấu hình, Registry (role/tool/prompt/VERSION), `pyproject.toml` và lock.
+Không đọc `.env`; lọc secret theo bộ lọc hiện có. Hash tính trên file gốc trước khi
+lọc, nên nội dung đã lọc có thể khác hash. Có thể chỉ định
+`FREEZE_OUTPUT="results/freezes/my-freeze.json"`; file đã tồn tại sẽ không bị ghi đè.
+Lệnh không thay cấu hình đang dùng và không thay thế quyết định đóng băng của nhóm.
+
+Khi chủ động cập nhật dependency, dùng uv và chạy lại kiểm thử:
+
+    uv pip compile pyproject.toml --extra dev --universal --python-version 3.11 -o requirements.lock --no-annotate
+
+Lệnh giữ các pin hiện có khi còn hợp lệ; chỉ thêm `--upgrade` khi muốn nâng phiên bản.
+Các bản lock được resolve cho Python >= 3.11 và có marker theo nền tảng;
+kiểm chứng cài đặt hiện tại dùng Windows/Python 3.11.
 
 Không commit API key hoặc dữ liệu nhạy cảm. CLI sandbox và MAS Chain đã có; CLI benchmark tổng quát và các level còn lại chưa hoàn tất.
 
@@ -189,20 +216,10 @@ Sandbox có quy trình chuẩn bị nhanh: `raac sandbox preflight` → `raac sa
 
 Chi tiết sửa lỗi môi trường và adapter theo log: [báo cáo validation_failed](docs/validation_failure_repairs.md). Record `validation_failed` cần xem kết quả từng F2P/P2P; gold pass chưa đủ để đánh dấu task validated.
 
-
-Fixture mạng nội bộ được giữ cho Requests-2930/5367 thuộc tập105; override của
-bốn Requests đã loại được gỡ. Các task khác vẫn tắt mạng. Xem [lịch sử sửa mạng](docs/network_fixture_repairs.md)
-và [dọn môi trường15task](docs/benchmark105.md#dọn-môi-trường-nhóm15task).
-Không bật Internet hoặc sửa test để ép baseline/gold pass.
-
-Các sửa có bằng chứng từ đối chứng official, gồm Python2 của Requests-1723 và
-selector trùng của Sympy-14237, được ghi tại [báo cáo sửa sau đối chứng](docs/evidence_repairs.md).
-
 Tập benchmark đã chốt là **105 task/12 repo**, phiên bản `swebench-verified-raac-105-v1`.
 Dùng `--config configs/benchmark105.yaml` cho các lệnh sandbox của tập này;
-`configs/benchmark.yaml` và `configs/benchmark.compatibility.yaml` cũng mặc định
-chọn105task để tránh build nhầm nhóm bị loại.
-Manifest105 và danh sách15task bị loại nằm trong `data/tasks/`; dữ liệu gốc
+`configs/benchmark.yaml` và `configs/benchmark.compatibility.yaml` cũng mặc định chọn 105 task để tránh build nhầm nhóm bị loại.
+Manifest 105 và danh sách 15 task bị loại nằm trong `data/tasks/`; dữ liệu gốc
 và evaluator không đổi. Điểm chính là `100 × resolved / 105`, không thu nhỏ mẫu
 số khi còn task chưa chạy. Xem [quy tắc, lệnh chạy và giới hạn](docs/benchmark105.md).
 
