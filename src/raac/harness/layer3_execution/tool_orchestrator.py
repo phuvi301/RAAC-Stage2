@@ -343,10 +343,13 @@ class ToolOrchestrator:
             elif name == "provision_environment":
                 if not unlimited:
                     return {"ok": False, "error_kind": "ToolNotAllowed", "error": "Only Environment may provision a runtime"}
-                data = await provision(self.workspace, **args)
+                provider = getattr(self.workspace, "provision_environment", None)
+                data = await provider(**args) if provider else await provision(self.workspace, **args)
             elif name in {"read_files", "run_commands"}:
                 data = await asyncio.wait_for(self._batch(role, name, args, context), timeout)
             elif name in {"run_tests", "run_command"}:
+                if hasattr(self.workspace, "active_role"):
+                    self.workspace.active_role = role.spec.name
                 data = await asyncio.wait_for(getattr(self.workspace, name)(**args, **({"unlimited": True} if unlimited else {})), timeout)
             elif name in {"edit_file", "delete_file", "replace_text"}:
                 data = getattr(self.workspace, name)(role=role.spec.name, **args)

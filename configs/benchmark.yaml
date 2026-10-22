@@ -1,4 +1,5 @@
-version: 2
+version: 3
+agent_run_timeout_seconds: 9000.0
 dataset: data/tasks/benchmark105-v1.json
 repo_cache: data/repos
 results: results

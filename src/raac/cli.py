@@ -1,6 +1,7 @@
 """Command-line entry point for standalone sandbox runs."""
 
 import argparse
+import asyncio
 import json
 import sys
 
@@ -13,6 +14,21 @@ def main(argv=None):
         sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(prog="raac")
     sub = parser.add_subparsers(dest="group", required=True)
+    benchmark = sub.add_parser("benchmark")
+    benchmark_commands = benchmark.add_subparsers(dest="command", required=True)
+    one = benchmark_commands.add_parser("run")
+    one.add_argument("--task-id", required=True)
+    one.add_argument("--level", choices=["L3"], default="L3")
+    one.add_argument("--repetition", type=int, default=1)
+    one.add_argument("--config")
+    many = benchmark_commands.add_parser("batch")
+    many.add_argument("--task-id", action="append", required=True)
+    many.add_argument("--level", choices=["L3"], default="L3")
+    many.add_argument("--repetitions", type=int, default=1)
+    many.add_argument("--batch-id", required=True)
+    many.add_argument("--resume", action="store_true")
+    many.add_argument("--retry-errors", action="store_true")
+    many.add_argument("--config")
     sandbox = sub.add_parser("sandbox")
     commands = sandbox.add_subparsers(dest="command", required=True)
     for name in ("check", "prepare", "run"):
@@ -56,6 +72,16 @@ def main(argv=None):
     profiles.add_argument("--config")
     profiles.add_argument("--dataset")
     args = parser.parse_args(argv)
+    if args.group == "benchmark":
+        from raac.benchmark.runner import execute
+
+        try:
+            return asyncio.run(execute(args))
+        except KeyboardInterrupt:
+            return 130
+        except (ValueError, OSError):
+            print("Invalid benchmark input or configuration; no local execution fallback is supported.", file=sys.stderr)
+            return 2
     try:
         if args.command == "import-verified":
             from raac.harness.layer3_execution.sandbox.evaluation import import_verified
