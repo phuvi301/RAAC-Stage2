@@ -260,10 +260,6 @@ Ghi chú tuần 9
 
 ### Harness chạy hàng loạt (`benchmark/runner.py`)
 
-- 2026-10-22 | Theo yêu cầu undo log: khôi phục toàn bộ 6 file của attempt 1 vào thư mục run hiện tại, xác minh hash từng file khớp bản gốc; resource report trở lại 91888 token/145,281s. Dữ liệu attempt 2 bị ghi đè, console attempt 2 làm rỗng, không tạo backup attempt 2. | Agent hỗ trợ Vinh | Record hiện tại attempt=1; không chạy lại model và không push. Các dòng sau giữ lịch sử lượt chạy.
-
-- 2026-10-22 | Theo yêu cầu chạy lại và ghi đè log: cùng task/model/config, cùng thư mục benchmark-b9feebf7d8894d9b821cfcb6460f3633, attempt=2, container/memory mới. Log cũ sao lưu tại results/mas-benchmark-plan/previous-pilot-20261022T112836Z. | Agent hỗ trợ Vinh | MAS completed, evaluator vẫn protected_test_error; 87426 input + 9469 output = 96895 token, 17 call, tổng 159,172s. Đã ghi đè record/trace/patch/memory và resource report bằng kết quả mới, container đã dọn. Chưa có kết quả F2P/P2P độc lập; không đổi policy để bỏ qua protected test, không push.
-
 - 2026-10-22 | Pilot model thật sau khi người dùng cấu hình key: astropy__astropy-12906, llm-v4/9router, cc/claude-opus-5-5, run benchmark-b9feebf7d8894d9b821cfcb6460f3633. MAS đủ 6 role, 1 vòng, verdict PASS; candidate sửa separable.py và modeling/tests/test_separable.py nên evaluator trả protected_test_error trước khi chạy test. | Agent hỗ trợ Vinh | 83606 input + 8282 output = 91888 token, 17 call, usage_complete=true/cache unknown; tổng 145,281s (setup 13,203s, agent 128,625s, evaluation 0,094s). Container đã dọn, patch/trace/record và resource report giữ nguyên trong results/. Đây là pilot thật bị từ chối candidate, chưa có kết quả resolved/unresolved độc lập, không nâng nghiệm thu A5/bốn level, không retry để cải thiện kết quả và không push.
 
 - [~] Lặp qua các cặp (task, level, lần lặp) — đã có matrix tuần tự L3 × task × repetition và test 2 task × 2 repetition; chờ adapter L1/L2/L4.

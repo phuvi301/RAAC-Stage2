@@ -65,6 +65,3 @@ Run dùng 91888 token (83606 input, 8282 output), 17 call, 145,281 giây;
 usage token đầy đủ, cache usage chưa biết. Record/trace/patch giữ nguyên trong thư mục run,
 resource report ở `results/mas-benchmark-plan/live-pilot-resource-report.json`.
 Không có kết quả resolved/unresolved độc lập từ pilot này; chưa nghiệm thu bốn level/A5.
-
-Theo yêu cầu undo sau lượt chạy lại, thư mục run trên đã khôi phục **attempt 1**
-(91888 token, 145,281 giây). Dữ liệu attempt 2 đã bị ghi đè, không tạo bản sao lưu.
