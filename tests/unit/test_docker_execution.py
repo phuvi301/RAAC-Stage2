@@ -2,6 +2,7 @@
 
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -47,6 +48,38 @@ def test_container_options_have_no_host_mount_or_credentials():
     assert options["cap_drop"] == ["ALL"]
     assert options["mem_limit"] == "4g"
     assert not {"volumes", "mounts", "environment", "privileged"} & options.keys()
+
+
+@pytest.mark.parametrize("stage", ["create", "start", "start-and-cleanup"])
+def test_workspace_startup_keeps_primary_error_and_removes_owned_container(stage):
+    client, container = Mock(), Mock()
+    primary = RuntimeError("primary startup error")
+    if stage == "create":
+        client.containers.create.side_effect = primary
+    else:
+        client.containers.create.return_value = container
+        container.start.side_effect = primary
+        if stage == "start-and-cleanup":
+            container.remove.side_effect = RuntimeError("cleanup error")
+    session = DockerRunWorkspace(client, "fixture", "fixture")
+    with pytest.raises(RuntimeError) as caught:
+        session.__enter__()
+    assert caught.value is primary
+    if stage != "create":
+        container.remove.assert_called_once_with(force=True)
+
+
+@pytest.mark.parametrize("primary", [None, RuntimeError("agent failure")])
+def test_cleanup_reports_failure_without_overwriting_primary_error(primary):
+    session = DockerRunWorkspace(Mock(), "fixture", "fixture")
+    session.container = Mock()
+    session.container.remove.side_effect = RuntimeError("cleanup failure")
+    if primary is None:
+        with pytest.raises(RuntimeError, match="cleanup failure"):
+            session.__exit__(None, None, None)
+    else:
+        session.__exit__(RuntimeError, primary, None)
+        assert session.cleanup_failed
 
 
 @pytest.mark.asyncio

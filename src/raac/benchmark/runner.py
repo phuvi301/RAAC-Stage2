@@ -195,6 +195,8 @@ async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path,
                     record.agent_activations[name] = record.agent_activations.get(name, 0) + 1
             record.messages = sum(record.agent_activations.values())
             record.provenance["metric_definitions"] = {"messages": "incoming role handoffs"}
+            if record.agent_status in {"aborted", "error", "interrupted", "timeout"}:
+                record.errors.append({"phase": "agent", "kind": "AgentExecutionFailed", "retryable": "false"})
             if record.stop_reason == "environment_setup_failed":
                 raise RuntimeError("Environment verification failed")
             phase("export")
@@ -208,7 +210,9 @@ async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path,
             record.evaluation = await asyncio.shield(evaluation_task)
             record.timing.evaluation_seconds = time.monotonic() - before
             record.evaluation_status = record.evaluation["status"]
-            record.status = "completed" if record.evaluation_status in {"resolved", "unresolved"} else "error"
+            if record.evaluation_status not in {"resolved", "unresolved"}:
+                record.errors.append({"phase": "evaluation", "kind": record.evaluation_status, "retryable": "false"})
+            record.status = "error" if record.errors else "completed"
     except asyncio.CancelledError:
         record.status = "interrupted"
         record.errors.append({"phase": record.phase, "kind": "CancelledError"})

@@ -63,7 +63,10 @@ class DockerRunWorkspace:
         try:
             self.container.start()
         except BaseException:
-            self.container.remove(force=True)
+            try:
+                self.container.remove(force=True)
+            except Exception:  # noqa: BLE001 -- cleanup failure must preserve the startup error.
+                self.cleanup_failed = True
             raise
         return self
 

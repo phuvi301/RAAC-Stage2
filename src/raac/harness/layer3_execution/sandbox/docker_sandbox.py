@@ -529,7 +529,7 @@ class DockerSandbox:
                 + shlex.quote(profile.get("report_path", "/workspace/pytest.xml"))
                 + "; "
             )
-            if patch is not None:
+            if patch:
                 script += "cd /workspace; git apply --check /tmp/candidate.patch || exit 86; git apply /tmp/candidate.patch || exit 86; "
             if evaluation is not None:
                 script += "git apply --check /tmp/test.patch || exit 88; git apply /tmp/test.patch || exit 88; "
@@ -956,7 +956,7 @@ class DockerSandbox:
                 protected_paths = patch_paths(row["test_patch"])
                 if profile.get("network_fixture") == "requests_httpbin":
                     protected_paths.add("requests/cacert.pem")
-                if patch is not None and patch_paths(patch.decode()) & protected_paths:
+                if patch and patch_paths(patch.decode()) & protected_paths:
                     record["status"] = "protected_test_error"
                     return record
                 if stage == "pilot":

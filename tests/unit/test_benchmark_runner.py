@@ -42,7 +42,11 @@ def test_preparation_passes_archive_file_path(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_runner_grades_candidate_even_if_agent_rejected(tmp_path, monkeypatch):
+@pytest.mark.parametrize("agent_status,evaluation_status", [
+    ("rejected", "resolved"), ("aborted", "unresolved"),
+    ("completed", "protected_test_error"), ("completed", "timeout"),
+])
+async def test_runner_grades_candidate_even_if_agent_rejected(tmp_path, monkeypatch, agent_status, evaluation_status):
     import raac.benchmark.runner as module
 
     task = next(iter(load_tasks(ROOT / "data/tasks/benchmark105-v1.json").values()))
@@ -62,22 +66,25 @@ async def test_runner_grades_candidate_even_if_agent_rejected(tmp_path, monkeypa
     monkeypatch.setattr(module, "prepare_workspace", lambda *args, **kwargs: (Session(), Workspace(), {"image_id": "fixture"}))
 
     async def agent(*args, **kwargs):
-        return {"status": "rejected", "verdict": "REJECT", "stop_reason": "max_rounds_reached", "usage": {
+        return {"status": agent_status, "verdict": "REJECT", "stop_reason": "agent_error" if agent_status == "aborted" else "max_rounds_reached", "usage": {
             "prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12, "calls": 1,
             "usage_complete": True, "cached_tokens": None, "cache_usage_complete": False}, "events": []}
 
     def evaluate(*args, **kwargs):
         evaluated.append(kwargs)
-        return {"status": "resolved", "candidate_validation": {"valid": True}}
+        return {"status": evaluation_status, "candidate_validation": {"valid": evaluation_status == "resolved"}}
 
     monkeypatch.setattr(module, "run_chain", agent)
     monkeypatch.setattr(module, "evaluate_candidate", evaluate)
     output = tmp_path / "benchmark-fixture"
     result = await run_task(task, level="L3", repetition=1, output_dir=output, config_path=ROOT / "configs/benchmark.yaml")
-    assert result.status == "completed" and result.agent_status == "rejected"
-    assert result.evaluation_status == "resolved" and result.usage.total_tokens == 12
+    expected_error = agent_status == "aborted" or evaluation_status not in {"resolved", "unresolved"}
+    assert result.status == ("error" if expected_error else "completed") and result.agent_status == agent_status
+    assert result.evaluation_status == evaluation_status and result.usage.total_tokens == 12
+    if expected_error:
+        assert result.errors and all(error.get("retryable") == "false" for error in result.errors)
     assert removed == [True] and len(evaluated) == 1
-    assert RunRecord.model_validate_json((output / "record.json").read_text()).evaluation_status == "resolved"
+    assert RunRecord.model_validate_json((output / "record.json").read_text()).evaluation_status == evaluation_status
 
 
 @pytest.mark.asyncio
