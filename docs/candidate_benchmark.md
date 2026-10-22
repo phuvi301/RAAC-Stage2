@@ -78,3 +78,12 @@ evaluator thật của cùng task chấm candidate rỗng, run `d2ad4a1d92224016
 kết quả `unresolved`. Baseline hợp lệ, 2/2 F2P vẫn fail và 13/13 P2P pass;
 evidence ở `results/mas-benchmark-plan/empty-candidate-astropy-evaluation.json`.
 Đây là kiểm tra evaluator trên task thật, không phải kết quả chấm lại candidate của pilot MAS.
+
+Pilot bổ sung theo yêu cầu hoàn tất plan: `psf__requests-6027`, run
+`benchmark-76a23ecfcd7a4469b0b0a833ddc1f5e6`, cùng model/cấu hình.
+MAS REJECT sau 3 vòng (`max_rounds_reached`); candidate sửa `requests/utils.py`
+và protected `tests/test_utils.py` nên evaluator trả `protected_test_error`.
+192793 token (171283 input, 21510 output), 43 call, 631,328 giây; container đã dọn.
+Report hai pilot ở `results/mas-benchmark-plan/final-pilot-resource-report.json`.
+Mốc pilot MAS có candidate được chấm F2P/P2P vẫn chưa đạt; không lọc test khỏi patch
+hoặc tự retry để chọn kết quả tốt hơn.
