@@ -216,20 +216,10 @@ Sandbox có quy trình chuẩn bị nhanh: `raac sandbox preflight` → `raac sa
 
 Chi tiết sửa lỗi môi trường và adapter theo log: [báo cáo validation_failed](docs/validation_failure_repairs.md). Record `validation_failed` cần xem kết quả từng F2P/P2P; gold pass chưa đủ để đánh dấu task validated.
 
-
-Fixture mạng nội bộ được giữ cho Requests-2930/5367 thuộc tập105; override của
-bốn Requests đã loại được gỡ. Các task khác vẫn tắt mạng. Xem [lịch sử sửa mạng](docs/network_fixture_repairs.md)
-và [dọn môi trường15task](docs/benchmark105.md#dọn-môi-trường-nhóm15task).
-Không bật Internet hoặc sửa test để ép baseline/gold pass.
-
-Các sửa có bằng chứng từ đối chứng official, gồm Python2 của Requests-1723 và
-selector trùng của Sympy-14237, được ghi tại [báo cáo sửa sau đối chứng](docs/evidence_repairs.md).
-
 Tập benchmark đã chốt là **105 task/12 repo**, phiên bản `swebench-verified-raac-105-v1`.
 Dùng `--config configs/benchmark105.yaml` cho các lệnh sandbox của tập này;
-`configs/benchmark.yaml` và `configs/benchmark.compatibility.yaml` cũng mặc định
-chọn105task để tránh build nhầm nhóm bị loại.
-Manifest105 và danh sách15task bị loại nằm trong `data/tasks/`; dữ liệu gốc
+`configs/benchmark.yaml` và `configs/benchmark.compatibility.yaml` cũng mặc định chọn 105 task để tránh build nhầm nhóm bị loại.
+Manifest 105 và danh sách 15 task bị loại nằm trong `data/tasks/`; dữ liệu gốc
 và evaluator không đổi. Điểm chính là `100 × resolved / 105`, không thu nhỏ mẫu
 số khi còn task chưa chạy. Xem [quy tắc, lệnh chạy và giới hạn](docs/benchmark105.md).
 
