@@ -14,7 +14,7 @@ from raac.collaboration.levels.l3_collaboration import (
     ChainLimits, ChainNodes, WorkItem, build_collaboration_graph, coordinate_chain, initial_chain_state,
 )
 from raac.common.provenance import collect_provenance
-from raac.harness.demo_agent import DemoAgentRunner
+from raac.harness.layer1_lifecycle import AgentRunner
 from raac.harness.layer2_core.context_manager import RoleContextPolicy
 from raac.harness.layer2_core.memory.short_term import ShortTermMemoryPolicy
 from raac.harness.layer3_execution.local_executor import LocalExecutor, LocalExecutionPolicy
@@ -112,7 +112,7 @@ async def execute(args) -> int:
     )
 
     # Ghép registry → Layer 2 → LLM client → tool.
-    runner = DemoAgentRunner(
+    runner = AgentRunner(
         registry, # Registry chứa các mô hình và công cụ
         client, # Client LLM để giao tiếp với mô hình ngôn ngữ
         tools, # thực thi tool

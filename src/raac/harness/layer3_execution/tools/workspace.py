@@ -6,6 +6,8 @@
 # Baseline là snapshot đầu run trong RAM; current là nội dung repo hiện tại.
 
 import difflib  # So sánh các dòng văn bản để sinh unified diff nhiều file.
+import base64
+from copy import deepcopy
 import hashlib  # Tính SHA-256 để định danh nội dung file và baseline.
 import json  # Chuyển manifest thành JSON trước khi tính hash tổng.
 import os  # Duyệt cây thư mục bằng os.walk().
@@ -32,6 +34,66 @@ class WorkspaceTools:
     max_file_bytes = 4 * 1024 * 1024  # Tối đa 4 MiB cho từng file.
     max_repo_bytes = 64 * 1024 * 1024  # Tối đa 64 MiB cho các file trong snapshot.
     max_files = 2000  # Tối đa 2.000 file sau khi loại trừ cache/credential.
+
+    def snapshot_runtime(self):
+        """Explicit JSON state for same-workspace resume; never executor objects."""
+        current = self._snapshot()
+        container = getattr(self.executor, "container", None)
+        identity = {"mode": getattr(self, "execution_mode", "local"), "root": str(self.root),
+                    "container": getattr(container, "id", None), "requirement": self.requirement}
+        current_modes = getattr(self, "current_modes", {})
+        fingerprint = hashlib.sha256(json.dumps([
+            (name, hashlib.sha256(data).hexdigest(), current_modes.get(name))
+            for name, data in sorted(current.items())]).encode()).hexdigest()
+        return {"version": 1, "identity": identity, "fingerprint": fingerprint,
+                "baseline_ref": self.baseline_ref,
+                "baseline_files": {name: base64.b64encode(data).decode() for name, data in self.baseline_files.items()},
+                "coder_paths": sorted(self.coder_paths), "tester_paths": sorted(self.tester_paths),
+                "code_edit_count": self.code_edit_count, "test_spec": deepcopy(self.test_spec),
+                "environment": {name: deepcopy(getattr(self.environment, name, None)) for name in
+                    ("configuration", "verification", "revision", "ready", "smoke_report", "observation_ref")},
+                "executor_environment": deepcopy(getattr(self.executor, "environment", None)),
+                "docker": {name: deepcopy(getattr(self, name, None)) for name in
+                    ("baseline_modes", "setup_generated_paths", "integrity_error", "active_role")
+                    if name != "setup_generated_paths"},
+                "setup_generated_paths": sorted(getattr(self, "setup_generated_paths", set()))}
+
+    def restore_runtime(self, snapshot):
+        """Validate actual content before restoring bookkeeping, never rewrite source."""
+        current = self.snapshot_runtime()
+        if (snapshot.get("version") != 1 or snapshot.get("identity") != current["identity"]
+                or snapshot.get("fingerprint") != current["fingerprint"]):
+            raise ValueError("resume_workspace_mismatch")
+        encoded = snapshot["baseline_files"]
+        if not isinstance(encoded, dict) or len(encoded) > self.max_files:
+            raise ValueError("resume_baseline_limit")
+        baseline = {}
+        for name, data in encoded.items():
+            repo_path(name)
+            if not isinstance(data, str) or len(data) > (self.max_file_bytes + 2) * 4 // 3:
+                raise ValueError("resume_baseline_limit")
+            baseline[name] = base64.b64decode(data, validate=True)
+        if any(len(data) > self.max_file_bytes for data in baseline.values()) or sum(map(len, baseline.values())) > self.max_repo_bytes:
+            raise ValueError("resume_baseline_limit")
+        for key in ("coder_paths", "tester_paths", "setup_generated_paths"):
+            for name in snapshot[key]:
+                repo_path(name)
+        if type(snapshot["code_edit_count"]) is not int or snapshot["code_edit_count"] < 0:
+            raise ValueError("resume_runtime_invalid")
+        self.baseline_files = baseline
+        self.baseline_ref = snapshot["baseline_ref"]
+        self.coder_paths, self.tester_paths = set(snapshot["coder_paths"]), set(snapshot["tester_paths"])
+        self.code_edit_count, self.test_spec = snapshot["code_edit_count"], deepcopy(snapshot["test_spec"])
+        for name in ("configuration", "verification", "revision", "ready", "smoke_report", "observation_ref"):
+            setattr(self.environment, name, deepcopy(snapshot["environment"][name]))
+        if self.executor is not None:
+            self.executor.environment = deepcopy(snapshot["executor_environment"])
+        if getattr(self, "execution_mode", "local") == "docker":
+            for name in ("baseline_modes", "integrity_error", "active_role"):
+                value = snapshot["docker"].get(name)
+                if value is not None:
+                    setattr(self, name, deepcopy(value))
+            self.setup_generated_paths = set(snapshot["setup_generated_paths"])
 
     # project là thư mục cha chứa repo/ và requirement/; executor chạy lệnh local.
     def __init__(self, project: Path, executor):

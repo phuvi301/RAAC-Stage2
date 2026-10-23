@@ -451,3 +451,53 @@ def fixture_handler(counts):
         return httpx.Response(200, json={"model": "mock", "choices": [{"message": message, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": 10, "completion_tokens": 1, "prompt_tokens_details": {"cached_tokens": 0}}})
     return handler
+
+
+@pytest.mark.asyncio
+async def test_lifecycle_resume_on_same_container_preserves_baseline_and_attribution(workspace, tmp_path):
+    import json
+    from pathlib import Path
+    import httpx
+    from raac.harness.layer1_lifecycle import AgentRunner, AgentPaused, ApprovalDecision
+    from raac.harness.layer3_execution.tool_orchestrator import ToolOrchestrator
+    from raac.harness.layer3_execution.tools.docker_workspace import DockerWorkspaceTools
+    from raac.llm.client import LLMClient
+    from raac.llm.config import LLMConfig
+    from raac.registry import load_registry
+
+    root = Path(__file__).resolve().parents[2]
+    executor = DockerExecutor(workspace, DockerExecutionPolicy())
+    await executor.run_command("/workspace", command=["python", "-c", "open('value.py','w').write('VALUE = 1\\n')"])
+    registry = load_registry(root / "registry")
+    replies = [{"tool_calls": [
+        {"id":"edit","type":"function","function":{"name":"edit_file","arguments":json.dumps({"path":"value.py","content":"VALUE = 2\n"})}},
+        {"id":"read","type":"function","function":{"name":"read_file","arguments":json.dumps({"path":"value.py"})}},
+    ]}]
+    def handler(request):
+        return httpx.Response(200,json={"choices":[{"message":replies.pop(0),"finish_reason":"stop"}],
+            "usage":{"prompt_tokens":10,"completion_tokens":2}})
+    def compose():
+        client=LLMClient(LLMConfig(model="fixture"),log_path=tmp_path/"llm.jsonl",transport=httpx.MockTransport(handler))
+        tools=ToolOrchestrator(DockerWorkspaceTools("fixture",DockerExecutor(workspace,DockerExecutionPolicy())))
+        runner=AgentRunner(registry,client,tools,provenance={},auto_approve=False)
+        return runner,client
+    def decision(runner,pause):
+        saved=runner.checkpoints.load(pause.invocation_id);op=saved["pending_approval"]
+        return ApprovalDecision(pause.invocation_id,pause.revision,op["id"],op["arguments_hash"],True)
+    runner,client=compose()
+    request={"run_id":"docker-resume","task_id":"fixture","work_id":"fixture","scope":"task","artifacts":{}}
+    try:
+        with pytest.raises(AgentPaused) as first: await runner("Coder",request)
+        with pytest.raises(AgentPaused) as second:
+            await runner.resume(first.value.invocation_id,approval=decision(runner,first.value))
+    finally: await client.aclose()
+    restored,client=compose();replies.append({"content":""})
+    try:
+        result=await restored.resume(second.value.invocation_id,approval=decision(restored,second.value))
+        assert "-VALUE = 1" in result.output and "+VALUE = 2" in result.output
+        assert restored.tools.workspace.coder_paths=={"value.py"}
+        assert restored.tools.workspace.code_edit_count==1
+        assert client.usage.snapshot(run_id="docker-resume")["calls"]==2
+        restored.tools.workspace.export_candidate(tmp_path/"candidate.patch")
+        assert (tmp_path/"candidate.patch").read_text()==result.output
+    finally:await client.aclose()

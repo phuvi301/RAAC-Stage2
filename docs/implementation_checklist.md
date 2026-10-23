@@ -14,7 +14,7 @@ Cách dùng file này
 - Chữ trong ngoặc cuối dòng là người phụ trách, Vũ, Vinh hoặc Tuấn, đổi lại nếu hoán đổi việc.
 - Ghi ngày cập nhật cuối mỗi khi sửa file, và ghi vấn đề phát sinh vào mục nhật ký cuối file.
 
-Cập nhật gần nhất ngày 2026-10-22
+Cập nhật gần nhất ngày 2026-10-23
 
 ---
 
@@ -55,14 +55,16 @@ Thư mục liên quan là `src/raac/harness/`, `src/raac/llm/`, `src/raac/regist
 
 Thư mục `src/raac/harness/layer1_lifecycle/`.
 
-- [ ] `agent.py` lắp một Agent từ role trong registry và gắn đủ 4 layer (Vũ)
-- [ ] `event_loop.py` hiện thực vòng lặp Reason, Act, Observe (Vũ)
-- [ ] Vòng lặp dừng khi đạt mục tiêu, chạm số vòng tối đa hoặc bị cost guard chặn (Vũ)
-- [ ] `state_machine.py` có đủ trạng thái `IDLE`, `PLANNING`, `EXECUTING_TOOL`, `WAITING_HUMAN_APPROVAL`, `FAILED`, `COMPLETED` (Vũ)
-- [ ] Chuyển trạng thái bất hợp lệ bị từ chối và được log (Vũ)
-- [ ] `checkpoint.py` lưu và khôi phục trạng thái agent ở mức một run (Vũ)
-- [ ] `approval.py` có chế độ tự duyệt (auto-approve) cho benchmark (Vũ)
-- [ ] Unit test cho từng chuyển trạng thái và cho resume sau khi bị ngắt (Vũ)
+- [~] `agent.py` lắp một Agent từ role trong registry và gắn đủ 4 layer (Vũ) — AgentRunner đã tích hợp registry/LLM/context/memory/tools; CLI/benchmark dùng trực tiếp AgentRunner; connector Layer 4 ngoại vi vẫn interface/stub, không nghiệm thu adapter ngoại vi.
+- [x] `event_loop.py` hiện thực vòng lặp Reason, Act, Observe (Vũ)
+- [x] Vòng lặp dừng khi đạt mục tiêu, chạm số vòng tối đa hoặc bị cost guard chặn (Vũ)
+- [x] `state_machine.py` có đủ trạng thái `IDLE`, `PLANNING`, `EXECUTING_TOOL`, `WAITING_HUMAN_APPROVAL`, `FAILED`, `COMPLETED` (Vũ)
+- [x] Chuyển trạng thái bất hợp lệ bị từ chối và được log (Vũ)
+- [x] `checkpoint.py` lưu và khôi phục trạng thái agent ở mức một run (Vũ)
+- [x] `approval.py` có chế độ tự duyệt (auto-approve) cho benchmark (Vũ)
+- [x] Unit test cho từng chuyển trạng thái và cho resume sau khi bị ngắt (Vũ)
+
+- 2026-10-23 | Agent hỗ trợ theo plan người dùng duyệt: tách Layer 1 LangGraph, state machine, SQLite JSON checkpoint, auto/manual approval, guard/deadline và same-workspace resume; không đổi topology L3 hay context/budget. 35 lifecycle test qua (4,12s); suite cuối 638 pass/159 subtest, 35 skip và chủ động deselect đúng 4 lỗi prompt Analyst/Planner đã xác nhận baseline (75,02s). Docker thật 16/16 qua (93,05s), gồm runner/client mới tiếp tục cùng container, baseline/attribution và candidate đúng. Review độc lập phát hiện hai lỗi ID receipt/deadline, đã có test tái hiện và sửa/kiểm chứng lại. Core Layer 1/contracts/usage Ruff và diff check qua; 6 cảnh báo Ruff Layer 3 trùng baseline. Resume toàn collaboration/khôi phục Docker và A5 chưa nghiệm thu; không gọi model thật, không commit/push. Xem docs/layer1_lifecycle.md và docs/superpowers/plans/2026-10-23-layer1-lifecycle.md.
 
 ## A2 - Layer 2, Lõi Trí tuệ và Ngữ cảnh
 
@@ -695,3 +697,7 @@ Ghi mỗi dòng theo dạng ngày, vấn đề hoặc quyết định, người 
 - 2026-10-22 | Theo yêu cầu người dùng: chuyển sáu role sang model.ref default (Registry 0.18.7), để LLM_MODEL trong .env ghi đè model chung của benchmark/Chain; giữ khả năng chọn profile riêng. | Agent hỗ trợ Vinh/Tuấn | 46 test model profiles/registry loader/benchmark Chain/CLI integration qua (6,49s), gồm .env ghi đè cả sáu role và giá trị rỗng fallback YAML; bộ rộng 114 pass, 4 lỗi prompt Analyst/Planner đã có và 1 assertion model.ref đã sửa/kiểm chứng lại. Không gọi API thật, không đổi mốc nghiệm thu.
 
 - 2026-10-22 | Sửa show-log --run-id nhận cả chain-* và benchmark-*, giữ chặn path; bổ sung hướng dẫn monitor candidate. | Agent hỗ trợ Vinh/Tuấn | 22 test + 6 subtest trace terminal/web qua (1,52s), gồm benchmark --follow --details/--web và chặn traversal; không gọi LLM hoặc thay run đang chạy. Không đổi mốc nghiệm thu.
+
+- 2026-10-23 | Hiện thực Layer 1 theo thiết kế người dùng duyệt: Reason/Act/Observe bằng LangGraph, checkpoint SQLite JSON và resume cùng workspace/container, approval một operation, giữ usage/baseline/evidence. | Agent hỗ trợ Vũ/Vinh/Tuấn | 638 test +159 subtest qua sau deselect 4 lỗi prompt cũ; 16 Docker fixture qua; reviewer kiểm chứng lại hai lỗi đã sửa. Không đổi phân công/topology/context policy hoặc nghiệm thu A5; không commit/push.
+
+- 2026-10-23 | Theo yêu cầu người dùng: xóa DemoAgentRunner/demo_agent.py, chuyển CLI/benchmark/test sang import trực tiếp AgentRunner Layer 1; giữ Protocol collaboration, không đổi lifecycle. Cập nhật tài liệu hiện hành và ghi amendment cho thiết kế/plan cũ. | Agent hỗ trợ Vũ/Vinh/Tuấn | 391 test +159 subtest qua (62,76s), gồm MAS unit/CLI integration và benchmark runner/trace; import smoke CLI/benchmark qua, không còn import tên cũ trong src/tests. Không gọi model thật, không chạy lại Docker hoặc commit/push.

@@ -9,7 +9,7 @@ import pytest
 
 from raac.collaboration.levels.l3_collaboration import ChainLimits, ChainNodes, WorkItem, initial_chain_state
 from raac.common.errors import WorkspaceSnapshotError
-from raac.harness.demo_agent import DemoAgentRunner
+from raac.harness.layer1_lifecycle import AgentRunner
 from raac.harness.layer2_core.context_manager import RoleContextPolicy
 from raac.harness.layer3_execution.tool_orchestrator import ToolOrchestrator
 from raac.harness.layer3_execution.tools.paths import repo_path
@@ -137,7 +137,7 @@ def runner_for(workspace, tmp_path, handler):
         registry.roles[key] = spec.model_copy(update={"model": spec.model.model_copy(update={"ref": "default"})})
     client = LLMClient(LLMConfig(model="test-model"), log_path=tmp_path / "trace.jsonl",
                        trace_content=True, transport=httpx.MockTransport(handler))
-    runner = DemoAgentRunner(registry, client, ToolOrchestrator(workspace), provenance={},
+    runner = AgentRunner(registry, client, ToolOrchestrator(workspace), provenance={},
                              context_policy=RoleContextPolicy(enabled=False))
     return runner, client
 
