@@ -170,12 +170,16 @@ Thư mục `src/raac/harness/layer4_connectors/`.
 
 ### Engine dùng chung (`src/raac/collaboration/`)
 
-- [ ] `state.py` định nghĩa State dùng chung gồm requirement, plan, patch, kết quả test, message, số vòng và agent đang hoạt động
-- [ ] Tách state vòng đời từng agent ở Layer 1 khỏi state điều phối LangGraph; test checkpoint/resume liên kết đúng run, agent và vị trí điều phối
-- [ ] `graph_builder.py` dựng graph LangGraph từ cấu hình level
-- [ ] `engine.py` chạy graph và ghi log mỗi lần kích hoạt agent
-- [ ] `levels/base.py` chốt interface level nhận `task`, `registry`, `config` và trả về kết quả
-- [ ] Chia sẻ interface này cho Tuấn và Vinh ngay khi chốt
+- [x] `state.py` định nghĩa State dùng chung gồm requirement, plan, patch, kết quả test, message, số vòng và agent đang hoạt động — `CollaborationState`/`initial_state` trong `src/raac/collaboration/state.py` có đủ trường và reducer cho message/events.
+- [x] Tách state vòng đời từng agent ở Layer 1 khỏi state điều phối LangGraph; test checkpoint/resume liên kết đúng run, agent và vị trí điều phối — Engine dùng `thread_id=run_id`, test resume tiếp tục node sau interrupt và xác nhận không có key lifecycle.
+- [x] `graph_builder.py` dựng graph LangGraph từ cấu hình level — `LevelGraph`/`build_graph` validate node-edge và compile `StateGraph` từ level nhận task/registry/config.
+- [x] `engine.py` chạy graph và ghi log mỗi lần kích hoạt agent — Engine ghi run và agent activation events.
+- [~] Shared Engine gọi LLM qua `AgentRunner`/`LLMClient` — `Engine.from_runtime` tạo runner thật và `invoke_agent` truyền request có provenance; test HTTP mock đi hết đường `Engine -> AgentRunner -> LLMClient`, chưa gọi provider thật/pilot.
+- [~] Shared Engine gọi tool/sandbox qua `ToolOrchestrator` — `execute_tool` chuyển role/arguments vào orchestrator, dùng workspace local hoặc Docker backend; test local workspace đã đọc file qua Engine, chưa có Docker run riêng cho mục này.
+- [x] `levels/base.py` chốt interface level nhận `task`, `registry`, `config` và trả về kết quả — `Level` protocol/`BaseLevel` dùng `build_graph` và `LevelGraph`.
+- [~] Chia sẻ interface này cho Tuấn và Vinh ngay khi chốt — contract đã có trong `levels/base.py`; chờ bằng chứng review/bàn giao riêng.
+
+- 2026-10-23 | Tạo branch `collaboration` từ `main` commit `a9b1814`; khôi phục có chọn lọc các thay đổi Shared Engine từ stash cũ, không khôi phục các file Layer 1 cũ. Engine/state/graph builder/level interface và `tests/unit/collaboration/test_engine.py` đã được đưa sang branch này. | Agent hỗ trợ | Shared Engine giữ trạng thái [x] cho 5 mục kỹ thuật; Layer 1 upstream trên `main` không bị thay đổi.
 
 ### L1 Fixed (`levels/l1_fixed.py`)
 
