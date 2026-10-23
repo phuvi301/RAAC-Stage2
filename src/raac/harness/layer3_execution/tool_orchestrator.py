@@ -124,6 +124,20 @@ DESCRIPTIONS = {
 
 
 class ToolOrchestrator:
+    def snapshot_runtime(self):
+        from copy import deepcopy
+        return {"version": 1, "workspace": self.workspace.snapshot_runtime(),
+                "evidence": deepcopy(self._evidence),
+                "observations": [[run, ref, value] for (run, ref), value in self._observations.items()]}
+
+    def restore_runtime(self, snapshot):
+        from copy import deepcopy
+        if snapshot.get("version") != 1:
+            raise ValueError("resume_tool_runtime_version")
+        self.workspace.restore_runtime(snapshot["workspace"])
+        self._evidence = deepcopy(snapshot["evidence"])
+        self._observations = {(run, ref): deepcopy(value) for run, ref, value in snapshot["observations"]}
+
     def __init__(self, workspace, *, timeout_seconds=90.0, trace=None):
         self.workspace = workspace
         self.timeout_seconds = timeout_seconds

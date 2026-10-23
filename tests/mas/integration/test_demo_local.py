@@ -261,7 +261,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual((repo / "checks/test_service.py").read_text(), tests)
         self.assertEqual(len(record["coder_evidence"]), 2)
         self.assertNotIn("fabricated", json.dumps(record["coder_evidence"]))
-        self.assertEqual({file.name for file in output_dir.iterdir()}, {"llm.jsonl", "result.json", "memory"})
+        self.assertEqual({file.name for file in output_dir.iterdir() if not file.name.startswith("lifecycle-")}, {"llm.jsonl", "result.json", "memory", "lifecycle.sqlite3"})
         trace = [json.loads(line) for line in (output_dir / "llm.jsonl").read_text(encoding="utf-8").splitlines()]
         rebuilt = next(event for event in trace if event["event"] == "coder_patch_rebuilt")
         self.assertEqual(rebuilt["source"], "workspace")
@@ -388,7 +388,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual((self.project_dir / "repo/solution.py").read_text(), SOLUTION)
         self.assertEqual(apply_solution_patch(original, record["patch"]), SOLUTION)
         self.assertEqual((self.project_dir / "repo/test_generated.py").read_text(), GENERATED)
-        self.assertEqual({path.name for path in output_dir.iterdir()}, {"result.json", "llm.jsonl", "memory"})
+        self.assertEqual({path.name for path in output_dir.iterdir() if not path.name.startswith("lifecycle-")}, {"result.json", "llm.jsonl", "memory", "lifecycle.sqlite3"})
         self.assertEqual(record["provenance"]["workspace"]["mode"], "in_place")
         self.assertEqual(record["provenance"]["workspace"]["repo_dir"], str(self.project_dir / "repo"))
         trace = [json.loads(line) for line in (output_dir / "llm.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -435,7 +435,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual((self.project_dir / "repo/solution.py").read_text(), follow_up)
         self.assertEqual(apply_solution_patch(SOLUTION, second["patch"]), follow_up)
         self.assertEqual((self.project_dir / "repo/test_generated.py").read_text(), ENVELOPE_TESTS)
-        self.assertEqual({path.name for path in second_dir.iterdir()}, {"result.json", "llm.jsonl", "memory"})
+        self.assertEqual({path.name for path in second_dir.iterdir() if not path.name.startswith("lifecycle-")}, {"result.json", "llm.jsonl", "memory", "lifecycle.sqlite3"})
 
 
     async def test_unknown_profile_fails_before_workspace_or_http(self):

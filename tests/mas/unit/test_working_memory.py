@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from raac.common.memory_viewer import MemoryFeed
 from raac.common.tracing import JSONLTrace
 from raac.common.working_memory import WorkingMemoryNotes
-from raac.harness.demo_agent import DemoAgentRunner
+from raac.harness.layer1_lifecycle import AgentRunner
 from raac.harness.layer2_core.memory.short_term import ShortTermMemory, ShortTermMemoryPolicy, action_receipt
 from raac.harness.layer3_execution.tool_orchestrator import ToolOrchestrator
 from raac.harness.layer3_execution.tools.workspace import WorkspaceTools
@@ -160,9 +160,9 @@ class WorkingMemoryRunnerTests(unittest.IsolatedAsyncioTestCase):
             request = {"run_id": "notes-run", "task_id": "task", "work_id": "task", "scope": "task", "round": 1,
                        "baseline_ref": workspace.baseline_ref, "output_schema": {}}
             try:
-                runner = DemoAgentRunner(registry, client, tools, provenance={})
+                runner = AgentRunner(registry, client, tools, provenance={})
                 first = await runner("Coder", request)
-                second = await DemoAgentRunner(registry, client, tools, provenance={})("Coder", {**request, "round": 2})
+                second = await AgentRunner(registry, client, tools, provenance={})("Coder", {**request, "round": 2})
             finally:
                 await client.aclose()
             self.assertEqual(first.output, second.output)

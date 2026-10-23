@@ -12,7 +12,7 @@ from raac.collaboration.levels.l3_collaboration import (
     initial_chain_state,
 )
 from raac.common.provenance import collect_provenance
-from raac.harness.demo_agent import DemoAgentRunner
+from raac.harness.layer1_lifecycle import AgentRunner
 from raac.harness.layer2_core.context_manager import RoleContextPolicy
 from raac.harness.layer2_core.memory.short_term import ShortTermMemoryPolicy
 from raac.harness.layer3_execution.sandbox.batch import atomic_json
@@ -50,7 +50,7 @@ async def run_chain(task: Task, *, run_id: str, workspace, registry, llm_config,
 
     tools = ToolOrchestrator(workspace, timeout_seconds=workspace.executor.policy.timeout_seconds + 15,
                              trace=trace_tool)
-    runner = DemoAgentRunner(registry, client, tools, provenance=provenance, token_limit=harness["token_limit"],
+    runner = AgentRunner(registry, client, tools, provenance=provenance, token_limit=harness["token_limit"],
         context_policy=RoleContextPolicy.model_validate(harness.get("context", {})),
         memory_policy=ShortTermMemoryPolicy.model_validate(harness.get("memory", {})))
     work = WorkItem(run_id=run_id, task_id=task.id, work_id=task.id, scope="task",

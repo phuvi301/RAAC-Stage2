@@ -1,6 +1,6 @@
 # Kiến trúc Harness
 
-Harness bao quanh mỗi agent, gồm bốn layer dưới đây. Đây là thiết kế mục tiêu; các module hiện vẫn là scaffold và chưa hiện thực đầy đủ chức năng.
+Harness bao quanh mỗi agent, gồm bốn layer dưới đây. Đây là thiết kế mục tiêu; Layer 1 đã có vòng đời agent dùng chung, còn một số phần của các layer khác vẫn là scaffold hoặc chưa hiện thực đầy đủ.
 
 ## Layer 1 – Interface & Lifecycle (Lớp Giao tiếp & Vòng đời)
 
@@ -26,6 +26,12 @@ Module `state_machine.py` quản lý các trạng thái:
 | `COMPLETED` | Hoàn thành mục tiêu. |
 
 Máy trạng thái kết hợp `checkpoint.py` để lưu và khôi phục tiến trình, và `approval.py` để xử lý phê duyệt. Thiết kế này cho phép tạm dừng, resume khi có thể phục hồi từ lỗi hoặc chờ phản hồi bất đồng bộ mà không mất dấu tiến trình. State machine cần checkpoint và chính sách phục hồi đi kèm để thực hiện được khả năng này.
+
+### Hiện trạng Layer 1 (2026-10-23)
+
+`AgentRunner` dùng LangGraph Reason/Decide/Act/Observe/Finalize. SQLite JSON lưu checkpoint, usage và runtime; manual approval qua API, benchmark auto-approve. Resume chỉ trên cùng workspace/container còn tồn tại, không replay operation chưa biết kết quả và không reset budget/deadline. Wire contracts dùng chung được tách khỏi collaboration; topology/state L3 giữ riêng.
+
+Xem [API, checkpoint và giới hạn resume](layer1_lifecycle.md). Đây chưa phải resume toàn graph collaboration hay phục hồi Docker đã bị dọn; A5 chưa nghiệm thu. Layer 4 connector ngoại vi vẫn theo phạm vi interface/stub của dự án.
 
 ## Layer 2 – Intelligence Core (Lõi Trí tuệ & Ngữ cảnh)
 

@@ -210,7 +210,7 @@ Khi có danh sách này, L3 thay patch dài hơn 2000 ký tự của Tester ho�
 previous_patch của Coder retry bằng tham chiếu file; Reviewer giữ full diff.
 Nếu chưa có changed paths từ runner, L3 giữ patch đầy đủ, không tự đoán đường dẫn.
 
-DemoAgentRunner thực thi request đã được chọn, bổ sung listing/môi trường,
+AgentRunner thực thi request đã được chọn, bổ sung listing/môi trường,
 gọi LLM và tools. Prompt hydrator ghép system/task, không lọc lại theo role.
 Context manager chỉ rút gọn biểu diễn (schema annotations, dữ liệu trùng) và
 lịch sử tool/file context trong role; không chứa chính sách bàn giao Chain.
@@ -379,7 +379,7 @@ không đồng nghĩa task thành công.
   chưa có coordinator LLM chọn topology theo task.
 
 `ChainNodes` nhận `runner(role, request)` bất đồng bộ từ bên ngoài. Đã có
-`harness/demo_agent.py` nối role/prompt Registry với client 9router và tool
+`harness/layer1_lifecycle/agent.py` nối role/prompt Registry với client 9router và tool
 khám phá/chỉnh sửa repo nhiều file, giữ nguyên cây thư mục của project.
 Tester chọn lệnh test, thư mục chạy và biến môi trường sau khi đọc repo;
 framework tạo cumulative diff nhiều file từ các chỉnh sửa của Coder.

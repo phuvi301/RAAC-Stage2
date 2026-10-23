@@ -28,6 +28,28 @@ def logged_usage(usage: dict | None) -> dict | None:
 
 
 class UsageTracker:
+    def export_run(self, run_id: str) -> list[dict]:
+        return [{"agent_id": agent, "level": level, **values}
+                for (run, agent, level), values in self._totals.items() if run == run_id]
+
+    def restore_run(self, run_id: str, entries: list[dict]) -> None:
+        restored = {}
+        counts = {"prompt_tokens", "completion_tokens", "calls", "cached_tokens", "cache_reports"}
+        for entry in entries:
+            if (set(entry) != counts | {"agent_id", "level", "usage_complete"}
+                    or any(type(entry[key]) is not int or entry[key] < 0 for key in counts)
+                    or type(entry["usage_complete"]) is not bool
+                    or not isinstance(entry["agent_id"], str) or not isinstance(entry["level"], str)
+                    or entry["cached_tokens"] > entry["prompt_tokens"] or entry["cache_reports"] > entry["calls"]):
+                raise ValueError("Invalid persisted usage")
+            key = (run_id, entry["agent_id"], entry["level"])
+            if key in restored:
+                raise ValueError("Duplicate persisted usage")
+            restored[key] = {name: entry[name] for name in counts | {"usage_complete"}}
+        for key in list(self._totals):
+            if key[0] == run_id:
+                del self._totals[key]
+        self._totals.update(restored)
     def __init__(self):
         self._totals = defaultdict(lambda: {"prompt_tokens": 0, "completion_tokens": 0,
                                            "calls": 0, "usage_complete": True,

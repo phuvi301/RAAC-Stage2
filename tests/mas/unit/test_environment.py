@@ -16,7 +16,7 @@ from pydantic import ValidationError
 from raac.collaboration.levels.l3_collaboration import ChainNodes, ChainLimits, WorkItem, initial_chain_state
 from raac.collaboration.levels.l3_collaboration.chain_state import RoleHandoff, parse_role_output
 from raac.collaboration.levels.l3_collaboration.chain_handoff import prepare_role_request
-from raac.harness.demo_agent import DemoAgentRunner
+from raac.harness.layer1_lifecycle import AgentRunner
 from raac.harness.layer3_execution.local_executor import LocalExecutor, LocalExecutionPolicy
 from raac.harness.layer3_execution.tool_orchestrator import ToolOrchestrator
 from raac.harness.layer3_execution.tools.workspace import WorkspaceTools
@@ -50,7 +50,7 @@ class EnvironmentTests(unittest.IsolatedAsyncioTestCase):
 
         client = LLMClient(LLMConfig(model="fixture"), log_path=self.project / "candidates.jsonl",
                            transport=httpx.MockTransport(handler))
-        runner = DemoAgentRunner(self.registry, client, self.tools, provenance={})
+        runner = AgentRunner(self.registry, client, self.tools, provenance={})
         try:
             output = await runner("Environment", {"run_id": "candidate-run", "task_id": "task",
                 "work_id": "task", "scope": "task", "requirement": "Fix behavior", "output_schema": {}})
@@ -195,7 +195,7 @@ class EnvironmentTests(unittest.IsolatedAsyncioTestCase):
                 "usage": {"prompt_tokens": 10, "completion_tokens": 5}})
         client = LLMClient(LLMConfig(model="mock", timeout_seconds=0.01),
                            log_path=self.project / "log.jsonl", transport=httpx.MockTransport(handler))
-        runner = DemoAgentRunner(self.registry, client, self.tools, provenance={})
+        runner = AgentRunner(self.registry, client, self.tools, provenance={})
         try:
             request = {**state()["work"], "round": 0, "artifacts": {}, "output_format": "json",
                        "output_schema": {}}

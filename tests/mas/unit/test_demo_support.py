@@ -18,7 +18,7 @@ import yaml
 from raac.collaboration.levels.l3_collaboration import (
     ChainLimits, ChainNodes, WorkItem, build_chain_graph, initial_chain_state,
 )
-from raac.harness.demo_agent import DemoAgentRunner
+from raac.harness.layer1_lifecycle import AgentRunner
 from raac.harness.layer2_core.prompt_hydrator import hydrate_messages
 from raac.harness.layer3_execution.tool_orchestrator import SCHEMAS, ToolOrchestrator
 from raac.harness.layer3_execution.tools.patching import apply_solution_patch
@@ -589,7 +589,7 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
 
         client = LLMClient(LLMConfig(model="test-model"), log_path=Path(self.temp.name) / "final-call.jsonl",
                            transport=httpx.MockTransport(handler))
-        runner = DemoAgentRunner(self.registry, client, self.tools, provenance={"test": True})
+        runner = AgentRunner(self.registry, client, self.tools, provenance={"test": True})
         try:
             output = await runner("Coder", {"run_id": "final-run", "task_id": "task", "work_id": "task",
                 "scope": "task", "requirement": "Implement the operation", "output_schema": {}})
@@ -637,7 +637,7 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
         client = LLMClient(LLMConfig(model="test-model"), log_path=log,
                            transport=httpx.MockTransport(handler), trace_content=True)
         self.tools.trace = client.trace_event
-        runner = DemoAgentRunner(self.registry, client, self.tools, provenance={"test": True})
+        runner = AgentRunner(self.registry, client, self.tools, provenance={"test": True})
         try:
             output = await runner("Coder", {"run_id": "context-run", "task_id": "task", "work_id": "task",
                 "scope": "task", "requirement": "Implement the requested function", "output_schema": {},
@@ -662,7 +662,7 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
                            transport=httpx.MockTransport(lambda request: httpx.Response(200, json=sequence.pop(0))),
                            trace_content=trace)
         self.tools.trace = client.trace_event
-        runner = DemoAgentRunner(self.registry, client, self.tools, provenance={"test": True})
+        runner = AgentRunner(self.registry, client, self.tools, provenance={"test": True})
         try:
             handoff = await runner("Coder", {"run_id": "coder-run", "task_id": "task", "work_id": "task",
                                           "scope": "task", "requirement": "Implement the operation",
@@ -706,12 +706,12 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
                            transport=httpx.MockTransport(handler), trace_content=True)
         request = {"run_id": "memory-run", "task_id": "task", "work_id": "task", "scope": "task",
                    "round": 1, "baseline_ref": self.workspace.baseline_ref, "output_schema": {}}
-        runner = DemoAgentRunner(self.registry, client, self.tools, provenance={},
+        runner = AgentRunner(self.registry, client, self.tools, provenance={},
                                  memory_policy=ShortTermMemoryPolicy(max_tokens=1024, target_tokens=700))
         try:
             first = await runner("Coder", request)
             # A new runner reloads concise receipts from the same run; full code stays in the journal.
-            runner = DemoAgentRunner(self.registry, client, self.tools, provenance={},
+            runner = AgentRunner(self.registry, client, self.tools, provenance={},
                                      memory_policy=ShortTermMemoryPolicy(max_tokens=1024, target_tokens=700))
             second = await runner("Coder", {**request, "round": 2, "artifacts": {
                 "test_report": {"status": "passed", "blocking_issues": ["Need performance evidence"]}}})
@@ -755,7 +755,7 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
             return httpx.Response(200, json=sequence.pop(0))
         client = LLMClient(LLMConfig(model="test-model"), log_path=Path(self.temp.name) / "isolation.jsonl",
                            transport=httpx.MockTransport(handler))
-        runner = DemoAgentRunner(self.registry, client, self.tools, provenance={})
+        runner = AgentRunner(self.registry, client, self.tools, provenance={})
         request = {"run_id": "one", "task_id": "task", "work_id": "task", "scope": "task", "round": 1}
         try:
             await runner("Coder", request)
@@ -777,7 +777,7 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
                 "name": "read_files", "arguments": json.dumps({"files": []})}}]), response("")]
         client = LLMClient(LLMConfig(model="test-model"), log_path=Path(self.temp.name) / "bad-args.jsonl",
                            transport=httpx.MockTransport(lambda _: httpx.Response(200, json=sequence.pop(0))))
-        runner = DemoAgentRunner(self.registry, client, self.tools, provenance={})
+        runner = AgentRunner(self.registry, client, self.tools, provenance={})
         try:
             await runner("Coder", {"run_id": "bad-args", "task_id": "task", "work_id": "task", "scope": "task"})
         finally:
@@ -791,7 +791,7 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
         from raac.harness.layer2_core.memory.short_term import ShortTermMemoryPolicy
         client = LLMClient(LLMConfig(model="test-model"), log_path=Path(self.temp.name) / "disabled.jsonl",
                            transport=httpx.MockTransport(lambda _: httpx.Response(200, json=response(""))))
-        runner = DemoAgentRunner(self.registry, client, self.tools, provenance={},
+        runner = AgentRunner(self.registry, client, self.tools, provenance={},
                                  memory_policy=ShortTermMemoryPolicy(enabled=False))
         try:
             await runner("Coder", {"run_id": "off", "task_id": "task", "work_id": "task", "scope": "task"})
@@ -843,7 +843,7 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
             {"id": "AC1", "description": "Count smaller on the right"}], "constraints": []}), usage=False)
         client = LLMClient(LLMConfig(model="test-model"), log_path=Path(self.temp.name) / "missing.jsonl",
                            transport=httpx.MockTransport(lambda request: httpx.Response(200, json=payload)))
-        runner = DemoAgentRunner(self.registry, client, self.tools, provenance={"test": True})
+        runner = AgentRunner(self.registry, client, self.tools, provenance={"test": True})
         work = WorkItem(run_id="usage-run", task_id="task", work_id="task", scope="task",
                         requirement=self.workspace.requirement, baseline_ref=self.workspace.baseline_ref)
         limits = ChainLimits(max_rounds=1, hard_max_rounds=3,
@@ -872,7 +872,7 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
         client = LLMClient(LLMConfig(model="test-model", max_retries=2, backoff_seconds=0.0),
                            log_path=Path(self.temp.name) / "planner-timeout.jsonl",
                            transport=httpx.MockTransport(handler))
-        runner = DemoAgentRunner(self.registry, client, self.tools, provenance={"test": True})
+        runner = AgentRunner(self.registry, client, self.tools, provenance={"test": True})
         work = WorkItem(run_id="timeout-usage-run", task_id="task", work_id="task", scope="task",
                         requirement=self.workspace.requirement, baseline_ref=self.workspace.baseline_ref)
         limits = ChainLimits(max_rounds=1, hard_max_rounds=3,
@@ -936,7 +936,7 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
                 log = Path(self.temp.name) / f"{passed}.jsonl"
                 client = LLMClient(LLMConfig(model="test-model"), log_path=log,
                                    transport=httpx.MockTransport(handler))
-                runner = DemoAgentRunner(self.registry, client, self.tools, provenance={"test": True})
+                runner = AgentRunner(self.registry, client, self.tools, provenance={"test": True})
                 work = WorkItem(run_id=f"run-{passed}", task_id="count-smaller", work_id="count-smaller",
                                 scope="task", requirement=self.workspace.requirement,
                                 baseline_ref=self.workspace.baseline_ref)
