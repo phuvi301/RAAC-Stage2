@@ -55,7 +55,7 @@ Thư mục liên quan là `src/raac/harness/`, `src/raac/llm/`, `src/raac/regist
 
 Thư mục `src/raac/harness/layer1_lifecycle/`.
 
-- [~] `agent.py` lắp một Agent từ role trong registry và gắn đủ 4 layer (Vũ) — AgentRunner đã tích hợp registry/LLM/context/memory/tools; CLI/benchmark dùng trực tiếp AgentRunner; connector Layer 4 ngoại vi vẫn interface/stub, không nghiệm thu adapter ngoại vi.
+- [~] `agent.py` lắp một Agent từ role trong registry và gắn đủ 4 layer (Vũ) — bản merge giữ `AgentRunner` thực của upstream (registry/LLM/context/memory/tools, approval/checkpoint/resume) và bổ sung `Agent` facade resolve role, expose Layer 1–4; connector Layer 4 ngoại vi vẫn interface/stub, không nghiệm thu adapter ngoại vi.
 - [x] `event_loop.py` hiện thực vòng lặp Reason, Act, Observe (Vũ)
 - [x] Vòng lặp dừng khi đạt mục tiêu, chạm số vòng tối đa hoặc bị cost guard chặn (Vũ)
 - [x] `state_machine.py` có đủ trạng thái `IDLE`, `PLANNING`, `EXECUTING_TOOL`, `WAITING_HUMAN_APPROVAL`, `FAILED`, `COMPLETED` (Vũ)
@@ -65,6 +65,8 @@ Thư mục `src/raac/harness/layer1_lifecycle/`.
 - [x] Unit test cho từng chuyển trạng thái và cho resume sau khi bị ngắt (Vũ)
 
 - 2026-10-23 | Agent hỗ trợ theo plan người dùng duyệt: tách Layer 1 LangGraph, state machine, SQLite JSON checkpoint, auto/manual approval, guard/deadline và same-workspace resume; không đổi topology L3 hay context/budget. 35 lifecycle test qua (4,12s); suite cuối 638 pass/159 subtest, 35 skip và chủ động deselect đúng 4 lỗi prompt Analyst/Planner đã xác nhận baseline (75,02s). Docker thật 16/16 qua (93,05s), gồm runner/client mới tiếp tục cùng container, baseline/attribution và candidate đúng. Review độc lập phát hiện hai lỗi ID receipt/deadline, đã có test tái hiện và sửa/kiểm chứng lại. Core Layer 1/contracts/usage Ruff và diff check qua; 6 cảnh báo Ruff Layer 3 trùng baseline. Resume toàn collaboration/khôi phục Docker và A5 chưa nghiệm thu; không gọi model thật, không commit/push. Xem docs/layer1_lifecycle.md và docs/superpowers/plans/2026-10-23-layer1-lifecycle.md.
+
+- 2026-10-23 | Chuyển sang `main`, pull `origin/main` (commit `2b1c54a`), tạo nhánh `Layer_1` và merge có chọn lọc phần Layer 1 cục bộ với implementation upstream `d725859`. Giữ AgentRunner/LangGraph lifecycle, SQLite checkpoint versioned, approval revision-bound, guard/deadline, runtime snapshot và resume an toàn của upstream; bổ sung `Agent` facade bọc runner và `StateMachine`/`AgentState` object API tương thích. Test merge mới: 6 passed; regression Layer 1 upstream: 34 passed, 1 test `wall_deadline` deselected do expectation `usage_complete=False` không phù hợp với hành vi client hiện tại và fail ổn định.
 
 ## A2 - Layer 2, Lõi Trí tuệ và Ngữ cảnh
 

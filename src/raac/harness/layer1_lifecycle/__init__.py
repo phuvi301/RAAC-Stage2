@@ -4,3 +4,6 @@ from .agent import AgentRunner as AgentRunner
 from .approval import AgentPaused as AgentPaused
 from .approval import ApprovalDecision as ApprovalDecision
 from .checkpoint import LifecycleError as LifecycleError
+from .state_machine import AgentState as AgentState
+from .state_machine import InvalidTransition as InvalidTransition
+from .state_machine import StateMachine as StateMachine
