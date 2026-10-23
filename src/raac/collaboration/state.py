@@ -9,6 +9,7 @@ class CollaborationState(TypedDict, total=False):
     run_id: str
     task: Any
     requirement: str
+    analysis: Any
     plan: Any
     patch: str | None
     test_results: Any
@@ -21,6 +22,7 @@ class CollaborationState(TypedDict, total=False):
     registry_version: str
     events: Annotated[list[dict[str, Any]], operator.add]
     result: Any
+    review: Any
     status: str
     error: dict[str, str] | None
 
@@ -32,6 +34,7 @@ def initial_state(*, run_id: str, task: Any, level: str, registry_version: str) 
         "run_id": run_id,
         "task": task,
         "requirement": requirement,
+        "analysis": None,
         "plan": None,
         "patch": None,
         "test_results": None,
@@ -44,6 +47,7 @@ def initial_state(*, run_id: str, task: Any, level: str, registry_version: str) 
         "registry_version": registry_version,
         "events": [],
         "result": None,
+        "review": None,
         "status": "running",
         "error": None,
     }
