@@ -36,8 +36,6 @@ Thư mục liên quan là `src/raac/harness/`, `src/raac/llm/`, `src/raac/regist
 - [~] Đọc số token vào và ra từ trường usage của API (Vinh) — có trong client MAS, thiếu usage thì dừng; thêm cached_tokens từ response, phân biệt thiếu cache/0, kiểm chứng HTTP mock.
 - [~] Ghi mọi lần gọi ra JSONL kèm `run_id`, `task_id`, `level`, `agent_id` (Vinh) — MAS có JSONL, tool/role handoff và memory_saved/loaded/compacted, terminal và web viewer đọc snapshot/journal; chưa logging benchmark tổng quát.
 - [~] `usage.py` cộng dồn token theo run, agent và level (Vinh) — đã chuyển bộ đếm MAS và test phân tách run/agent/level; thêm cached_tokens/cache_usage_complete, giữ nguyên tổng token và budget; đã tích hợp L3 candidate benchmark; còn pilot và các level khác. Quy đổi tiền ngoài phạm vi nghiên cứu từ 2026-10-22.
-- [ ] `pricing.py` quy đổi token ra chi phí theo model (Vinh) — ngoài phạm vi nghiên cứu theo xác nhận người dùng 2026-10-22: chỉ so sánh tài nguyên bằng token/thời gian, không triển khai quy đổi tiền; không coi là mục chặn nghiệm thu phạm vi này.
-- [ ] `mock_llm.py` trả về phản hồi giả có thể cấu hình, dùng cho unit test và 1-2 ngày đầu (Vinh)
 
 - 2026-10-20 | Model profile theo role: configs/llm.yaml llm-v3; ref default giữ CLI/environment/YAML, ref có tên chọn model và kế thừa temperature/max_tokens. Preflight chặn ref sai trước workspace/HTTP; log ghi model_ref và cấu hình hiệu lực, result lưu role_models, usage/budget vẫn chung run. 268 test + 113 subtest qua: python -m pytest tests/unit/registry tests/mas/unit tests/mas/integration -q (27,04s); gồm Chain nhiều model với HTTP mock và command local thật. Không gọi model thật hoặc sửa currentProject.
 
@@ -150,7 +148,7 @@ Thư mục `src/raac/harness/layer4_connectors/`.
 - [ ] Mọi lần gọi LLM đều đi qua `llm/client.py` và có log token
 - [ ] Resume từ checkpoint cho kết quả giống như chạy liền mạch
 - [ ] Cost guard dừng được run vượt trần và ghi rõ lý do dừng
-- [ ] Unit test của từng layer chạy được bằng `mock_llm` mà không tốn token
+- [ ] Unit test của từng layer chạy được bằng HTTP fixture/test double mà không gọi API thật hoặc tốn token
 - [ ] Phụ thuộc chỉ đi một chiều từ layer 1 xuống layer 4, không có import ngược
 - ........
 
@@ -199,7 +197,7 @@ Thư mục `src/raac/harness/layer4_connectors/`.
 ### Tài liệu
 
 - [~] Viết `docs/level_definitions.md` mô tả biến cố định và biến tự do ở từng level — đã viết theo Proposal_DACN.pdf mục 2, 5.4, 6.2/Bảng 1, 6.3–6.5 và 7.2; có bảng quyền L1–L4, ví dụ/ranh giới, escalation, điều kiện đối chứng và tiêu chí nghiệm thu. Chờ nhóm review, không coi Chain hiện tại là L3 thích ứng đầy đủ.
-  - 2026-10-22 | Agent hỗ trợ Vũ: đọc proposal 25 trang, đối chiếu trực quan Bảng 1 tại trang in 15/PDF16, kiểm tra coordinator/topology hiện tại qua CodeGraph; quy tắc vận hành bổ sung được ghi rõ là diễn giải cần review. Chỉ sửa tài liệu, không đổi runtime hoặc tự nghiệm thu level; không commit/push.
+  - 2026-10-22 | Agent hỗ trợ Vũ: đọc proposal 25 trang, đối chiếu trực quan Bảng 1 tại trang in 15/PDF16, kiểm tra coordinator/topology hiện tại qua CodeGraph; quy tắc vận hành bổ sung được ghi rõ là diễn giải cần review. Chỉ sửa tài liệu, không đổi runtime hoặc tự nghiệm thu level.
 - [ ] Viết `docs/architecture.md` với sơ đồ 4 layer và phần collaboration
 
 Tiêu chí thành công tuần 8
@@ -258,7 +256,7 @@ Ghi chú tuần 9
 
 ### Việc chặn đường của cả nhóm (ngày 1-2)
 
-- [~] Hoàn thành `llm/client.py` và `mock_llm.py` (xem mục A0) và báo cho Vũ và Tuấn có thể dùng — client đã dùng cho MAS/9router; mock_llm chưa hiện thực, còn tích hợp benchmark chung và xác nhận bàn giao cho Vũ/Tuấn.
+- [~] Hoàn thành `llm/client.py` (xem mục A0) và báo cho Vũ và Tuấn có thể dùng — client đã dùng cho MAS/9router; còn tích hợp benchmark chung và xác nhận bàn giao cho Vũ/Tuấn. MockLLM đã bỏ khỏi phạm vi; test tiếp tục dùng HTTP fixture/test double.
 
 ### Dataset và môi trường chạy
 
@@ -707,3 +705,5 @@ Ghi mỗi dòng theo dạng ngày, vấn đề hoặc quyết định, người 
 - 2026-10-23 | Hiện thực Layer 1 theo thiết kế người dùng duyệt: Reason/Act/Observe bằng LangGraph, checkpoint SQLite JSON và resume cùng workspace/container, approval một operation, giữ usage/baseline/evidence. | Agent hỗ trợ Vũ/Vinh/Tuấn | 638 test +159 subtest qua sau deselect 4 lỗi prompt cũ; 16 Docker fixture qua; reviewer kiểm chứng lại hai lỗi đã sửa. Không đổi phân công/topology/context policy hoặc nghiệm thu A5; không commit/push.
 
 - 2026-10-23 | Theo yêu cầu người dùng: xóa DemoAgentRunner/demo_agent.py, chuyển CLI/benchmark/test sang import trực tiếp AgentRunner Layer 1; giữ Protocol collaboration, không đổi lifecycle. Cập nhật tài liệu hiện hành và ghi amendment cho thiết kế/plan cũ. | Agent hỗ trợ Vũ/Vinh/Tuấn | 391 test +159 subtest qua (62,76s), gồm MAS unit/CLI integration và benchmark runner/trace; import smoke CLI/benchmark qua, không còn import tên cũ trong src/tests. Không gọi model thật, không chạy lại Docker hoặc commit/push.
+
+- 2026-10-23 | Theo yêu cầu người dùng: xóa stub src/raac/llm/mock_llm.py không có caller, bỏ tham chiếu module khỏi README và yêu cầu công việc hiện hành; giữ HTTP fixture/test double để kiểm thử không tốn token, không sửa nhật ký lịch sử. | Agent hỗ trợ Vinh | 46 test model profiles/cached tokens qua (0,90s), không có import module bị xóa; diff check qua. Giữ các chỉnh sửa checklist và xóa tài liệu người dùng đã có; không gọi API thật, không commit/push.

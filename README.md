@@ -82,8 +82,7 @@ Cây dưới đây lược bỏ các file `__init__.py` và `.gitkeep` để d�
 │   ├── llm/                          # client duy nhất gọi LLM (đo token tại đây)
 │   │   ├── client.py                 # retry/backoff, đọc usage, ghi JSONL
 │   │   ├── usage.py                  # cộng dồn token theo run/agent/level
-│   │   ├── pricing.py
-│   │   └── mock_llm.py               # LLM giả cho unit test và 1-2 ngày đầu
+│   │   └── pricing.py
 │   │
 │   ├── registry/                     # code nạp và kiểm tra registry
 │   │   ├── models.py                 # pydantic schema (role, tool, model, nhóm)
@@ -161,7 +160,7 @@ Cây dưới đây lược bỏ các file `__init__.py` và `.gitkeep` để d�
 ├── data/                             # task, repo cache (gitignore phần lớn)
 ├── results/                          # runs/*.jsonl, báo cáo pilot (gitignore)
 ├── tests/
-│   ├── unit/                         # theo từng layer, dùng mock_llm
+│   ├── unit/                         # theo từng layer, dùng HTTP fixture không gọi API thật
 │   ├── integration/                  # mỗi level chạy trên 3 task mẫu
 │   └── fixtures/
 ├── scripts/                          # freeze_config.sh, run_pilot.sh
