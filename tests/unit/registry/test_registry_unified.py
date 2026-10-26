@@ -77,7 +77,7 @@ def test_extended_role_can_be_loaded_without_claiming_execution(copied_registry)
     registry = load_registry(copied_registry)
     assert [role.id for role in registry.roles_in_group(RoleGroup.EXTENDED)] == ["security_reviewer"]
     assert registry.get("Security Reviewer").system_prompt == "Review security."
-    assert len(registry.roles_in_group(RoleGroup.CORE)) == 6
+    assert len(registry.roles_in_group(RoleGroup.CORE)) == 7
 
 
 def test_missing_catalog_and_bad_version_are_both_reported(copied_registry):

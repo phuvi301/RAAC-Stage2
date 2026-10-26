@@ -20,6 +20,8 @@ class CollaborationState(TypedDict, total=False):
     active_agent: str | None
     level: str
     registry_version: str
+    routing_raw: Any
+    routing: dict[str, Any] | None
     events: Annotated[list[dict[str, Any]], operator.add]
     result: Any
     review: Any
@@ -45,6 +47,8 @@ def initial_state(*, run_id: str, task: Any, level: str, registry_version: str) 
         "active_agent": None,
         "level": level,
         "registry_version": registry_version,
+        "routing_raw": None,
+        "routing": None,
         "events": [],
         "result": None,
         "review": None,

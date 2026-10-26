@@ -66,12 +66,12 @@ async def test_batch_runs_each_selected_level_and_checks_identity_per_level(tmp_
         return record
 
     monkeypatch.setattr(module, "run_task", run)
-    kwargs = {"config_path": config_path, "task_ids": [task_id], "levels": ["L1", "L3"],
+    kwargs = {"config_path": config_path, "task_ids": [task_id], "levels": ["L1", "L2", "L3"],
               "repetitions": 1, "batch_id": "levels"}
     result = await run_benchmark_batch(**kwargs)
-    assert calls == ["L1", "L3"] and result["total"] == 2
+    assert calls == ["L1", "L2", "L3"] and result["total"] == 3
     await run_benchmark_batch(**kwargs, resume=True)
-    assert calls == ["L1", "L3"]
+    assert calls == ["L1", "L2", "L3"]
     manifest = json.loads((tmp_path / "results/benchmark-batches/levels/manifest.json").read_text())
     l1_run = manifest["entries"][0]["attempts"][0]
     path = tmp_path / "results" / l1_run / "record.json"

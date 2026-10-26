@@ -125,6 +125,45 @@ async def test_l1_uses_shared_lifecycle_with_its_own_agent_and_config(tmp_path, 
 
 
 @pytest.mark.asyncio
+async def test_l2_uses_shared_lifecycle_and_records_routing_provenance(tmp_path, monkeypatch):
+    import raac.benchmark.runner as module
+
+    task = next(iter(load_tasks(ROOT / "data/tasks/benchmark105-v1.json").values()))
+    removed, evaluated, levels = [], [], []
+    session = SimpleNamespace(container=SimpleNamespace(id="fixture"), __exit__=lambda *args: removed.append(True))
+
+    class Workspace:
+        def export_candidate(self, path):
+            path.write_text("candidate fixture")
+            return {"path": str(path), "sha256": "d" * 64}
+
+    monkeypatch.setattr(module, "prepare_workspace", lambda *args, **kwargs: (session, Workspace(), {"image_id": "fixture"}))
+    routing = {"source": "router", "selected_roles": ["Coder", "Tester"], "skipped": [
+        {"role": "Analyst", "reason": "skip"}, {"role": "Planner", "reason": "skip"}, {"role": "Reviewer", "reason": "skip"}],
+        "reason": "minimal", "fallback_reason": None}
+
+    async def l2(*args, level_config, **kwargs):
+        levels.append(level_config["version"])
+        return {"status": "completed", "verdict": "PASS", "stop_reason": "tests_passed_no_review",
+                "rounds_completed": 1, "routing": routing,
+                "events": [{"event": "agent_started", "agent_id": "router"},
+                           {"event": "agent_started", "agent_id": "coder"},
+                           {"event": "agent_started", "agent_id": "tester"}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12, "calls": 3,
+                          "usage_complete": True, "cached_tokens": None, "cache_usage_complete": False}}
+
+    monkeypatch.setattr(module, "run_l2", l2)
+    monkeypatch.setattr(module, "evaluate_candidate", lambda *args, **kwargs: evaluated.append(kwargs) or {"status": "resolved"})
+    output = tmp_path / "benchmark-l2"
+    result = await run_task(task, level="L2", repetition=1, output_dir=output, config_path=ROOT / "configs/benchmark.yaml")
+    assert result.level == "L2" and result.status == "completed" and result.evaluation_status == "resolved"
+    assert levels == ["l2-routing-v1"] and len(evaluated) == 1 and removed == [True]
+    assert "configs/levels/l2_routing.yaml" in result.provenance["configs"]
+    assert result.provenance["routing"] == routing
+    assert result.agent_activations == {"router": 1, "coder": 1, "tester": 1}
+
+
+@pytest.mark.asyncio
 async def test_setup_failure_produces_record_without_fake_zero_usage(tmp_path, monkeypatch):
     import raac.benchmark.runner as module
 

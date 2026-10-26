@@ -7,7 +7,7 @@ import pytest
 import yaml
 
 from raac.benchmark.dataset import Task
-from raac.benchmark.l1_runner import run_l1
+from raac.benchmark.engine_runner import run_l1, run_l2
 from raac.llm.config import ModelProfile, load_llm_config
 from raac.registry import load_registry
 
@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cancel", [False, True])
 async def test_l1_adapter_preserves_usage_and_writes_partial_on_cancel(tmp_path, monkeypatch, cancel):
-    import raac.benchmark.l1_runner as module
+    import raac.benchmark.engine_runner as module
 
     registry = load_registry(ROOT / "registry")
     config = load_llm_config(ROOT / "configs/llm.yaml")
@@ -70,7 +70,7 @@ async def test_l1_adapter_preserves_usage_and_writes_partial_on_cancel(tmp_path,
 
 @pytest.mark.asyncio
 async def test_l1_adapter_maps_engine_failure_to_aborted(tmp_path, monkeypatch):
-    import raac.benchmark.l1_runner as module
+    import raac.benchmark.engine_runner as module
 
     registry = load_registry(ROOT / "registry")
     config = load_llm_config(ROOT / "configs/llm.yaml")
@@ -95,3 +95,35 @@ async def test_l1_adapter_maps_engine_failure_to_aborted(tmp_path, monkeypatch):
     assert result["status"] == "aborted" and result["stop_reason"] == "TimeoutError"
     # A profile-selected test command is preserved rather than replaced.
     assert workspace.test_spec["command"] == ["python", "-m", "pytest", "tests"]
+
+
+@pytest.mark.asyncio
+async def test_l2_adapter_records_routing_decision_and_l2_config(tmp_path, monkeypatch):
+    import raac.benchmark.engine_runner as module
+
+    registry = load_registry(ROOT / "registry")
+    config = load_llm_config(ROOT / "configs/llm.yaml")
+    config.profiles = {r.model.ref: ModelProfile(model="mock") for r in registry.roles.values()}
+    workspace = SimpleNamespace(root="/workspace", baseline_ref="baseline", requirement="Fix value", test_spec=None,
+        python_candidates=lambda: ["/usr/local/bin/python"],
+        executor=SimpleNamespace(trace=None, policy=SimpleNamespace(timeout_seconds=200.0)))
+    routing = {"source": "router", "selected_roles": ["Coder", "Tester"],
+               "skipped": [{"role": "Analyst", "reason": "simple"}], "reason": "minimal", "fallback_reason": None}
+
+    class FakeEngine:
+        events = ({"event": "routing_decided", "selected_roles": ["Coder", "Tester"]},)
+
+        async def run(self, *, run_id, task, level, config):
+            assert level.name == "L2" and config["version"] == "l2-routing-v1"
+            return SimpleNamespace(state={"status": "completed", "routing": routing, "result": {
+                "status": "completed", "verdict": "PASS", "stop_reason": "tests_passed_no_review",
+                "rounds_completed": 1, "routing": routing}})
+
+    monkeypatch.setattr(module.Engine, "from_runtime", classmethod(lambda cls, **kwargs: FakeEngine()))
+    task = Task("fixture__repo-1", "fixture/repo", "https://github.com/fixture/repo", "Fix value", "Fix value", "a" * 40)
+    result = await run_l2(task, run_id="benchmark-l2", workspace=workspace, registry=registry, llm_config=config,
+        harness=yaml.safe_load((ROOT / "configs/harness.yaml").read_text()),
+        level_config=yaml.safe_load((ROOT / "configs/levels/l2_routing.yaml").read_text()), output_dir=tmp_path)
+    assert result["status"] == "completed" and result["routing"] == routing
+    assert "configs/levels/l2_routing.yaml" in result["provenance"]["configs"]
+    assert result["provenance"]["routing"] == routing

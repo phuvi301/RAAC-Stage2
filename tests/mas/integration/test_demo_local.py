@@ -241,7 +241,7 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(await execute(args), 0)
         output_dir = Path(json.loads(stdout.getvalue())["output"])
         record = json.loads((output_dir / "result.json").read_text(encoding="utf-8"))
-        self.assertEqual(set(selected), set(registry.roles))
+        self.assertEqual(set(selected), set(registry.roles) - {"router"})
         self.assertGreater(selected.count("coder"), 1)
         self.assertGreater(selected.count("tester"), 1)
         role_models = record["provenance"]["effective_config"]["role_models"]

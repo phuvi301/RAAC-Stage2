@@ -36,17 +36,21 @@ from raac.registry import load_registry
 
 from .chain_runner import run_chain
 from .dataset import Task, load_tasks, source_dataset
-from .l1_runner import run_l1
+from .engine_runner import run_l1, run_l2
 from .run_record import RunRecord, RunUsage, write_record
 
 FRAMEWORK_ROOT = Path(__file__).resolve().parents[3]
 
 # Only the agent phase differs by level; setup, export and evaluation are shared.
-LEVELS = {"L1": "configs/levels/l1_fixed.yaml", "L3": "configs/levels/l3_collaboration.yaml"}
+LEVELS = {
+    "L1": "configs/levels/l1_fixed.yaml",
+    "L2": "configs/levels/l2_routing.yaml",
+    "L3": "configs/levels/l3_collaboration.yaml",
+}
 
 
 def level_agent(level):
-    return {"L1": run_l1, "L3": run_chain}[level]
+    return {"L1": run_l1, "L2": run_l2, "L3": run_chain}[level]
 
 # Drop cloned history before the model can inspect it: it may contain the gold fix.
 REMOVE_HISTORY = """
@@ -129,7 +133,7 @@ def evaluate_candidate(task, *, config_path, patch_path, remaining, cancel=None)
 
 async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path, config_path: Path, attempt: int = 1) -> RunRecord:
     if level not in LEVELS or type(repetition) is not int or repetition < 1:
-        raise ValueError("Benchmark currently supports only L1/L3 and positive repetitions")
+        raise ValueError("Benchmark currently supports only L1/L2/L3 and positive repetitions")
     config_path = Path(config_path).resolve()
     config = yaml.safe_load(config_path.read_text(encoding="utf-8-sig"))
     harness = yaml.safe_load((FRAMEWORK_ROOT / "configs/harness.yaml").read_text(encoding="utf-8-sig"))
@@ -196,6 +200,8 @@ async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path,
             record.verdict, record.stop_reason = agent.get("verdict"), agent.get("stop_reason")
             record.usage = RunUsage.model_validate(agent["usage"])
             record.provenance.update(agent.get("provenance", {}))
+            if agent.get("routing") is not None:
+                record.provenance["routing"] = agent["routing"]
             record.rounds = agent.get("rounds_completed", 0)
             for event in agent.get("events", []):
                 if event.get("event") == "agent_started":
@@ -310,7 +316,7 @@ async def run_benchmark_batch(*, config_path: Path, task_ids: list[str], levels:
         raise ValueError("Invalid batch ID")
     if (not levels or len(set(levels)) != len(levels) or set(levels) - LEVELS.keys()
             or type(repetitions) is not int or repetitions < 1):
-        raise ValueError("Only distinct L1/L3 levels with positive repetitions are supported")
+        raise ValueError("Only distinct L1/L2/L3 levels with positive repetitions are supported")
     config_path = Path(config_path).resolve()
     config = yaml.safe_load(config_path.read_text(encoding="utf-8-sig"))
     tasks = load_tasks(resolve_path(FRAMEWORK_ROOT, config["dataset"]))

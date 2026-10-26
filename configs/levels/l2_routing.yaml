@@ -1,2 +1,20 @@
-# TODO: Define and validate configuration; see docs/implementation_checklist.md.
-{}
+version: l2-routing-v1
+level: L2
+topology: linear-routed
+router_role: Router
+roles:
+  - Analyst
+  - Planner
+  - Coder
+  - Tester
+  - Reviewer
+required_roles:
+  - Coder
+  - Tester
+optional_roles:
+  - Analyst
+  - Planner
+  - Reviewer
+fallback: L1
+max_rounds: 1
+hard_max_rounds: 1

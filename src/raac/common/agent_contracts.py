@@ -150,6 +150,33 @@ class ReviewerOutput(StructuredOutput):
         return self
 
 
+class SkippedRole(StructuredOutput):
+    role: Literal["Analyst", "Planner", "Reviewer"]
+    reason: Text
+
+
+ROUTABLE_ROLES = ("Analyst", "Planner", "Coder", "Tester", "Reviewer")
+
+
+class RouterOutput(StructuredOutput):
+    selected_roles: list[Literal["Analyst", "Planner", "Coder", "Tester", "Reviewer"]] = Field(min_length=2)
+    skipped: list[SkippedRole] = Field(default_factory=list)
+    reason: Text
+
+    @model_validator(mode="after")
+    def valid_selection(self):
+        ordered = [role for role in ROUTABLE_ROLES if role in self.selected_roles]
+        if len(set(self.selected_roles)) != len(self.selected_roles) or self.selected_roles != ordered:
+            raise ValueError("selected_roles must follow the fixed catalog order without duplicates")
+        if not {"Coder", "Tester"}.issubset(self.selected_roles):
+            raise ValueError("selected_roles must always include Coder and Tester")
+        skipped_names = [item.role for item in self.skipped]
+        expected_skipped = [role for role in ROUTABLE_ROLES if role not in self.selected_roles]
+        if len(set(skipped_names)) != len(skipped_names) or set(skipped_names) != set(expected_skipped):
+            raise ValueError("skipped must list every omitted role from the catalog exactly once with a reason")
+        return self
+
+
 class OutputFormatError(ValueError):
     """A role's response violates its prompt's output contract."""
 
@@ -160,6 +187,7 @@ JSON_OUTPUT_MODELS = {
     "tester": TesterOutput,
     "reviewer": ReviewerOutput,
     "environment": EnvironmentOutput,
+    "router": RouterOutput,
 }
 ROLE_OUTPUT_MODELS = {**JSON_OUTPUT_MODELS, "coder": CoderOutput}
 
