@@ -1,0 +1,22 @@
+version: token-reduction-filtered-v1
+trace_content: true
+token_limit: 800000
+timeout_seconds: 9000.0
+agent_timeout_seconds: 400
+context:
+  enabled: true
+  recent_tool_turns: 1
+  max_tool_output_chars: 8000
+  max_old_tool_output_chars: 1200
+  max_file_context_chars: 12000
+  max_checkpoint_tokens: 2000
+  command_output_filter: true
+  concise_output: false
+memory:
+  enabled: true
+  max_tokens: 50000
+  target_tokens: 20000
+execution:
+  mode: local
+  timeout_seconds: 200.0
+  max_output_bytes: 131072

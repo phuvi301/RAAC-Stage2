@@ -14,7 +14,8 @@ def collect_provenance(project: Path, registry, config_paths: list[Path], effect
     for path in config_paths:
         raw = path.read_bytes()
         parsed = yaml.safe_load(raw.decode("utf-8-sig")) or {}
-        configs[str(path.relative_to(project)).replace("\\", "/")] = {
+        name = path.relative_to(project) if path.is_relative_to(project) else path
+        configs[str(name).replace("\\", "/")] = {
             "version": parsed.get("version"), "sha256": hashlib.sha256(raw).hexdigest(),
         }
     git = shutil.which("git")

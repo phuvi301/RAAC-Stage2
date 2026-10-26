@@ -37,6 +37,7 @@ from raac.registry import load_registry
 from .chain_runner import run_chain
 from .dataset import Task, load_tasks, source_dataset
 from .engine_runner import run_l1, run_l2
+from .harness_config import load_harness
 from .run_record import RunRecord, RunUsage, write_record
 
 FRAMEWORK_ROOT = Path(__file__).resolve().parents[3]
@@ -136,7 +137,7 @@ async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path,
         raise ValueError("Benchmark currently supports only L1/L2/L3 and positive repetitions")
     config_path = Path(config_path).resolve()
     config = yaml.safe_load(config_path.read_text(encoding="utf-8-sig"))
-    harness = yaml.safe_load((FRAMEWORK_ROOT / "configs/harness.yaml").read_text(encoding="utf-8-sig"))
+    harness_path, harness = load_harness(FRAMEWORK_ROOT, config)
     level_path = FRAMEWORK_ROOT / LEVELS[level]
     level_config = yaml.safe_load(level_path.read_text(encoding="utf-8-sig"))
     load_dotenv(FRAMEWORK_ROOT / ".env")
@@ -154,7 +155,7 @@ async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path,
     trace = JSONLTrace(output_dir / "llm.jsonl", secrets=(llm_config.api_key.get_secret_value(),))
     context = {"run_id": record.run_id, "task_id": task.id, "level": level}
     record.provenance = {**collect_provenance(FRAMEWORK_ROOT, registry,
-        [FRAMEWORK_ROOT / "configs/llm.yaml", FRAMEWORK_ROOT / "configs/harness.yaml", level_path],
+        [FRAMEWORK_ROOT / "configs/llm.yaml", harness_path, level_path],
         {"llm": llm_config.model_dump(mode="json"), "harness": harness, "level": level_config,
          "execution": policy.model_dump(), "role_models": {name: value.model_dump() for name, value in models.items()}}),
         "benchmark_config": {"sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(), "snapshot": config},
@@ -188,7 +189,7 @@ async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path,
             before = time.monotonic()
             try:
                 agent = await level_agent(level)(task, run_id=record.run_id, workspace=workspace, registry=registry,
-                    llm_config=llm_config, harness=harness, level_config=level_config, output_dir=output_dir, trace=trace)
+                    llm_config=llm_config, harness=harness, harness_path=harness_path, level_config=level_config, output_dir=output_dir, trace=trace)
             finally:
                 record.timing.agent_seconds = time.monotonic() - before
                 partial = output_dir / "agent-result.json"
@@ -273,6 +274,7 @@ async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path,
 async def execute(args):
     config_path = resolve_path(FRAMEWORK_ROOT, args.config or "configs/benchmark.yaml")
     config = yaml.safe_load(config_path.read_text(encoding="utf-8-sig"))
+    load_harness(FRAMEWORK_ROOT, config)
     tasks = load_tasks(resolve_path(FRAMEWORK_ROOT, config["dataset"]))
     if args.command == "batch":
         summary = await run_benchmark_batch(config_path=config_path, task_ids=args.task_id,
@@ -292,8 +294,9 @@ async def execute(args):
 
 
 def benchmark_fingerprint(config_path, config, selection):
+    harness_path, _ = load_harness(FRAMEWORK_ROOT, config)
     dataset = resolve_path(FRAMEWORK_ROOT, config["dataset"])
-    paths = {Path(config_path), dataset, source_dataset(dataset),
+    paths = {Path(config_path), harness_path, dataset, source_dataset(dataset),
              resolve_path(FRAMEWORK_ROOT, config["evaluation"]), FRAMEWORK_ROOT / "requirements.lock",
              FRAMEWORK_ROOT / "docker/Dockerfile.sandbox"}
     paths.update(resolve_path(FRAMEWORK_ROOT, p) for p in config["profiles"].values())
@@ -319,6 +322,7 @@ async def run_benchmark_batch(*, config_path: Path, task_ids: list[str], levels:
         raise ValueError("Only distinct L1/L2/L3 levels with positive repetitions are supported")
     config_path = Path(config_path).resolve()
     config = yaml.safe_load(config_path.read_text(encoding="utf-8-sig"))
+    load_harness(FRAMEWORK_ROOT, config)
     tasks = load_tasks(resolve_path(FRAMEWORK_ROOT, config["dataset"]))
     ids = list(dict.fromkeys(task_ids))
     if not ids or set(ids) - tasks.keys():

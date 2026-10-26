@@ -20,10 +20,12 @@ from raac.common.errors import (
     WorkspaceSnapshotError,
 )
 from raac.harness.layer2_core.context_manager import (
+    CONCISE_VERSION,
     RoleContextPolicy,
     compact_tools,
     prepare_messages,
 )
+from raac.harness.layer2_core.context_metrics import request_metrics
 from raac.harness.layer2_core.memory.short_term import (
     ShortTermMemory,
     ShortTermMemoryPolicy,
@@ -535,7 +537,7 @@ class AgentRunner:
             "phase": "reason",
             "turn": 0,
             "messages": hydrate_messages(
-                role, request, compact=self.context_policy.enabled
+                role, request, compact=False
             ),
             "code_edits_before": self.tools.workspace.code_edit_count,
             "environment_revision": self.tools.workspace.environment.revision,
@@ -644,8 +646,10 @@ class AgentRunner:
                     ],
                 }
                 messages[1] = hydrate_messages(
-                    role, task, compact=self.context_policy.enabled
+                    role, task, compact=False
                 )[1]
+        preparation_started = time.perf_counter()
+        raw_declarations = self.tools.declarations(role)
         prepared, metrics = prepare_messages(
             messages, self.context_policy, file_validator=self._file_matches
         )
@@ -670,9 +674,16 @@ class AgentRunner:
             self.client.trace_event(
                 call_context, "agent_final_call", max_llm_calls=role.spec.max_llm_calls
             )
-        declarations = self.tools.declarations(role)
+        declarations = raw_declarations
         if self.context_policy.enabled:
             declarations = compact_tools(declarations)
+        call_context["context_metrics"] = {
+            "before": request_metrics(messages, [] if final_call else raw_declarations),
+            "after": request_metrics(prepared, [] if final_call else declarations),
+            "preparation_ms": round((time.perf_counter() - preparation_started) * 1000, 3),
+            "policy": self.context_policy.model_dump(),
+            "concise_version": CONCISE_VERSION if self.context_policy.concise_output else None,
+        }
         state["inflight"] = {"kind": "llm", "turn": turn}
         self._save(state)
         completion = await self.client.complete(

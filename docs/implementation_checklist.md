@@ -14,7 +14,7 @@ Cách dùng file này
 - Chữ trong ngoặc cuối dòng là người phụ trách, Vũ, Vinh hoặc Tuấn, đổi lại nếu hoán đổi việc.
 - Ghi ngày cập nhật cuối mỗi khi sửa file, và ghi vấn đề phát sinh vào mục nhật ký cuối file.
 
-Cập nhật gần nhất ngày 2026-10-26
+Cập nhật gần nhất ngày 2026-10-27
 
 ---
 
@@ -67,6 +67,10 @@ Thư mục `src/raac/harness/layer1_lifecycle/`.
 - 2026-10-23 | Chuyển sang `main`, pull `origin/main` (commit `2b1c54a`), tạo nhánh `Layer_1` và merge có chọn lọc phần Layer 1 cục bộ với implementation upstream `d725859`. Giữ AgentRunner/LangGraph lifecycle, SQLite checkpoint versioned, approval revision-bound, guard/deadline, runtime snapshot và resume an toàn của upstream; bổ sung `Agent` facade bọc runner và `StateMachine`/`AgentState` object API tương thích. Test merge mới: 6 passed; regression Layer 1 upstream: 34 passed, 1 test `wall_deadline` deselected do expectation `usage_complete=False` không phù hợp với hành vi client hiện tại và fail ổn định.
 
 ## A2 - Layer 2, Lõi Trí tuệ và Ngữ cảnh
+
+- [x] Thử nghiệm giảm biểu diễn context offline theo kế hoạch đo → compaction → lọc pytest → concise (Agent hỗ trợ Vũ/Vinh/Tuấn): metric trước/sau theo call, bốn harness riêng, chọn harness cho run/batch L1/L2/L3, provenance/fingerprint/resume, raw command reference và replay trace. Mặc định giữ nguyên; không nghiệm thu pilot API thật hoặc tỷ lệ giải quyết issue. Bằng chứng 2026-10-27: 129 test + 10 subtest hồi quy tập trung qua (24,03s), gồm 18 test cấu hình/HTTP mock/resume mới; 4 Docker offline qua (21,59s) với image cục bộ `404ac6a56760`; ba trace có request đầy đủ được replay sang file mới và SHA-256 nguồn không đổi. Ruff các file mới và diff check qua. Xem [token_reduction.md](token_reduction.md), `results/token-reduction/2026-10-27-final-replay.json`.
+
+- 2026-10-27 | Ghi chú tiến độ phần A, đối chiếu A0 logging/usage và A3 tools: `context_metrics` không chứa nội dung/secret, không phân bổ cache theo nhóm; raw stdout/stderr và evaluator giữ nguyên, `read_tool_result` phân trang trong đúng run và reference được checkpoint. Compaction giảm biểu diễn ở ba trace, filtered không giảm thêm, concise tăng input; giữ nguyên các trạng thái nghiệm thu chung A0/A2/A3/A5. Bộ rộng có 418 test +153 subtest qua và 10 lỗi ngoài phạm vi Environment/topology, số role, layout trace; không sửa các thay đổi chưa commit của người dùng.
 
 - 2026-10-21 | Theo yêu cầu Tuấn sau phân tích Coder vòng 1: configs/harness.yaml harness-demo-v14 đặt context.enabled=false để giữ lịch sử tool đầy đủ; Coder max_llm_calls tăng 10→20 mỗi lần kích hoạt, gồm lượt cuối chỉ trả patch. Registry 0.18.5; memory vẫn bật và compact snapshot theo ngưỡng riêng 50000/20000, token_limit giữ 800000. | Agent hỗ trợ Vũ/Tuấn | Kiểm tra trực tiếp cấu hình và prepare_messages giữ nguyên 47183 ký tự, compacted_turns=0. Bộ Registry/context/handoff: 113 test + 20 subtest qua (5,52s), còn 4 lỗi prompt Analyst/Planner đã có; pytest dùng thư mục tạm workspace do temp mặc định không tạo được thư mục. Hai test async runner đã dừng, chưa có kết luận; không tính vào bằng chứng pass. Không gọi model hoặc chạy project thật; giữ A2/L3 [~].
 
@@ -488,6 +492,8 @@ Ghi chú tuần 9
 ---
 
 # Nhật ký vấn đề và quyết định
+
+- 2026-10-27 | Thực hiện kế hoạch giảm token bằng cơ chế sẵn có: không thêm dependency/RTK/Caveman, không API trả phí, không đổi model/topology/budget/retry/evaluator; giữ baseline tắt compaction và mọi thử nghiệm ở config riêng. Replay chỉ từ request đã ghi, không suy đoán context gốc/cache/tiền hoặc chất lượng; báo cáo mới không ghi đè log. | Agent hỗ trợ Vũ/Vinh/Tuấn | Đã triển khai và kiểm chứng offline, tài liệu `docs/token_reduction.md`; giữ lỗi ngoài phạm vi và các mốc nghiệm thu chung, không commit/push.
 
 - 2026-10-22 | Người dùng làm rõ ý proposal: ladder kế thừa cộng dồn, L3 kế thừa routing L2 rồi thêm topology/số vòng; L4 kế thừa L3 rồi thêm team formation. Sửa bảng và định nghĩa trong level_definitions.md; danh mục vai trò L3 cố định nhưng tập kích hoạt được thay đổi. | Agent hỗ trợ Vũ | Đã hiệu chỉnh diễn giải trước đó; không đổi runtime hoặc trạng thái nghiệm thu, không commit/push.
 

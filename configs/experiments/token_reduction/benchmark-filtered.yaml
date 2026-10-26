@@ -1,0 +1,20 @@
+version: 3
+agent_run_timeout_seconds: 9000.0
+dataset: data/tasks/benchmark105-v1.json
+repo_cache: data/repos
+results: results
+profiles:
+  psf/requests: configs/repos/requests-legacy.yaml
+  astropy/astropy: configs/repos/astropy.yaml
+  django/django: configs/repos/django.yaml
+  matplotlib/matplotlib: configs/repos/matplotlib.yaml
+  mwaskom/seaborn: configs/repos/seaborn.yaml
+  pallets/flask: configs/repos/flask.yaml
+  pydata/xarray: configs/repos/xarray.yaml
+  pylint-dev/pylint: configs/repos/pylint-compatible.yaml
+  pytest-dev/pytest: configs/repos/pytest-compatible.yaml
+  scikit-learn/scikit-learn: configs/repos/scikit-learn.yaml
+  sphinx-doc/sphinx: configs/repos/sphinx-compatible.yaml
+  sympy/sympy: configs/repos/sympy.yaml
+evaluation: data/evaluation/swe_bench_verified.json
+harness_config: configs/experiments/token_reduction/filtered.yaml
