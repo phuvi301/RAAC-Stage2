@@ -53,6 +53,26 @@ A saved model/tool outcome can be reused, including within multi-tool responses 
 
 ## Boundaries and verification
 
+### Checkpoint overhead
+
+Reason commits its intent and outcome itself; the graph wrapper does not immediately save the same outcome again. Tool receipts, observation advancement, approval revisions and failure boundaries remain durable. SQLite still uses `synchronous=FULL` and the checkpoint JSON schema remains version 1.
+
+Baseline encoding is reused while its contents match; secret-check results also require the same run and trace secret set. Dynamic messages, runtime metadata and receipts are still checked on every save. Redacted execution data still disables resume; decoded baseline text is not duplicated in the checkpoint.
+
+Only Docker checkpoint saves opt into reusing the last workspace fingerprint. New activations invalidate it. File writes and potentially mutating orchestrator tools invalidate it even on errors/cancellation; shell/test integrity scans remain fresh. Ordinary `snapshot_runtime()` calls, resume validation and candidate export still read the actual workspace. Local workspaces continue to scan on every save. This does not support external mutations during a running invocation.
+
+Measure offline against an **already installed** benchmark image, without loading `.env` or contacting a model:
+
+```powershell
+python scripts/profile_lifecycle.py --image <installed-image-id> --output results/lifecycle-profile-new
+$env:RAAC_LIFECYCLE_IMAGE = '<installed-image-id>'
+python -m pytest tests/integration/test_lifecycle_docker_cache.py -q
+```
+
+The profiler runs three fresh containers with the same two mocked model responses and one `read_files` batch. It asserts the handoff and call counts, and records snapshot, checkpoint, redaction, SQLite, tool and mocked model time in `summary.json`. Timings are inclusive: do not add `_save`, `_snapshot`, `redact` and `save` together. Output directories must be new. Integration fixtures use an empty container-local tmpfs; they do not change the installed image or mount host source.
+
+Analyst/Planner prompts now prefer batching known independent reads, not guessing paths or skipping verification. This is guidance, not a guarantee of fewer model calls. See [the measured comparison](lifecycle_performance.md). Code/Registry compatibility checks still reject old checkpoints after a code or prompt change; schema compatibility is not permission to resume incompatible runs.
+
 No new connector backend, CLI resume command, whole-collaboration resume or Docker reconstruction is included. Benchmark batch --resume continues to restart attempts in fresh environments. Layer 2 context policy and L3 topology behavior are unchanged. Shared wire contracts are in `common/agent_contracts.py`; old collaboration import paths re-export the same objects.
 
 Run the lifecycle tests with `python -m pytest tests/mas/unit/test_lifecycle_*.py -q` (expand filenames if the shell does not expand globs). Run all framework tests with `python -m pytest -q`; enable real Docker fixtures using `RAAC_DOCKER_TESTS=1` and run `tests/integration/test_mas_docker.py`. No live-model call is needed for these tests.

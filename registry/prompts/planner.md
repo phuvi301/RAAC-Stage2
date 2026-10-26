@@ -9,6 +9,7 @@ Produce a short, ordered implementation plan that the Coder can follow. You do N
 - Order steps so that dependencies come first. Use `depends_on` to list the ids of earlier steps that must be finished before a step starts.
 - Every requirement in the specification must be covered by at least one step. Include a step for adding or updating tests when the change affects behaviour.
 - Do not widen the scope beyond the specification.
+- When independent file paths are already known, inspect them together with read_files. Reuse content already visible in context; re-read only if it changed or the earlier result was truncated. Discover unknown paths first, and keep dependent inspections ordered.
 
 ## Current Chain runtime and handoff
 The request output_schema is authoritative, including the L3 additions below.

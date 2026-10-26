@@ -35,19 +35,30 @@ class WorkspaceTools:
     max_repo_bytes = 64 * 1024 * 1024  # Tối đa 64 MiB cho các file trong snapshot.
     max_files = 2000  # Tối đa 2.000 file sau khi loại trừ cache/credential.
 
-    def snapshot_runtime(self):
+    def invalidate_runtime_snapshot(self):
+        self._checkpoint_fingerprint = None
+
+    def snapshot_runtime(self, *, refresh=True):
         """Explicit JSON state for same-workspace resume; never executor objects."""
-        current = self._snapshot()
         container = getattr(self.executor, "container", None)
         identity = {"mode": getattr(self, "execution_mode", "local"), "root": str(self.root),
                     "container": getattr(container, "id", None), "requirement": self.requirement}
-        current_modes = getattr(self, "current_modes", {})
-        fingerprint = hashlib.sha256(json.dumps([
-            (name, hashlib.sha256(data).hexdigest(), current_modes.get(name))
-            for name, data in sorted(current.items())]).encode()).hexdigest()
+        fingerprint = getattr(self, "_checkpoint_fingerprint", None)
+        if refresh or identity["mode"] != "docker" or fingerprint is None:
+            current = self._snapshot()
+            current_modes = getattr(self, "current_modes", {})
+            fingerprint = hashlib.sha256(json.dumps([
+                (name, hashlib.sha256(data).hexdigest(), current_modes.get(name))
+                for name, data in sorted(current.items())]).encode()).hexdigest()
+            self._checkpoint_fingerprint = fingerprint
+        cached = getattr(self, "_encoded_baseline", None)
+        if cached is None or cached[0] != self.baseline_files:
+            cached = (dict(self.baseline_files), {name: base64.b64encode(data).decode()
+                                                for name, data in self.baseline_files.items()})
+            self._encoded_baseline = cached
         return {"version": 1, "identity": identity, "fingerprint": fingerprint,
                 "baseline_ref": self.baseline_ref,
-                "baseline_files": {name: base64.b64encode(data).decode() for name, data in self.baseline_files.items()},
+                "baseline_files": dict(cached[1]),
                 "coder_paths": sorted(self.coder_paths), "tester_paths": sorted(self.tester_paths),
                 "code_edit_count": self.code_edit_count, "test_spec": deepcopy(self.test_spec),
                 "environment": {name: deepcopy(getattr(self.environment, name, None)) for name in

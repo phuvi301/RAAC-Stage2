@@ -157,6 +157,8 @@ class DockerWorkspaceTools(WorkspaceTools):
         self.baseline_ref = hashlib.sha256((json.dumps(manifest) + "\0" + requirement).encode()).hexdigest()
 
     def _rpc(self, operation, **values):
+        if operation in {"write", "delete", "mkdir"}:
+            self.invalidate_runtime_snapshot()
         if time.monotonic() >= self.executor.deadline:
             raise TimeoutError("Run deadline exceeded")
         request = {"operation": operation, "excluded": sorted(EXCLUDED_DIRS), "secrets": sorted(SECRET_FILES),
@@ -207,6 +209,7 @@ class DockerWorkspaceTools(WorkspaceTools):
         return super()._can_write(role, name)
 
     async def _mutating_command(self, role, call):
+        self.invalidate_runtime_snapshot()
         before = self._snapshot()
         before_modes = dict(self.current_modes)
         try:

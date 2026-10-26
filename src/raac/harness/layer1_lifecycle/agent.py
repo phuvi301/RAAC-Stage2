@@ -20,10 +20,12 @@ from raac.common.errors import (
     WorkspaceSnapshotError,
 )
 from raac.harness.layer2_core.context_manager import (
+    CONCISE_VERSION,
     RoleContextPolicy,
     compact_tools,
     prepare_messages,
 )
+from raac.harness.layer2_core.context_metrics import request_metrics
 from raac.harness.layer2_core.memory.short_term import (
     ShortTermMemory,
     ShortTermMemoryPolicy,
@@ -180,6 +182,7 @@ class AgentRunner:
             return await self._start(name, request)
 
     async def _start(self, name: str, request: dict) -> dict | str | RoleHandoff:
+        self.tools.workspace.invalidate_runtime_snapshot()
         role = self.registry.get(name)
         request = deepcopy(request)
         context = {
@@ -467,20 +470,11 @@ class AgentRunner:
                 self._memory_sessions.pop(invocation_id, None)
 
     def _save(self, state):
-        state["runtime"] = self.tools.snapshot_runtime()
+        state["runtime"] = self.tools.snapshot_runtime(refresh_workspace=False)
         state["usage"] = self.client.usage.export_run(state["run_id"])
         memory = self._memory_sessions.get(state["invocation_id"])
         state["memory"] = memory.view() if memory else None
-        # Baselines are base64 on disk; inspect their decoded text for secrets too.
         import base64
-
-        probe = deepcopy(state)
-        baseline = probe["runtime"]["workspace"].pop("baseline_files")
-        probe["baseline_text"] = {
-            name: base64.b64decode(data).decode("utf-8", errors="replace")
-            for name, data in baseline.items()
-        }
-        safe = self.client.trace.redact(probe)
 
         def semantic(value):
             if isinstance(value, str) and value.lstrip().startswith(("{", "[")):
@@ -494,14 +488,28 @@ class AgentRunner:
                 return [semantic(item) for item in value]
             return value
 
-        changed = semantic(safe) != semantic(probe)
+        baseline = state["runtime"]["workspace"]["baseline_files"]
+        cached = getattr(self, "_baseline_redaction", None)
+        if (cached is None or cached[0] != baseline or cached[1] != self.client.trace.secrets
+                or cached[3] != state["run_id"]):
+            text = {name: base64.b64decode(data).decode("utf-8", errors="replace")
+                    for name, data in baseline.items()}
+            clean = semantic(self.client.trace.redact(text)) == semantic(text)
+            cached = (dict(baseline), self.client.trace.secrets, clean, state["run_id"])
+            self._baseline_redaction = cached
+        runtime = state["runtime"]
+        probe = deepcopy({**state, "runtime": {**runtime, "workspace": {
+            key: value for key, value in runtime["workspace"].items() if key != "baseline_files"
+        }}})
+        safe = self.client.trace.redact(probe)
+        changed = not cached[2] or semantic(safe) != semantic(probe)
         if changed:
             state["resumable"] = False
-            safe.pop("baseline_text", None)
             safe["runtime"]["workspace"]["baseline_files"] = {}
             safe["resumable"] = False
         else:
-            safe = deepcopy(state)
+            safe = probe
+            safe["runtime"]["workspace"]["baseline_files"] = dict(baseline)
         self.checkpoints.save(safe)
         state["revision"] = safe["revision"]
 
@@ -535,7 +543,7 @@ class AgentRunner:
             "phase": "reason",
             "turn": 0,
             "messages": hydrate_messages(
-                role, request, compact=self.context_policy.enabled
+                role, request, compact=False
             ),
             "code_edits_before": self.tools.workspace.code_edit_count,
             "environment_revision": self.tools.workspace.environment.revision,
@@ -602,7 +610,8 @@ class AgentRunner:
         self._active_states[state["invocation_id"]] = state
         self._guard(state)
         await getattr(self, "_" + phase)(state)
-        self._save(state)
+        if phase != "reason":
+            self._save(state)
         return state
 
     async def _reason(self, state):
@@ -644,8 +653,10 @@ class AgentRunner:
                     ],
                 }
                 messages[1] = hydrate_messages(
-                    role, task, compact=self.context_policy.enabled
+                    role, task, compact=False
                 )[1]
+        preparation_started = time.perf_counter()
+        raw_declarations = self.tools.declarations(role)
         prepared, metrics = prepare_messages(
             messages, self.context_policy, file_validator=self._file_matches
         )
@@ -670,9 +681,16 @@ class AgentRunner:
             self.client.trace_event(
                 call_context, "agent_final_call", max_llm_calls=role.spec.max_llm_calls
             )
-        declarations = self.tools.declarations(role)
+        declarations = raw_declarations
         if self.context_policy.enabled:
             declarations = compact_tools(declarations)
+        call_context["context_metrics"] = {
+            "before": request_metrics(messages, [] if final_call else raw_declarations),
+            "after": request_metrics(prepared, [] if final_call else declarations),
+            "preparation_ms": round((time.perf_counter() - preparation_started) * 1000, 3),
+            "policy": self.context_policy.model_dump(),
+            "concise_version": CONCISE_VERSION if self.context_policy.concise_output else None,
+        }
         state["inflight"] = {"kind": "llm", "turn": turn}
         self._save(state)
         completion = await self.client.complete(

@@ -1,15 +1,16 @@
 """OpenAI-compatible, non-streaming Chat Completions client for 9router."""
 
 import asyncio
-from dataclasses import dataclass
-from pathlib import Path
+import hashlib
 import time
 import uuid
+from dataclasses import dataclass
+from pathlib import Path
 
 import httpx
 
-from raac.common.tracing import JSONLTrace
 from raac.common.errors import RunGuardError
+from raac.common.tracing import JSONLTrace
 
 from .config import LLMConfig
 from .usage import UsageTracker, logged_usage
@@ -30,6 +31,7 @@ class Completion:
 class LLMClient:
     def __init__(self, config: LLMConfig, *, log_path: Path,
                  transport=None, usage: UsageTracker | None = None, trace_content=False):
+        self._seen_context = {}
         self.config = config
         self.log_path = Path(log_path)
         self.usage = usage or UsageTracker()
@@ -87,6 +89,23 @@ class LLMClient:
         self._require_complete_usage(context)
         context = {**context, "llm_call_id": uuid.uuid4().hex,
                    "model_ref": model_ref, "model_settings": settings.model_dump()}
+        metrics = context.pop("context_metrics", None)
+        if metrics is not None:
+            # Track exact repeated message/schema representations within this run only.
+            seen = self._seen_context.setdefault(context["run_id"], set())
+            repeated_bytes = 0
+            current = set()
+            from raac.harness.layer2_core.context_metrics import encoded
+            for item in [*messages, *(tools or [])]:
+                raw = encoded(item).encode("utf-8")
+                fingerprint = hashlib.sha256(raw).digest()
+                if fingerprint in seen:
+                    repeated_bytes += len(raw)
+                current.add(fingerprint)
+            seen.update(current)
+            self._log(context, event="context_metrics", **metrics,
+                      repeated_representation_bytes=repeated_bytes,
+                      repetition_scope="prior requests in this client session and run; exact messages/schemas")
         payload = {
             **settings.model_dump(), "messages": messages,
             "stream": False,

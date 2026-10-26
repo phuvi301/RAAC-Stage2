@@ -14,7 +14,7 @@ Cách dùng file này
 - Chữ trong ngoặc cuối dòng là người phụ trách, Vũ, Vinh hoặc Tuấn, đổi lại nếu hoán đổi việc.
 - Ghi ngày cập nhật cuối mỗi khi sửa file, và ghi vấn đề phát sinh vào mục nhật ký cuối file.
 
-Cập nhật gần nhất ngày 2026-10-26
+Cập nhật gần nhất ngày 2026-10-27
 
 ---
 
@@ -51,6 +51,8 @@ Thư mục liên quan là `src/raac/harness/`, `src/raac/llm/`, `src/raac/regist
 
 ## A1 - Layer 1, Interface và Vòng đời
 
+- 2026-10-26 | Agent hỗ trợ theo plan tối ưu MAS: bỏ checkpoint outcome Reason trùng; cache encoding/redaction baseline theo nội dung/secret/run, vẫn redact state động và giữ intent/outcome, approval, usage/deadline. Schema SQLite v1 và synchronous=FULL không đổi. Kiểm chứng cuối 43 test lifecycle/cache/resume qua (10,11s), gồm crash/receipt, secret mới, baseline đổi và reset cache giữa run; 3 test Docker offline qua (11,17s). Bộ unit rộng 675 pass +153 subtest, còn 14 lỗi topology/model-count/prompt đã tái hiện với bốn module core gốc HEAD trong bộ nhớ (56 pass/14 fail đối chứng); không sửa topology đang có của người dùng. Số đo và giới hạn tại docs/lifecycle_performance.md; chưa nghiệm thu resume toàn collaboration/A5, không gọi API thật/commit/push.
+
 Thư mục `src/raac/harness/layer1_lifecycle/`.
 
 - [~] `agent.py` lắp một Agent từ role trong registry và gắn đủ 4 layer (Vũ) — bản merge giữ `AgentRunner` thực của upstream (registry/LLM/context/memory/tools, approval/checkpoint/resume) và bổ sung `Agent` facade resolve role, expose Layer 1–4; connector Layer 4 ngoại vi vẫn interface/stub, không nghiệm thu adapter ngoại vi.
@@ -67,6 +69,10 @@ Thư mục `src/raac/harness/layer1_lifecycle/`.
 - 2026-10-23 | Chuyển sang `main`, pull `origin/main` (commit `2b1c54a`), tạo nhánh `Layer_1` và merge có chọn lọc phần Layer 1 cục bộ với implementation upstream `d725859`. Giữ AgentRunner/LangGraph lifecycle, SQLite checkpoint versioned, approval revision-bound, guard/deadline, runtime snapshot và resume an toàn của upstream; bổ sung `Agent` facade bọc runner và `StateMachine`/`AgentState` object API tương thích. Test merge mới: 6 passed; regression Layer 1 upstream: 34 passed, 1 test `wall_deadline` deselected do expectation `usage_complete=False` không phù hợp với hành vi client hiện tại và fail ổn định.
 
 ## A2 - Layer 2, Lõi Trí tuệ và Ngữ cảnh
+
+- [x] Thử nghiệm giảm biểu diễn context offline theo kế hoạch đo → compaction → lọc pytest → concise (Agent hỗ trợ Vũ/Vinh/Tuấn): metric trước/sau theo call, bốn harness riêng, chọn harness cho run/batch L1/L2/L3, provenance/fingerprint/resume, raw command reference và replay trace. Mặc định giữ nguyên; không nghiệm thu pilot API thật hoặc tỷ lệ giải quyết issue. Bằng chứng 2026-10-27: 129 test + 10 subtest hồi quy tập trung qua (24,03s), gồm 18 test cấu hình/HTTP mock/resume mới; 4 Docker offline qua (21,59s) với image cục bộ `404ac6a56760`; ba trace có request đầy đủ được replay sang file mới và SHA-256 nguồn không đổi. Ruff các file mới và diff check qua. Xem [token_reduction.md](token_reduction.md), `results/token-reduction/2026-10-27-final-replay.json`.
+
+- 2026-10-27 | Ghi chú tiến độ phần A, đối chiếu A0 logging/usage và A3 tools: `context_metrics` không chứa nội dung/secret, không phân bổ cache theo nhóm; raw stdout/stderr và evaluator giữ nguyên, `read_tool_result` phân trang trong đúng run và reference được checkpoint. Compaction giảm biểu diễn ở ba trace, filtered không giảm thêm, concise tăng input; giữ nguyên các trạng thái nghiệm thu chung A0/A2/A3/A5. Bộ rộng có 418 test +153 subtest qua và 10 lỗi ngoài phạm vi Environment/topology, số role, layout trace; không sửa các thay đổi chưa commit của người dùng.
 
 - 2026-10-21 | Theo yêu cầu Tuấn sau phân tích Coder vòng 1: configs/harness.yaml harness-demo-v14 đặt context.enabled=false để giữ lịch sử tool đầy đủ; Coder max_llm_calls tăng 10→20 mỗi lần kích hoạt, gồm lượt cuối chỉ trả patch. Registry 0.18.5; memory vẫn bật và compact snapshot theo ngưỡng riêng 50000/20000, token_limit giữ 800000. | Agent hỗ trợ Vũ/Tuấn | Kiểm tra trực tiếp cấu hình và prepare_messages giữ nguyên 47183 ký tự, compacted_turns=0. Bộ Registry/context/handoff: 113 test + 20 subtest qua (5,52s), còn 4 lỗi prompt Analyst/Planner đã có; pytest dùng thư mục tạm workspace do temp mặc định không tạo được thư mục. Hai test async runner đã dừng, chưa có kết luận; không tính vào bằng chứng pass. Không gọi model hoặc chạy project thật; giữ A2/L3 [~].
 
@@ -92,6 +98,10 @@ Thư mục `src/raac/harness/layer2_core/`.
 - 2026-10-20 | Theo yêu cầu Tuấn, log và xem memory Coder: memory_saved ghi entry/metrics, memory_loaded ghi đúng snapshot gửi retry, memory_compacted ghi snapshot sau compact; vẫn ghi audit memory khi tắt trace_content. Web thêm panel Memory Coder chọn work, snapshot hiện tại và journal phân trang 50 bản ghi; API chỉ đọc sidecar trong đúng run, kiểm tra ID/đường dẫn/scope và redaction. Terminal nhận --memory, --details mở snapshot/journal; giữ flow/token/cache và không compact khi đọc. | Agent hỗ trợ Vinh/Vũ/Tuấn | 313 test + 144 subtest qua (50,46s), còn 4 lỗi prompt Analyst/Planner có sẵn; 12 Node test và JS syntax qua, diff check qua. Kiểm tra trình duyệt local bằng demo riêng: snapshot revision/compact, tải journal 50→58, mở observation literal HTML không tạo phần tử ảnh, không tràn ngang hoặc lỗi console. Đã đóng tab/server demo, không gọi model thật/chạy currentProject hoặc sửa run cũ. Giữ A0/A2/L3 [~], không push.
 
 ## A3 - Layer 3, Thực thi và Bảo mật
+
+- 2026-10-26 | Kiểm chứng bổ sung cuối: 23 test tập trung cache/lifecycle + Docker qua (11,64s), gồm cả 3 Docker case; profiler mới assert tool thành công, median 3 lượt 11,500s tổng / 8,443s checkpoint, 12 save và 2 snapshot trên cùng 1901 file/40,99MB. Core gốc đối chứng 109,823s tổng / 106,260s checkpoint; không phải phép đo L3/model thật. Ruff file mới/Layer 1 qua, Layer 3 không thêm cảnh báo so với HEAD; diff check qua.
+
+- 2026-10-26 | Tối ưu cùng A1: checkpoint Docker tái sử dụng fingerprint khi chỉ đọc/chuyển phase; ghi file và tool có thể thay đổi source vô hiệu cache kể cả lỗi/cancellation. Giữ snapshot integrity trước/sau shell/test, fresh validation khi resume và export candidate; local workspace vẫn quét mỗi save. Test Docker thật dùng image cục bộ với /workspace tmpfs, không gắn source host hoặc tải image. Giữ nguyên trạng thái nghiệm thu A3; xem docs/lifecycle_performance.md.
 
 Thư mục `src/raac/harness/layer3_execution/`.
 
@@ -488,6 +498,12 @@ Ghi chú tuần 9
 ---
 
 # Nhật ký vấn đề và quyết định
+
+- 2026-10-27 | Người dùng yêu cầu commit/push phần tăng tốc MAS: checkpoint, baseline/redaction cache, fingerprint Docker và hướng dẫn gom đọc file Analyst/Planner. Giữ thay đổi điểm vào topology riêng ở local. | Agent hỗ trợ Vũ/Vinh/Tuấn | Kiểm chứng bản staged trong checkout tạm: 93 test qua (26,49s), gồm 3 Docker offline; Ruff profiler/test mới/Layer 1 và diff check qua. Không gọi API thật; số đo trước/sau và giới hạn tại docs/lifecycle_performance.md.
+
+- 2026-10-27 | Thực hiện kế hoạch giảm token bằng cơ chế sẵn có: không thêm dependency/RTK/Caveman, không API trả phí, không đổi model/topology/budget/retry/evaluator; giữ baseline tắt compaction và mọi thử nghiệm ở config riêng. Replay chỉ từ request đã ghi, không suy đoán context gốc/cache/tiền hoặc chất lượng; báo cáo mới không ghi đè log. | Agent hỗ trợ Vũ/Vinh/Tuấn | Đã triển khai và kiểm chứng offline, tài liệu `docs/token_reduction.md`; giữ lỗi ngoài phạm vi và các mốc nghiệm thu chung, không commit/push.
+
+- 2026-10-26 | Theo plan người dùng duyệt, tối ưu checkpoint/baseline/snapshot trước rồi hướng dẫn Analyst/Planner gom đọc file độc lập; Registry 0.19.1, prompt chain-v6. Chỉ test local + Docker/HTTP mock, không đổi model/topology/retry hay chạy API trả phí; giữ thay đổi sẵn có ở topologies.py. | Agent hỗ trợ Vũ/Vinh/Tuấn | Có test và phép đo 3 lượt trước/sau, đạt mục tiêu giảm overhead checkpoint >=50%; xem docs/lifecycle_performance.md. 14 lỗi sẵn có đã đối chứng, không sửa ngoài phạm vi; chưa nghiệm thu benchmark thật/A5.
 
 - 2026-10-22 | Người dùng làm rõ ý proposal: ladder kế thừa cộng dồn, L3 kế thừa routing L2 rồi thêm topology/số vòng; L4 kế thừa L3 rồi thêm team formation. Sửa bảng và định nghĩa trong level_definitions.md; danh mục vai trò L3 cố định nhưng tập kích hoạt được thay đổi. | Agent hỗ trợ Vũ | Đã hiệu chỉnh diễn giải trước đó; không đổi runtime hoặc trạng thái nghiệm thu, không commit/push.
 

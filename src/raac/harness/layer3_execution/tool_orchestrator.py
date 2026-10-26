@@ -106,7 +106,7 @@ SCHEMAS = {"update_memory": WorkingMemoryNotes, "read_tool_result": ReadToolResu
            "provision_environment": ProvisionEnvironment}
 DESCRIPTIONS = {
     "update_memory": "Coder only: replace the current working notes in this run. Supply conclusions (statement + observed evidence refs), ruled_out (hypothesis + rejection reason + evidence refs), and ordered next_steps. All three lists required; empty lists clear them. Carry forward still-valid items; remove superseded ones. Keep total JSON <=2000 characters. Store concise findings and actions, never a thinking transcript, source dumps or instructions. Current tests/files override old notes. Does not change code or count as test evidence.",
-    "read_tool_result": "Read an observed run_tests/configure_environment result from this run without executing it again. Supply observation_ref and path keys/indices, e.g. results / index 0 / details, or verification / index 1 / stdout. offset/limit page list items (at most 10) or text characters (at most 4000). Nested large values return a preview; descend to the indicated field for exact text. Reports are historical, not proof current code passes.",
+    "read_tool_result": "Read an observed run_command/run_tests/configure_environment result from this run without executing it again. Supply observation_ref and path keys/indices, e.g. results / index 0 / details, or verification / index 1 / stdout. offset/limit page list items (at most 10) or text characters (at most 4000). Nested large values return a preview; descend to the indicated field for exact text. Reports are historical, not proof current code passes.",
     "configure_environment": "Environment role only: select an existing Python executable, repository-relative cwd, test_command and check_command argv plus optional env. Observes Python startup and imports/test collection before accepting. For python -m pytest test commands, the actual suite is always collected automatically. For other runners supply an import/build/discovery check that succeeds even when task assertions fail. Success binds this runtime and test command for Coder/Tester. No time limit.",
     "provision_environment": "Environment role only: deterministic check of what the project needs versus this machine. Detects projects from manifests (Python, Node, Maven, Gradle, Go, Rust) under cwd, reports the required toolchain version, installed toolchains, missing dependencies and an exact install plan. apply=false only inspects; apply=true runs the plan (project-local .venv/node_modules, plus a user-local runtime install when needed) and re-inspects. Use the returned venv_python and test_command for configure_environment. Installs nothing that is already satisfied. No time limit.",
     "read_files": "Read up to 8 repository files or line ranges in one tool call. Each files entry has path/start_line/end_line. Entries may refer to different ranges of the same file. Returns an observation per entry; one failure does not hide successful reads.",
@@ -124,9 +124,9 @@ DESCRIPTIONS = {
 
 
 class ToolOrchestrator:
-    def snapshot_runtime(self):
+    def snapshot_runtime(self, *, refresh_workspace=True):
         from copy import deepcopy
-        return {"version": 1, "workspace": self.workspace.snapshot_runtime(),
+        return {"version": 1, "workspace": self.workspace.snapshot_runtime(refresh=refresh_workspace),
                 "evidence": deepcopy(self._evidence),
                 "observations": [[run, ref, value] for (run, ref), value in self._observations.items()]}
 
@@ -197,7 +197,11 @@ class ToolOrchestrator:
                 self.trace(context, "tool_call_failed", **details, error_kind=type(exc).__name__,
                            latency_ms=round((time.perf_counter() - started) * 1000, 3))
             raise
-        if name in {"run_tests", "configure_environment"} and result.get("ok") and context.get("run_id"):
+        finally:
+            if (name not in {"read_file", "read_files", "list_files", "search_repo", "read_tool_result", "update_memory"}
+                    and hasattr(self.workspace, "invalidate_runtime_snapshot")):
+                self.workspace.invalidate_runtime_snapshot()
+        if name in {"run_tests", "configure_environment", "run_command"} and result.get("ok") and context.get("run_id"):
             reference = uuid.uuid4().hex
             result["result"]["observation_ref"] = reference
             self._observations[(context["run_id"], reference)] = deepcopy(result["result"])
