@@ -2,7 +2,7 @@ id: planner
 role: Planner
 group: core
 prompt: prompts/planner.md
-prompt_version: chain-v4
+prompt_version: chain-v6
 tools:
   - list_files
   - read_file

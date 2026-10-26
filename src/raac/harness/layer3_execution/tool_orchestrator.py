@@ -124,9 +124,9 @@ DESCRIPTIONS = {
 
 
 class ToolOrchestrator:
-    def snapshot_runtime(self):
+    def snapshot_runtime(self, *, refresh_workspace=True):
         from copy import deepcopy
-        return {"version": 1, "workspace": self.workspace.snapshot_runtime(),
+        return {"version": 1, "workspace": self.workspace.snapshot_runtime(refresh=refresh_workspace),
                 "evidence": deepcopy(self._evidence),
                 "observations": [[run, ref, value] for (run, ref), value in self._observations.items()]}
 
@@ -197,6 +197,10 @@ class ToolOrchestrator:
                 self.trace(context, "tool_call_failed", **details, error_kind=type(exc).__name__,
                            latency_ms=round((time.perf_counter() - started) * 1000, 3))
             raise
+        finally:
+            if (name not in {"read_file", "read_files", "list_files", "search_repo", "read_tool_result", "update_memory"}
+                    and hasattr(self.workspace, "invalidate_runtime_snapshot")):
+                self.workspace.invalidate_runtime_snapshot()
         if name in {"run_tests", "configure_environment", "run_command"} and result.get("ok") and context.get("run_id"):
             reference = uuid.uuid4().hex
             result["result"]["observation_ref"] = reference
