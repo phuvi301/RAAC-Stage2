@@ -36,9 +36,17 @@ from raac.registry import load_registry
 
 from .chain_runner import run_chain
 from .dataset import Task, load_tasks, source_dataset
+from .l1_runner import run_l1
 from .run_record import RunRecord, RunUsage, write_record
 
 FRAMEWORK_ROOT = Path(__file__).resolve().parents[3]
+
+# Only the agent phase differs by level; setup, export and evaluation are shared.
+LEVELS = {"L1": "configs/levels/l1_fixed.yaml", "L3": "configs/levels/l3_collaboration.yaml"}
+
+
+def level_agent(level):
+    return {"L1": run_l1, "L3": run_chain}[level]
 
 # Drop cloned history before the model can inspect it: it may contain the gold fix.
 REMOVE_HISTORY = """
@@ -120,12 +128,13 @@ def evaluate_candidate(task, *, config_path, patch_path, remaining, cancel=None)
 
 
 async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path, config_path: Path, attempt: int = 1) -> RunRecord:
-    if level != "L3" or type(repetition) is not int or repetition < 1:
-        raise ValueError("Benchmark currently supports only L3 and positive repetitions")
+    if level not in LEVELS or type(repetition) is not int or repetition < 1:
+        raise ValueError("Benchmark currently supports only L1/L3 and positive repetitions")
     config_path = Path(config_path).resolve()
     config = yaml.safe_load(config_path.read_text(encoding="utf-8-sig"))
     harness = yaml.safe_load((FRAMEWORK_ROOT / "configs/harness.yaml").read_text(encoding="utf-8-sig"))
-    level_config = yaml.safe_load((FRAMEWORK_ROOT / "configs/levels/l3_collaboration.yaml").read_text(encoding="utf-8-sig"))
+    level_path = FRAMEWORK_ROOT / LEVELS[level]
+    level_config = yaml.safe_load(level_path.read_text(encoding="utf-8-sig"))
     load_dotenv(FRAMEWORK_ROOT / ".env")
     llm_config = load_llm_config(FRAMEWORK_ROOT / "configs/llm.yaml")
     registry = load_registry(FRAMEWORK_ROOT / "registry")
@@ -141,8 +150,7 @@ async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path,
     trace = JSONLTrace(output_dir / "llm.jsonl", secrets=(llm_config.api_key.get_secret_value(),))
     context = {"run_id": record.run_id, "task_id": task.id, "level": level}
     record.provenance = {**collect_provenance(FRAMEWORK_ROOT, registry,
-        [FRAMEWORK_ROOT / "configs/llm.yaml", FRAMEWORK_ROOT / "configs/harness.yaml",
-         FRAMEWORK_ROOT / "configs/levels/l3_collaboration.yaml"],
+        [FRAMEWORK_ROOT / "configs/llm.yaml", FRAMEWORK_ROOT / "configs/harness.yaml", level_path],
         {"llm": llm_config.model_dump(mode="json"), "harness": harness, "level": level_config,
          "execution": policy.model_dump(), "role_models": {name: value.model_dump() for name, value in models.items()}}),
         "benchmark_config": {"sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(), "snapshot": config},
@@ -175,7 +183,7 @@ async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path,
             phase("agent")
             before = time.monotonic()
             try:
-                agent = await run_chain(task, run_id=record.run_id, workspace=workspace, registry=registry,
+                agent = await level_agent(level)(task, run_id=record.run_id, workspace=workspace, registry=registry,
                     llm_config=llm_config, harness=harness, level_config=level_config, output_dir=output_dir, trace=trace)
             finally:
                 record.timing.agent_seconds = time.monotonic() - before
@@ -191,7 +199,7 @@ async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path,
             record.rounds = agent.get("rounds_completed", 0)
             for event in agent.get("events", []):
                 if event.get("event") == "agent_started":
-                    name = event.get("role", event.get("node", "unknown"))
+                    name = event.get("role") or event.get("node") or event.get("agent_id", "unknown")
                     record.agent_activations[name] = record.agent_activations.get(name, 0) + 1
             record.messages = sum(record.agent_activations.values())
             record.provenance["metric_definitions"] = {"messages": "incoming role handoffs"}
@@ -300,22 +308,24 @@ async def run_benchmark_batch(*, config_path: Path, task_ids: list[str], levels:
         raise ValueError("retry-errors requires resume")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}", batch_id):
         raise ValueError("Invalid batch ID")
-    if levels != ["L3"] or type(repetitions) is not int or repetitions < 1:
-        raise ValueError("Only L3 with positive repetitions is supported")
+    if (not levels or len(set(levels)) != len(levels) or set(levels) - LEVELS.keys()
+            or type(repetitions) is not int or repetitions < 1):
+        raise ValueError("Only distinct L1/L3 levels with positive repetitions are supported")
     config_path = Path(config_path).resolve()
     config = yaml.safe_load(config_path.read_text(encoding="utf-8-sig"))
     tasks = load_tasks(resolve_path(FRAMEWORK_ROOT, config["dataset"]))
     ids = list(dict.fromkeys(task_ids))
     if not ids or set(ids) - tasks.keys():
         raise ValueError("Select known task IDs explicitly")
-    selection = [[task, "L3", repetition] for task in ids for repetition in range(1, repetitions + 1)]
+    selection = [[task, level, repetition] for task in ids for level in levels
+                 for repetition in range(1, repetitions + 1)]
     signature = benchmark_fingerprint(config_path, config, selection)
     results = resolve_path(FRAMEWORK_ROOT, config["results"])
     directory = results / "benchmark-batches" / batch_id
     directory.mkdir(parents=True, exist_ok=True)
     manifest_path = directory / "manifest.json"
 
-    def read_attempt(run_id, task_id, repetition, attempt):
+    def read_attempt(run_id, task_id, level, repetition, attempt):
         if not isinstance(run_id, str) or not re.fullmatch(r"benchmark-[0-9a-f]{32}", run_id):
             raise ValueError("Invalid run ID in manifest")
         path = results / run_id / "record.json"
@@ -323,12 +333,12 @@ async def run_benchmark_batch(*, config_path: Path, task_ids: list[str], levels:
             raise ValueError("Record path escapes results")
         if path.exists():
             record = RunRecord.model_validate_json(path.read_text(encoding="utf-8"))
-            if (record.run_id, record.task_id, record.level, record.repetition) != (run_id, task_id, "L3", repetition):
+            if (record.run_id, record.task_id, record.level, record.repetition) != (run_id, task_id, level, repetition):
                 raise ValueError("Batch record identity mismatch")
             if record.attempt != attempt:
                 raise ValueError("Batch attempt identity mismatch")
         else:
-            record = RunRecord(run_id=run_id, task_id=task_id, level="L3", repetition=repetition,
+            record = RunRecord(run_id=run_id, task_id=task_id, level=level, repetition=repetition,
                                base_commit=tasks[task_id].base_commit, attempt=attempt)
         if record.status in {"pending", "running"}:
             record.status = "interrupted"
@@ -353,7 +363,7 @@ async def run_benchmark_batch(*, config_path: Path, task_ids: list[str], levels:
         if active:
             entry = manifest["entries"][active["index"]]
             position = entry["attempts"].index(active["run_id"]) + 1 if active["run_id"] in entry["attempts"] else len(entry["attempts"]) + 1
-            read_attempt(active["run_id"], entry["task_id"], entry["repetition"], position)
+            read_attempt(active["run_id"], entry["task_id"], entry["level"], entry["repetition"], position)
             if active["run_id"] not in entry["attempts"]:
                 entry["attempts"].append(active["run_id"])
         manifest["status"] = "running"
@@ -362,7 +372,8 @@ async def run_benchmark_batch(*, config_path: Path, task_ids: list[str], levels:
             if benchmark_fingerprint(config_path, config, selection) != signature:
                 raise ValueError("Batch fingerprint changed during execution")
             if entry["attempts"]:
-                previous = read_attempt(entry["attempts"][-1], entry["task_id"], entry["repetition"], len(entry["attempts"]))
+                previous = read_attempt(entry["attempts"][-1], entry["task_id"], entry["level"],
+                                        entry["repetition"], len(entry["attempts"]))
                 retryable = any(error.get("retryable") == "true" for error in previous.errors)
                 if previous.status != "interrupted" and not (retry_errors and retryable and previous.status in {"error", "timeout"}):
                     continue
@@ -381,7 +392,8 @@ async def run_benchmark_batch(*, config_path: Path, task_ids: list[str], levels:
             atomic_json(manifest_path, manifest)
         manifest["status"] = "processed"
         atomic_json(manifest_path, manifest)
-        latest = [read_attempt(entry["attempts"][-1], entry["task_id"], entry["repetition"], len(entry["attempts"])) for entry in manifest["entries"]]
+        latest = [read_attempt(entry["attempts"][-1], entry["task_id"], entry["level"], entry["repetition"],
+                               len(entry["attempts"])) for entry in manifest["entries"]]
         return {"batch_id": batch_id, "status": "processed", "total": len(latest),
                 "completed": sum(record.status == "completed" for record in latest),
                 "resolved": sum(record.evaluation_status == "resolved" for record in latest),

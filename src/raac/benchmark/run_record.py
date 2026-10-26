@@ -53,7 +53,7 @@ class RunRecord(RecordModel):
     schema_version: Literal[1] = 1
     run_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
     task_id: str = Field(min_length=1)
-    level: Literal["L3"]
+    level: Literal["L3", "L1"]
     repetition: int = Field(default=1, ge=1)
     attempt: int = Field(default=1, ge=1)
     base_commit: str = Field(pattern=r"^[0-9a-fA-F]{40}$")

@@ -88,6 +88,43 @@ async def test_runner_grades_candidate_even_if_agent_rejected(tmp_path, monkeypa
 
 
 @pytest.mark.asyncio
+async def test_l1_uses_shared_lifecycle_with_its_own_agent_and_config(tmp_path, monkeypatch):
+    import raac.benchmark.runner as module
+
+    task = next(iter(load_tasks(ROOT / "data/tasks/benchmark105-v1.json").values()))
+    removed, evaluated, levels = [], [], []
+    session = SimpleNamespace(container=SimpleNamespace(id="fixture"), __exit__=lambda *args: removed.append(True))
+
+    class Workspace:
+        def export_candidate(self, path):
+            path.write_text("candidate fixture")
+            return {"path": str(path), "sha256": "c" * 64}
+
+    monkeypatch.setattr(module, "prepare_workspace", lambda *args, **kwargs: (session, Workspace(), {"image_id": "fixture"}))
+
+    async def chain(*args, **kwargs):
+        raise AssertionError("L1 must not run the L3 Chain")
+
+    async def l1(*args, level_config, **kwargs):
+        levels.append(level_config["version"])
+        return {"status": "completed", "verdict": "PASS", "stop_reason": "tests_and_review_passed",
+                "rounds_completed": 1, "events": [{"event": "agent_started", "agent_id": "analyst"}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12, "calls": 1,
+                          "usage_complete": True, "cached_tokens": None, "cache_usage_complete": False}}
+
+    monkeypatch.setattr(module, "run_chain", chain)
+    monkeypatch.setattr(module, "run_l1", l1)
+    monkeypatch.setattr(module, "evaluate_candidate", lambda *args, **kwargs: evaluated.append(kwargs) or {"status": "resolved"})
+    output = tmp_path / "benchmark-l1"
+    result = await run_task(task, level="L1", repetition=1, output_dir=output, config_path=ROOT / "configs/benchmark.yaml")
+    assert result.level == "L1" and result.status == "completed" and result.evaluation_status == "resolved"
+    assert levels == ["l1-fixed-v1"] and len(evaluated) == 1 and removed == [True]
+    assert "configs/levels/l1_fixed.yaml" in result.provenance["configs"]
+    assert "configs/levels/l3_collaboration.yaml" not in result.provenance["configs"]
+    assert result.agent_activations == {"analyst": 1} and result.rounds == 1
+
+
+@pytest.mark.asyncio
 async def test_setup_failure_produces_record_without_fake_zero_usage(tmp_path, monkeypatch):
     import raac.benchmark.runner as module
 

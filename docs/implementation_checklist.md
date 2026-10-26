@@ -14,7 +14,7 @@ Cách dùng file này
 - Chữ trong ngoặc cuối dòng là người phụ trách, Vũ, Vinh hoặc Tuấn, đổi lại nếu hoán đổi việc.
 - Ghi ngày cập nhật cuối mỗi khi sửa file, và ghi vấn đề phát sinh vào mục nhật ký cuối file.
 
-Cập nhật gần nhất ngày 2026-10-23
+Cập nhật gần nhất ngày 2026-10-26
 
 ---
 
@@ -181,9 +181,13 @@ Thư mục `src/raac/harness/layer4_connectors/`.
 
 ### L1 Fixed (`levels/l1_fixed.py`)
 
-- [ ] Dựng graph tuyến tính Phân tích, Lập kế hoạch, Lập trình, Kiểm thử, Rà soát
-- [ ] Mỗi node lấy agent từ registry và gọi qua LLM client
-- [ ] Chạy thử trên 3 task mẫu và lưu log
+- [x] Dựng graph tuyến tính Phân tích, Lập kế hoạch, Lập trình, Kiểm thử, Rà soát — `L1Fixed(BaseLevel)` và `L1_LINEAR` trong `src/raac/collaboration/levels/l1_fixed.py` dựng đúng 5 node tuyến tính `analyst -> planner -> coder -> tester -> reviewer` (1 vòng cố định, `configs/levels/l1_fixed.yaml` version `l1-fixed-v1`), dừng các node sau nếu một role lỗi.
+  - 2026-10-26 | Agent hỗ trợ Vũ: `src/raac/collaboration/levels/l1_fixed.py`, `src/raac/collaboration/levels/__init__.py`, `configs/levels/l1_fixed.yaml`, `tests/unit/collaboration/test_l1_fixed.py`; `.venv/bin/python -m pytest tests/unit/collaboration/ -q` → 10 passed (15,59s).
+- [x] Mỗi node lấy agent từ registry và gọi qua LLM client — `L1Fixed.build_graph` kiểm tra đủ 5 role trong `registry` và mỗi node gọi `engine.invoke_agent(...)` đi qua `AgentRunner` + `LLMClient` + `ToolOrchestrator`.
+  - 2026-10-26 | Agent hỗ trợ Vũ: kiểm chứng bằng `test_l1_fixed_runs_three_sample_tasks_through_llm_client_and_saves_logs` (HTTP `MockTransport` qua `Engine.from_runtime` -> `AgentRunner` -> `LLMClient`, 5 call/task đúng thứ tự role).
+- [~] Chạy thử trên 3 task mẫu và lưu log — đã chạy unit test end-to-end với HTTP mock trên 3 task mẫu lấy từ dataset (`astropy__astropy-14507`, `astropy__astropy-14539`, `astropy__astropy-14995`) kèm lưu `llm.jsonl` và `engine.jsonl`; L1 chạy qua benchmark runner chung `raac benchmark run|batch --level L1`. Chờ người dùng tự chạy trên Docker + model thật với `.env`.
+  - 2026-10-26 | Agent hỗ trợ Vũ: `tests/unit/collaboration/test_l1_fixed.py` → 4 passed. Chưa tính mock LLM thay cho lần chạy task/model thật trong Docker.
+  - 2026-10-26 | Agent hỗ trợ Vũ: gỡ `L1-cli.py` riêng; thêm adapter `src/raac/benchmark/l1_runner.py` và tổng quát `runner.py` theo `LEVELS` để L1/L3 dùng chung setup/export/evaluation/batch. `pytest tests/unit/test_benchmark_l1.py tests/unit/test_benchmark_runner.py tests/unit/test_benchmark_batch.py -q` → 21 passed.
 
 ### L2 Adaptive Routing (`levels/l2_routing.py`)
 
@@ -207,6 +211,10 @@ Tiêu chí thành công tuần 8
 - [ ] Interface của Engine đủ rõ để L3 và L4 cắm vào mà không phải viết lại
 
 Ghi chú tuần 8
+
+- 2026-10-26 | Hiện thực `L1Fixed` (`src/raac/collaboration/levels/l1_fixed.py`) và cấu hình `configs/levels/l1_fixed.yaml` (`l1-fixed-v1`): graph tuyến tính 5 role `Analyst -> Planner -> Coder -> Tester -> Reviewer`, 1 vòng cố định qua Shared `Engine`, kiểm tra role từ Registry, truyền handoff/artifacts giữa các bước và ngắt các role phía sau khi một role lỗi. Tạo thêm `L1-cli.py` ở gốc repo làm CLI + Docker runner tạm thời cho L1 (tự chuẩn bị container SWE-bench, gắn default `pytest` cho `Tester`, chạy `Engine` + `L1Fixed`, xuất `candidate.patch`, chấm evaluator độc lập và hỗ trợ `show-log`). | Agent hỗ trợ Vũ | `.venv/bin/python -m pytest tests/unit/collaboration/ -q` → 10 passed (gồm test chạy 3 task mẫu qua `Engine.from_runtime` + `LLMClient` HTTP mock và lưu `llm.jsonl`/`engine.jsonl`). Mục chạy thử 3 task mẫu giữ `[~]` chờ người dùng chạy Docker + `.env` thật; không commit/push.
+
+- 2026-10-26 | Theo yêu cầu người dùng: gỡ `L1-cli.py`, đưa L1 vào benchmark runner chung. `runner.py` chọn level config và adapter agent theo `LEVELS` (`l1_runner.run_l1` / `chain_runner.run_chain`); setup Docker, export candidate, evaluator, RunRecord và batch/resume/fingerprint dùng chung; batch nhận nhiều level và kiểm tra identity theo level. CLI `benchmark run|batch --level L1|L3`. | Agent hỗ trợ Vũ | 21 test benchmark L1/runner/batch qua; L1 chưa chạy thật trên Docker/model.
 
 - 2026-10-22 | Người dùng cho phép pilot 1 task thật với llm-v4/9router: astropy__astropy-12906, base d16bfe05a744909de4b27f5875fe0d4ed41ce607, model cc/claude-opus-5-5. Image thật build thành công. Phát hiện và sửa snapshot tính nhầm artifact biên dịch .so và runner truyền thư mục thay vì file source.tar vào archive_repo; test RED→GREEN, 16 test snapshot/export/Docker và 5 test runner qua. | Agent hỗ trợ Vinh | Run benchmark-807f688d5dab4be5bc9a55523dddcdcf qua setup, gửi 1 call rồi bị HTTP 401 do chưa có LLM_API_KEY; agent aborted, candidate rỗng, evaluator preparation_error (Patch has no file paths). Usage ghi 0 token/1 call; không có kết quả chất lượng hợp lệ. Tổng 17,828s (setup 12,266s, agent 2,078s); hai attempt setup lỗi trước đó giữ record riêng. Container đã dọn. Chờ người dùng cấu hình key trong .env worktree, không gửi key qua chat; chưa nghiệm thu pilot thành công, không push.
 
@@ -277,7 +285,7 @@ Ghi chú tuần 9
 
 - 2026-10-22 | Pilot model thật sau khi người dùng cấu hình key: astropy__astropy-12906, llm-v4/9router, cc/claude-opus-5-5, run benchmark-b9feebf7d8894d9b821cfcb6460f3633. MAS đủ 6 role, 1 vòng, verdict PASS; candidate sửa separable.py và modeling/tests/test_separable.py nên evaluator trả protected_test_error trước khi chạy test. | Agent hỗ trợ Vinh | 83606 input + 8282 output = 91888 token, 17 call, usage_complete=true/cache unknown; tổng 145,281s (setup 13,203s, agent 128,625s, evaluation 0,094s). Container đã dọn, patch/trace/record và resource report giữ nguyên trong results/. Đây là pilot thật bị từ chối candidate, chưa có kết quả resolved/unresolved độc lập, không nâng nghiệm thu A5/bốn level, không retry để cải thiện kết quả và không push.
 
-- [~] Lặp qua các cặp (task, level, lần lặp) — đã có matrix tuần tự L3 × task × repetition và test 2 task × 2 repetition; chờ adapter L1/L2/L4.
+- [~] Lặp qua các cặp (task, level, lần lặp) — đã có matrix tuần tự (L1|L3) × task × repetition, test 2 task × 2 repetition và test batch 2 level (2026-10-26); chờ adapter L2/L4.
 - [ ] Chạy song song có giới hạn
 - [x] Hỗ trợ resume, bỏ qua run đã xong khi chạy lại — manifest/fingerprint, lock một writer, phục hồi record-before-manifest và attempt thiếu record; restart sạch run bị ngắt, không resume giữa node.
 - [x] Có retry và timeout cho từng run — hard deadline toàn run; retry có opt-in chỉ cho lỗi hạ tầng được phân loại, giữ attempt cũ; không retry lỗi agent/unresolved/rejected. Unit test và Docker timeout/cancel qua.
@@ -293,7 +301,7 @@ Ghi chú tuần 9
 
 - [~] Gom cấu hình LLM (model, temperature, seed nếu có, prompt version) vào `configs/llm.yaml` có version — llm-v3 có cấu hình mặc định và profiles theo role, endpoint/auth/retry chung; prompt version vẫn thuộc Registry. Kiểm chứng HTTP mock/local, đã tích hợp L3 candidate benchmark; còn pilot và các level khác.
 - [ ] Viết `dummy level` chỉ gọi LLM một lần để kiểm tra harness trước khi L1 xong
-- [~] Viết `cli.py` với lệnh chạy một (task, level) — có benchmark run/batch cho L3 Chain trong Docker và evaluator candidate độc lập; L1/L2/L4 chưa có adapter, chưa pilot model thật.
+- [~] Viết `cli.py` với lệnh chạy một (task, level) — có benchmark run/batch cho L1 Fixed và L3 Chain trong Docker (lifecycle chung, `--level L1|L3`) và evaluator candidate độc lập; L2/L4 chưa có adapter, chưa pilot model thật.
 
 Tiêu chí thành công tuần 8
 
@@ -707,3 +715,7 @@ Ghi mỗi dòng theo dạng ngày, vấn đề hoặc quyết định, người 
 - 2026-10-23 | Theo yêu cầu người dùng: xóa DemoAgentRunner/demo_agent.py, chuyển CLI/benchmark/test sang import trực tiếp AgentRunner Layer 1; giữ Protocol collaboration, không đổi lifecycle. Cập nhật tài liệu hiện hành và ghi amendment cho thiết kế/plan cũ. | Agent hỗ trợ Vũ/Vinh/Tuấn | 391 test +159 subtest qua (62,76s), gồm MAS unit/CLI integration và benchmark runner/trace; import smoke CLI/benchmark qua, không còn import tên cũ trong src/tests. Không gọi model thật, không chạy lại Docker hoặc commit/push.
 
 - 2026-10-23 | Theo yêu cầu người dùng: xóa stub src/raac/llm/mock_llm.py không có caller, bỏ tham chiếu module khỏi README và yêu cầu công việc hiện hành; giữ HTTP fixture/test double để kiểm thử không tốn token, không sửa nhật ký lịch sử. | Agent hỗ trợ Vinh | 46 test model profiles/cached tokens qua (0,90s), không có import module bị xóa; diff check qua. Giữ các chỉnh sửa checklist và xóa tài liệu người dùng đã có; không gọi API thật, không commit/push.
+
+- 2026-10-26 | Hiện thực L1 Fixed (`src/raac/collaboration/levels/l1_fixed.py`, `configs/levels/l1_fixed.yaml`) theo `docs/level_definitions.md` (5 role tuyến tính Analyst → Planner → Coder → Tester → Reviewer, 1 vòng cố định qua Shared Engine) và tạo CLI/Docker runner độc lập `L1-cli.py` ở gốc repo theo yêu cầu người dùng. | Agent hỗ trợ Vũ | 10/10 unit test collaboration qua (`tests/unit/collaboration/test_l1_fixed.py` & `test_engine.py`), kiểm chứng 3 task mẫu với HTTP mock + lưu JSONL; giữ mục chạy 3 task mẫu ở `[~]`. Không commit/push.
+
+- 2026-10-26 | Theo yêu cầu người dùng: thay `L1-cli.py` bằng tích hợp L1 vào `src/raac/benchmark/runner.py` (adapter `l1_runner.py`, bảng `LEVELS`, batch đa level), CLI `--level L1|L3`; đã xóa `L1-cli.py`. | Agent hỗ trợ Vũ | 21 test benchmark L1/runner/batch qua. Phát hiện line ending: `data/tasks/cleaned_benchmark.json` và `data/evaluation/swe_bench_verified.json` trong index là LF nhưng hash manifest 105 tính trên CRLF, nên checkout LF (WSL/Linux) làm mọi lệnh benchmark (cả L3) báo `Frozen selection source hash changed`; chưa sửa, chờ người dùng quyết định (ví dụ `.gitattributes` eol=crlf cho hai file). Không commit/push.

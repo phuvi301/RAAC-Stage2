@@ -1,6 +1,9 @@
 # Chạy MAS tạo candidate và chấm độc lập
 
-Đường chạy này hiện hỗ trợ **L3 Chain**, tuần tự. Host điều phối và gọi LLM;
+Đường chạy này hiện hỗ trợ **L1 Fixed** và **L3 Chain**, tuần tự, dùng chung
+setup Docker, export candidate, evaluator và RunRecord; chỉ phần agent khác nhau
+(`--level L1` chạy `L1Fixed` qua Shared Engine, `--level L3` chạy Chain). L1 không
+có role Environment nên Tester dùng `test_spec` pytest của container. Host điều phối và gọi LLM;
 file tools, shell và test của agent chạy trong container riêng, không mount repo host,
 không có Docker socket, API key, gold patch hoặc test đánh giá theo issue.
 Image chuẩn bị từ profile phải chứa sẵn dependency: container agent không có network.
@@ -8,6 +11,8 @@ Environment chỉ chọn và xác minh runtime trong image.
 
 ```powershell
 python -m raac.cli benchmark run --task-id psf__requests-6027 --level L3
+python -m raac.cli benchmark run --task-id psf__requests-6027 --level L1
+python -m raac.cli benchmark batch --task-id psf__requests-6027 --task-id psf__requests-1051 --level L1 --batch-id l1-pilot
 python -m raac.cli benchmark batch --task-id psf__requests-6027 --task-id psf__requests-1051 --repetitions 2 --batch-id candidate-pilot
 python -m raac.cli benchmark batch --task-id psf__requests-6027 --task-id psf__requests-1051 --repetitions 2 --batch-id candidate-pilot --resume
 ```
