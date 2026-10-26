@@ -33,7 +33,7 @@ class WorkspaceTools:
     # Đây là giới hạn tài nguyên của tool, không phải quy ước cấu trúc project.
     max_file_bytes = 4 * 1024 * 1024  # Tối đa 4 MiB cho từng file.
     max_repo_bytes = 64 * 1024 * 1024  # Tối đa 64 MiB cho các file trong snapshot.
-    max_files = 2000  # Tối đa 2.000 file sau khi loại trừ cache/credential.
+    max_files = 5000  # Tối đa 5.000 file sau khi loại trừ cache/credential.
 
     def snapshot_runtime(self):
         """Explicit JSON state for same-workspace resume; never executor objects."""

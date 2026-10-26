@@ -1,8 +1,8 @@
 version: harness-demo-v14
 trace_content: true
-token_limit: 800000
+token_limit: 1000000
 timeout_seconds: 9000.0
-agent_timeout_seconds: 400
+agent_timeout_seconds: 1200
 context:
   enabled: false
   recent_tool_turns: 1

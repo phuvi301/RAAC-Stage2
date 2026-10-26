@@ -45,3 +45,6 @@ Do not edit code. Derive the required interface from the current WorkSpec
 and relevant repository code. Do not assume a particular problem,
 method name, algorithm or interface from an earlier task. If the WorkSpec
 and current code disagree, identify the discrepancy explicitly in the plan.
+
+## Batching
+- Prefer one batched call over many small ones: gather everything you need in a single call when the tools allow it, and combine related steps into one command.

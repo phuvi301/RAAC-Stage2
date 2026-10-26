@@ -198,6 +198,55 @@ class ProvisionApplyTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual([step["purpose"] for step in result["executed"]], ["Create project-local virtualenv .venv"])
             self.assertTrue(result["ready"], result["summary"])
 
+class LegacyBuildRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    def test_build_requires_are_read_from_pyproject(self):
+        with tempfile.TemporaryDirectory() as temp:
+            write(temp, "pyproject.toml", '[build-system]\nrequires=["setuptools","cython==0.29.22","not valid !!"]\n')
+            write(temp, "setup.py", "from setuptools import setup\nsetup(name='old')\n")
+            info = provisioner.python_requirements(temp)
+        self.assertEqual(info["build_requires"], ["setuptools", "cython==0.29.22"])
+        self.assertTrue(info["legacy_setup_py"] and info["installable"])
+
+    def test_recovery_installs_build_requires_then_builds_without_isolation(self):
+        steps = provisioner.legacy_build_recovery(
+            "py", "pkg", {"build_requires": ["setuptools>=42", "wheel", "cython==0.29.22"]})
+        self.assertEqual(steps[0]["argv"], ["py", "-m", "pip", "install", "setuptools<60", "wheel", "cython==0.29.22"])
+        self.assertEqual(steps[1]["argv"], ["py", "-m", "pip", "install", "--no-build-isolation", "--no-deps", "-e", "."])
+
+    def test_recovery_caps_setuptools_scm_for_the_old_toolchain(self):
+        steps = provisioner.legacy_build_recovery("py", ".", {"build_requires": ["setuptools_scm>=6.2", "extension-helpers"]})
+        self.assertIn("setuptools_scm<7", steps[0]["argv"])
+        self.assertNotIn("setuptools_scm>=6.2", steps[0]["argv"])
+
+    def test_error_lines_drop_pip_upgrade_noise(self):
+        lines = provisioner.error_lines("Getting requirements to build wheel: finished with status 'error'\nok",
+                                        "ModuleNotFoundError: No module named 'extension_helpers'\n"
+                                        "You should consider upgrading via pip (error)")
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(any("extension_helpers" in line for line in lines))
+
+    async def test_failed_editable_install_triggers_recovery_steps(self):
+        calls = []
+
+        class Executor:
+            async def run_command(self, root, *, command, cwd, unlimited):
+                calls.append(command)
+                bad = command[-2:] == ["-e", "."] and "--no-build-isolation" not in command
+                return {"status": "completed", "exit_code": 1 if bad else 0, "stdout": "", "stderr": "error: boom" if bad else ""}
+
+        class Workspace:
+            root = Path(".")
+            executor = Executor()
+
+        plan = [{"argv": ["py", "-m", "pip", "install", "-e", "."], "cwd": ".", "purpose": "Install the project itself",
+                 "on_failure": provisioner.legacy_build_recovery("py", ".", {"build_requires": []})}]
+        report = {"projects": [{"plan": plan, "blocking": []}], "ready": False}
+        with patch.object(provisioner, "inspect_project", return_value=report):
+            result = await provisioner.provision(Workspace(), apply=True, max_rounds=1)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual([bool(e.get("recovery")) for e in result["executed"]], [False, True, True])
+        self.assertEqual(result["executed"][0]["error_lines"], ["error: boom"])
+
 
 if __name__ == "__main__":
     unittest.main()

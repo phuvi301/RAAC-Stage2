@@ -285,6 +285,16 @@ Reviewer approve, đủ AC và không blocker. ChainState vẫn quản lý colla
 của một Chain, tách khỏi lifecycle agent Layer 1. Contract đã đổi; resume
 checkpoint cũ cần Engine kiểm tra version, chưa nghiệm thu resume toàn harness.
 
+# Chain review loop — Chain có phản hồi Reviewer → Coder
+
+`chain_review_loop` (phiên bản 1) dùng đúng các node và hợp đồng của Chain; khác duy nhất là cạnh
+`reviewer → coder`. Khi test đã đạt nhưng Reviewer từ chối (không có `stop_reason` trước đó) và
+`rounds_completed < max_rounds` và chưa dùng hết `max_review_rounds` (mặc định 2, đếm riêng số lần Reviewer gửi phản hồi), Reviewer phát `review_feedback_sent`, ghi `review_feedback`, rồi Coder
+nhận `incoming_message.from = "Reviewer"` cùng `artifacts.review_report` và trả patch tích lũy mới;
+Tester và Reviewer chạy lại trên patch đó. Test fail vẫn đi qua `limit` như Chain. Hết vòng thì dừng
+với `reviewer_rejected`. Template này được chọn bằng tay (`topology` trong `configs/levels/l3_collaboration.yaml`
+hoặc `--topology chain_review_loop` của `raac-mas run-chain`); Chain thường không có cạnh này.
+
 # Subtask Chain — dùng lại Chain cho từng subtask
 
 Subtask Chain phân rã công việc và gọi lại đúng mẫu Chain ở trên cho từng

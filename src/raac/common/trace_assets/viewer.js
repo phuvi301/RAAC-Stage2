@@ -252,6 +252,14 @@ function renderFlowDetail(summary, id) {
     panel.append(list);
   }
 }
+function edgeLabel(edge) {
+  const start = state.events.find(event => event.event === "run_started") || {};
+  if (edge.from === "reviewer" && edge.to === "coder")
+    return Number.isInteger(start.max_review_rounds) ? `Reviewer từ chối · tối đa ${start.max_review_rounds} vòng` : "Reviewer từ chối";
+  if (edge.from === "limit" && edge.to === "coder")
+    return Number.isInteger(start.max_rounds) ? `Test chưa đạt · tối đa ${start.max_rounds} vòng` : "Test chưa đạt";
+  return null;
+}
 function renderFlow() {
   if (!flow.topology) return;
   const summary = summarize(flow.topology, state.events), shape = layout(flow.topology);
@@ -266,13 +274,24 @@ function renderFlow() {
   const at = new Map(shape.nodes.map(item => [item.node_id, item]));
   for (const edge of summary.edges) {
     const from = at.get(edge.from), to = at.get(edge.to); if (!from || !to) continue;
-    let d;
+    let d, label = null;
     if (edge.back) {
-      const sx = from.x, sy = from.y + 24, tx = to.x, ty = to.y + 27;
-      d = `M${sx} ${sy} C${sx} ${sy + 46} ${tx} ${ty + 84} ${tx} ${ty}`;
+      const key = `${edge.from}>${edge.to}`;
+      if (shape.topArcs.has(key)) {
+        const sx = from.x, tx = to.x, y0 = from.y - 25, y1 = to.y - 27, peak = y0 - 58;
+        d = `M${sx} ${y0} C${sx} ${peak} ${tx} ${peak} ${tx} ${y1}`;
+        label = {x: (sx + tx) / 2, y: y0 - 47};
+      } else {
+        const sx = from.x, sy = from.y + 24, tx = to.x, ty = to.y + 27;
+        d = `M${sx} ${sy} C${sx} ${sy + 46} ${tx} ${ty + 84} ${tx} ${ty}`;
+        label = {x: (sx + tx) / 2, y: (sy + 3 * (sy + 46) + 3 * (ty + 84) + ty) / 8 + 12};
+      }
+      const text = edgeLabel(edge);
+      if (!text) label = null; else label.text = text;
     } else { const a = clip(from, to), b = clip(to, from, 5); d = `M${a.x} ${a.y} L${b.x} ${b.y}`; }
     const cls = `flow-edge${edge.traversed ? " traversed" : ""}${edge.active ? " active" : ""}`;
     canvas.append(svg("path", {d, class: cls, "marker-end": `url(#${edge.active ? "arrow-live" : edge.traversed ? "arrow-on" : "arrow"})`}));
+    if (label) canvas.append(svg("text", {class: `flow-edge-label${edge.traversed ? " traversed" : ""}`, x: label.x, y: label.y}, label.text));
   }
   for (const item of shape.nodes) {
     const info = summary.nodes.get(item.node_id);

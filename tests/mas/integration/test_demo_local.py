@@ -353,7 +353,7 @@ class ServiceTests(unittest.TestCase):
         stdout = io.StringIO()
         args = SimpleNamespace(command="run-chain", model="http-mock-verification",
                                base_url="http://http-mock.invalid/v1", max_rounds=1,
-                               project_dir=str(self.project_dir))
+                               topology="chain", project_dir=str(self.project_dir))
         with patch.dict(os.environ, {"LLM_API_KEY": "integration-test-only"}), \
                 patch("raac.mas_cli.LLMClient", side_effect=client_factory), redirect_stdout(stdout):
             code = await execute(args)

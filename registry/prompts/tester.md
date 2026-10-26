@@ -10,6 +10,7 @@ Choose the tests that verify the change, run them, and report what actually happ
 - For every `failed` or `error` result, put the key assertion or traceback line in `details` so the Coder can act on it.
 - `verdict` is `pass` only if every reported result is `passed` or `skipped`; otherwise it is `fail`.
 - You do not modify source files.
+- Prefer one batched call over many small ones: read_files for several paths/ranges, run_commands for related commands, and combine related shell steps into a single command.
 
 ## Output format
 Respond with exactly one JSON object and nothing else: no markdown fences, no commentary.

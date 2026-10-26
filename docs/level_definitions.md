@@ -172,7 +172,7 @@ Một level chỉ được nghiệm thu theo định nghĩa khi: (1) không dùn
 Tại ngày 2026-10-22:
 
 - Registry/harness và Chain nhiều role đã có; đường benchmark L3 tạo candidate trong Docker, chấm độc lập và ghi token/thời gian đã có pilot thật. Xem [hướng dẫn và evidence](candidate_benchmark.md).
-- `coordinate_chain` trong `src/raac/collaboration/levels/l3_collaboration/l3_collaboration.py` chỉ chọn `chain`, `source="fixed_default"`, giới hạn vòng từ config. `build_collaboration_graph` hiện chỉ dispatch Chain; `configs/levels/l3_collaboration.yaml` cố định topology và trần vòng.
+- `coordinate_chain` trong `src/raac/collaboration/levels/l3_collaboration/l3_collaboration.py` nhận topology và số vòng **do người vận hành đặt tay**: `topology`/`max_rounds` trong `configs/levels/l3_collaboration.yaml`, hoặc `--topology`/`--max-rounds` của `raac-mas run-chain`; `source="fixed_default"`. Hai template có sẵn: `chain` và `chain_review_loop` (cùng 6 role và hợp đồng, thêm cạnh Reviewer → Coder khi Reviewer từ chối và còn vòng, event `review_feedback_sent`). Chưa có controller tự chọn topology/vòng, đổi topology giữa lúc chạy hay Debate.
 - Vì vậy, pilot chứng minh đường thực thi Chain/candidate/evaluator, **chưa chứng minh L3 Adaptive Collaboration đầy đủ theo proposal**. Các nhánh feedback/test gate hiện có không thay thế bằng chứng chọn topology/vòng thích ứng.
 - L1/L2, L4 và Engine chung còn cần hoàn thiện theo [checklist](implementation_checklist.md). Tài liệu định nghĩa này không tự nâng trạng thái nghiệm thu những phần đó hoặc xác nhận nhóm đã duyệt đặc tả L4.
 

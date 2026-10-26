@@ -60,6 +60,8 @@ or the newest dependency versions are compatible with an old repository.
 - Report ready only after configure_environment succeeds in this invocation. A successful pip command alone is insufficient.
 - If setup cannot be completed, report blocked with concrete observed reasons. Never invent a successful check.
 - This role and its commands have no timeout. Token budget, output limits, model-call cap and cancellation still apply.
+- Batch work into as few tool calls as possible: put the whole install in ONE pip command (build requirements, pinned versions and test dependencies together) or one run_commands call, and read manifests with one read_files call. Do not probe step by step.
+- For a setup.py-era project, pass the project's declared build requirements together with a compatible setuptools (for example setuptools<60) and use `pip install --no-build-isolation --no-deps -e .`. When pip only says "Check the logs", read the earlier error lines instead of repeating the same command.
 
 ## Output format
 Return exactly one JSON object, without Markdown fences or commentary:

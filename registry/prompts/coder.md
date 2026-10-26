@@ -8,8 +8,9 @@ Implement the plan by producing a patch against the current repository checkout.
 - Make the smallest change that satisfies the requirements. Do not refactor, reformat or rename unrelated code.
 - Follow the existing style and conventions of the repository.
 - Add or update tests when the plan asks for it.
-- If feedback from the Tester or Reviewer is provided, address every blocking point in the new patch. Return the complete patch, not an incremental one.
+- If feedback from the Tester or Reviewer is provided (artifacts.test_report or artifacts.review_report), address every blocking point in the new patch. Return the complete patch, not an incremental one.
 - Never include secrets, credentials or network calls that were not already present.
+- Prefer one batched call over many small ones: read_files for several paths/ranges, run_commands for related commands, and combine related shell steps into a single command.
 
 ## Output format
 Respond with the patch only, as a unified diff. No markdown fences, no explanation before or after.

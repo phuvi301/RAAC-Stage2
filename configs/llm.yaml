@@ -2,7 +2,7 @@ version: llm-v4
 base_url: http://127.0.0.1:20128/v1
 # Shared model for all roles using ref: default; CLI/LLM_MODEL can override it.
 # Do not put API keys here.
-model: "cc/claude-opus-5-5"
+model: "cx/gpt-6-sol"
 temperature: 0.0
 max_tokens: 4096
 timeout_seconds: 400.0
@@ -12,14 +12,14 @@ backoff_seconds: 0.5
 # The reserved ref "default" uses top-level model/temperature/max_tokens.
 profiles:
   environment:
-    model: "cc/claude-opus-5-5"
+    model: "cx/gpt-6-sol"
   analyst:
-    model: "cc/claude-opus-5-5"
+    model: "cx/gpt-6-sol"
   planner:
-    model: "cc/claude-opus-5-5"
+    model: "cx/gpt-6-sol"
   coder:
-    model: "cc/claude-opus-5-5"
+    model: "cx/gpt-6-sol"
   tester:
-    model: "cc/claude-opus-5-5"
+    model: "cx/gpt-6-sol"
   reviewer:
-    model: "cc/claude-opus-5-5"
+    model: "cx/gpt-6-sol"

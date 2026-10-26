@@ -40,7 +40,10 @@ export function layout(topology, {stepX = 138, rowGap = 92, marginX = 74, margin
   }
   const main = [];
   for (let node = parent.has(topology.exit_node) ? topology.exit_node : null; node; node = parent.get(node)) main.unshift(node);
-  const positions = new Map(main.map((node, index) => [node, {x: marginX + index * stepX, y: marginY, row: 0}]));
+  // Back edges leaving the main row arc over the top, so they never share a path with the lower loop-backs.
+  const topArcs = new Set([...back].filter(key => main.includes(key.split(">")[0])));
+  const baseY = marginY + (topArcs.size ? 40 : 0);
+  const positions = new Map(main.map((node, index) => [node, {x: marginX + index * stepX, y: baseY, row: 0}]));
   const pending = topology.steps.map(step => step.node_id).filter(node => !positions.has(node));
   const taken = new Set();
   for (let pass = 0; pass < pending.length + 1; pass++) {
@@ -53,13 +56,13 @@ export function layout(topology, {stepX = 138, rowGap = 92, marginX = 74, margin
       let row = 1;
       while (taken.has(`${Math.round(x)}:${row}`)) row++;
       taken.add(`${Math.round(x)}:${row}`);
-      positions.set(node, {x, y: marginY + row * rowGap, row});
+      positions.set(node, {x, y: baseY + row * rowGap, row});
     }
   }
-  const nodes = topology.steps.map(step => ({...step, agent: agentOf(step), control: !step.role, ...(positions.get(step.node_id) || {x: marginX, y: marginY, row: 0})}));
+  const nodes = topology.steps.map(step => ({...step, agent: agentOf(step), control: !step.role, ...(positions.get(step.node_id) || {x: marginX, y: baseY, row: 0})}));
   const width = Math.max(...nodes.map(node => node.x)) + marginX;
   const height = Math.max(...nodes.map(node => node.y)) + marginY + (back.size ? 34 : 0);
-  return {nodes, back, width, height};
+  return {nodes, back, topArcs, width, height};
 }
 
 function pendingTool(events) {

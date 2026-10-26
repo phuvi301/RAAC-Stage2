@@ -27,6 +27,7 @@ async def run_chain(task: Task, *, run_id: str, workspace, registry, llm_config,
     root = Path(__file__).resolve().parents[3]
     decision = coordinate_chain(level_config)
     limits = ChainLimits(max_rounds=decision.max_rounds, hard_max_rounds=level_config["hard_max_rounds"],
+                         max_review_rounds=decision.max_review_rounds or 0,
                          timeout_seconds=harness["timeout_seconds"], agent_timeout_seconds=harness["agent_timeout_seconds"])
     role_models = llm_config.resolve_role_models({role.id: role.model.ref for role in registry.roles.values()})
     effective = {"llm": llm_config.model_dump(mode="json"), "harness": harness,
@@ -60,7 +61,7 @@ async def run_chain(task: Task, *, run_id: str, workspace, registry, llm_config,
         client.trace.emit(context, event="run_started", decision=decision.model_dump(),
                           workspace={"mode": "docker", "repo_dir": "/workspace"})
         graph = build_collaboration_graph(decision, ChainNodes(runner, budget_guard=runner.budget_guard))
-        state = await graph.ainvoke(initial_chain_state(work, limits), {"recursion_limit": 6 * limits.max_rounds + 16})
+        state = await graph.ainvoke(initial_chain_state(work, limits, decision.topology), {"recursion_limit": 6 * limits.max_rounds + 16})
         record.update(**state["result"], events=state["events"])
         return record
     except asyncio.CancelledError:

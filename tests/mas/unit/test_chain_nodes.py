@@ -13,6 +13,7 @@ from raac.collaboration.levels.l3_collaboration import (
     ChainLimits, ChainNodes, WorkItem, build_chain_graph, initial_chain_state,
 )
 from raac.collaboration.levels.l3_collaboration.chain_state import RoleHandoff, role_output_model
+from raac.collaboration.topologies import get_topology
 
 
 def commit_payload(data):
@@ -410,6 +411,83 @@ class ChainNodeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([role for role, _ in agents.calls].count("Analyst"), 1)
         self.assertEqual([role for role, _ in agents.calls].count("Coder"), 2)
         self.assertEqual([role for role, _ in agents.calls].count("Environment"), 1)
+
+
+class ReviewLoopNodeTests(unittest.IsolatedAsyncioTestCase):
+    async def run_loop(self, agents, *, rounds=3, review_rounds=2):
+        state = initial_chain_state(
+            WorkItem(run_id="run-1", task_id="task-1", work_id="task-1", scope="task",
+                     requirement="Return zero for empty input", baseline_ref="base-commit"),
+            ChainLimits(max_rounds=rounds, hard_max_rounds=4, max_review_rounds=review_rounds,
+                        timeout_seconds=10.0, agent_timeout_seconds=2.0),
+            "chain_review_loop",
+        )
+        graph = build_chain_graph(ChainNodes(agents), topology=get_topology("chain_review_loop"))
+        return await graph.ainvoke(state, {"recursion_limit": 6 * rounds + 16})
+
+    @staticmethod
+    def reject_until(round_number):
+        def override(output, request):
+            rejected = request["round"] < round_number
+            return {**output, "verdict": "REJECT" if rejected else "PASS",
+                    "blocking_issues": ["Handle None too"] if rejected else []}
+        return override
+
+    async def test_reviewer_rejection_sends_feedback_back_to_coder(self):
+        agents = FakeAgents(overrides={"Reviewer": self.reject_until(2)})
+        output = await self.run_loop(agents)
+        self.assertEqual([role for role, _ in agents.calls], [
+            "Environment", "Analyst", "Planner", "Coder", "Tester", "Reviewer",
+            "Coder", "Tester", "Reviewer",
+        ])
+        second_coder = [request for role, request in agents.calls if role == "Coder"][1]
+        self.assertEqual(second_coder["incoming_message"]["from"], "Reviewer")
+        self.assertEqual(second_coder["artifacts"]["review_report"]["verdict"], "REJECT")
+        self.assertEqual(output["verdict"], "PASS")
+        self.assertEqual(output["rounds_completed"], 2)
+        self.assertEqual(output["result"]["topology"], "chain_review_loop")
+        sent = [event for event in output["events"] if event["event"] == "review_feedback_sent"]
+        self.assertEqual([(e["target"], e["topology"]) for e in sent], [("coder", "chain_review_loop")])
+        self.assertIsNone(output["review_feedback"])
+
+    async def test_loop_is_bounded_by_max_rounds(self):
+        agents = FakeAgents(verdict="REJECT")
+        output = await self.run_loop(agents, rounds=2)
+        roles = [role for role, _ in agents.calls]
+        self.assertEqual((roles.count("Coder"), roles.count("Reviewer")), (2, 2))
+        self.assertEqual(output["verdict"], "REJECT")
+        self.assertEqual(output["stop_reason"], "reviewer_rejected")
+
+    async def test_review_feedback_rounds_have_their_own_cap(self):
+        agents = FakeAgents(verdict="REJECT")
+        output = await self.run_loop(agents, rounds=4, review_rounds=1)
+        roles = [role for role, _ in agents.calls]
+        self.assertEqual((roles.count("Coder"), roles.count("Reviewer")), (2, 2))
+        self.assertEqual(output["review_rounds"], 1)
+        sent = [e for e in output["events"] if e["event"] == "review_feedback_sent"]
+        self.assertEqual([(e["review_round"], e["max_review_rounds"]) for e in sent], [(1, 1)])
+        self.assertEqual(output["stop_reason"], "reviewer_rejected")
+
+    async def test_zero_review_rounds_disables_the_feedback_edge(self):
+        agents = FakeAgents(verdict="REJECT")
+        output = await self.run_loop(agents, review_rounds=0)
+        roles = [role for role, _ in agents.calls]
+        self.assertEqual((roles.count("Coder"), roles.count("Reviewer")), (1, 1))
+        self.assertEqual(output["review_rounds"], 0)
+
+    async def test_failing_tests_do_not_use_the_review_loop(self):
+        agents = FakeAgents(pass_on_round=100)
+        output = await self.run_loop(agents, rounds=2)
+        roles = [role for role, _ in agents.calls]
+        self.assertEqual(roles.count("Reviewer"), 1)
+        self.assertEqual(output["stop_reason"], "max_rounds_reached")
+
+    async def test_plain_chain_never_loops_back_from_reviewer(self):
+        agents = FakeAgents(verdict="REJECT")
+        graph = build_chain_graph(ChainNodes(agents))
+        output = await graph.ainvoke(make_state(rounds=3), {"recursion_limit": 40})
+        self.assertEqual([role for role, _ in agents.calls].count("Coder"), 1)
+        self.assertEqual(output["topology_id"], "chain")
 
 
 class ChainInputTests(unittest.TestCase):

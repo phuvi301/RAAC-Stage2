@@ -59,8 +59,11 @@ def present_event(event, identifier):
         row["token_limit"] = effective["token_limit"]
     if kind == "run_started":
         decision = _mapping(event.get("decision"))
+        review = decision.get("max_review_rounds")
         row.update(source="Người dùng", target="MAS", title="Bắt đầu run", topology=decision.get("topology"),
-                   summary=f"Topology {decision.get('topology', '?')} · tối đa {decision.get('max_rounds', '?')} vòng")
+                   max_rounds=decision.get("max_rounds"), max_review_rounds=review,
+                   summary=f"Topology {decision.get('topology', '?')} · tối đa {decision.get('max_rounds', '?')} vòng"
+                           + (f" · phản hồi Reviewer → Coder tối đa {review} vòng" if review is not None else ""))
         payload("Quyết định điều phối", decision)
         payload("Workspace", event.get("workspace"))
     elif kind == "command_output":

@@ -12,6 +12,7 @@ Decide whether the patch can be accepted. You do NOT rewrite the patch.
 - Severity levels: `blocker` (must fix, patch is incorrect or unsafe), `major` (should fix before merging), `minor` (small improvement), `nit` (taste).
 - `decision` is `approve` only when there is no `blocker` comment. Use `reject` when at least one problem must be fixed, and include at least one comment explaining why.
 - Do not invent problems to look thorough. An approve with no comments is valid when the patch is good.
+- Prefer one batched call over many small ones: gather everything you need in a single call when the tools allow it, and combine related steps into one command.
 
 ## Output format
 Respond with exactly one JSON object and nothing else: no markdown fences, no commentary.

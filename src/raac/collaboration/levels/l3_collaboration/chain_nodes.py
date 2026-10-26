@@ -11,7 +11,7 @@ import time
 from copy import deepcopy
 from typing import Any, Callable, Protocol
 
-from raac.collaboration.topologies import CHAIN
+from raac.collaboration.topologies import get_topology
 from raac.common.errors import AgentExecutionError, RunGuardError, WorkspaceSnapshotError
 
 from .chain_handoff import prepare_role_request
@@ -59,10 +59,11 @@ class ChainNodes:
 
     def _event(self, state, node, event, **details):
         work = state["work"]
+        topology = get_topology(state.get("topology_id", "chain"))
         return {
             "run_id": work["run_id"], "task_id": work["task_id"],
             "work_id": work["work_id"], "scope": work["scope"],
-            "level": "L3", "topology": CHAIN.topology_id, "topology_version": CHAIN.version,
+            "level": "L3", "topology": topology.topology_id, "topology_version": topology.version,
             "node": node, "round": state["round_number"],
             "event": event, **details,
         }
@@ -94,7 +95,8 @@ class ChainNodes:
             return None, interrupted, []
         round_number = state["round_number"] + (node == "coder")
         request = prepare_role_request({
-            **state["work"], "topology": CHAIN.topology_id, "topology_version": CHAIN.version,
+            **state["work"], "topology": get_topology(state.get("topology_id", "chain")).topology_id,
+            "topology_version": get_topology(state.get("topology_id", "chain")).version,
             "round": round_number, "max_rounds": state["limits"]["max_rounds"],
             "incoming_message": incoming, "artifacts": {"ac_catalog": state["ac_catalog"], **artifacts},
             "repository_changes": state.get("repository_changes", []),
@@ -208,12 +210,13 @@ class ChainNodes:
         if state["round_number"] >= state["limits"]["max_rounds"]:
             return self._abort(state, "coder", "max_rounds_reached")
         feedback = state["test_report"]
+        review = state.get("review_feedback")
         output, failure, events = await self._call(
             state, "coder", "Coder",
-            {"from": "Tester" if feedback else "Planner",
-             "content": feedback or state["plan"]},
+            {"from": "Reviewer" if review else "Tester" if feedback else "Planner",
+             "content": review or feedback or state["plan"]},
             {"spec": state["spec"], "plan": state["plan"],
-             "previous_patch": state["patch"], "test_report": feedback},
+             "previous_patch": state["patch"], "test_report": feedback, "review_report": review},
         )
         if failure:
             return failure
@@ -233,7 +236,7 @@ class ChainNodes:
             "repository_changes": output["repository_changes"],
             "coder_summary": output["summary"],
             "round_number": state["round_number"] + 1,
-            "test_report": None, "review_report": None, "tests_passed": False,
+            "test_report": None, "review_report": None, "review_feedback": None, "tests_passed": False,
             "verdict": None, "stop_reason": None,
             "next_node": "tester", "events": events,
         }
@@ -308,6 +311,20 @@ class ChainNodes:
         reason = "tests_and_review_passed" if passed else (
             state["stop_reason"] or "reviewer_rejected"
         )
+        if (not passed and state["stop_reason"] is None
+                and ("reviewer", "coder") in get_topology(state.get("topology_id", "chain")).edges
+                and state["rounds_completed"] < state["limits"]["max_rounds"]
+                and state.get("review_rounds", 0) < state["limits"].get("max_review_rounds", 0)):
+            return {
+                "review_report": output, "review_feedback": output, "verdict": None,
+                "review_rounds": state.get("review_rounds", 0) + 1,
+                "stop_reason": None, "next_node": "coder", "events": [*events, self._event(
+                    state, "reviewer", "review_feedback_sent", target="coder", reason="reviewer_rejected",
+                    rounds_completed=state["rounds_completed"], max_rounds=state["limits"]["max_rounds"],
+                    review_round=state.get("review_rounds", 0) + 1,
+                    max_review_rounds=state["limits"]["max_review_rounds"],
+                )],
+            }
         return {
             "review_report": output, "verdict": verdict, "stop_reason": reason,
             "next_node": "result", "events": [*events, self._event(
@@ -319,7 +336,8 @@ class ChainNodes:
     def result(self, state: ChainState) -> dict:
         result = {
             **{key: state["work"][key] for key in ("run_id", "task_id", "work_id", "scope")},
-            "topology": CHAIN.topology_id, "topology_version": CHAIN.version,
+            "topology": get_topology(state.get("topology_id", "chain")).topology_id,
+            "topology_version": get_topology(state.get("topology_id", "chain")).version,
             "status": "aborted" if state["error"] else (
                 "completed" if state["verdict"] == "PASS" else "rejected"
             ),

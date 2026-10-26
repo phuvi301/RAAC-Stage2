@@ -1,4 +1,7 @@
 version: l3-chain-demo-v1
-topology: chain
+# Set by hand: chain | chain_review_loop (Reviewer can send feedback back to Coder).
+topology: chain_review_loop
 max_rounds: 3
+# Reviewer -> Coder feedback loops allowed (only used by chain_review_loop); still bounded by max_rounds.
+max_review_rounds: 2
 hard_max_rounds: 4

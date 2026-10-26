@@ -144,3 +144,34 @@ console.log(JSON.stringify(out));
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReviewLoopGraphTests(unittest.TestCase):
+    def test_run_started_row_exposes_round_limits(self):
+        row = present_event({"event": "run_started", "decision": {
+            "topology": "chain_review_loop", "max_rounds": 3, "max_review_rounds": 2}}, 1)
+        self.assertEqual((row["max_rounds"], row["max_review_rounds"]), (3, 2))
+        self.assertIn("Reviewer → Coder tối đa 2 vòng", row["summary"])
+        plain = present_event({"event": "run_started", "decision": {"topology": "chain", "max_rounds": 3}}, 1)
+        self.assertNotIn("Reviewer → Coder", plain["summary"])
+
+    @unittest.skipUnless(shutil.which("node"), "node is needed to run the graph module")
+    def test_review_edge_arcs_over_the_main_row_and_limit_edge_stays_below(self):
+        script = (
+            "import {layout} from %r;"
+            "const names=['environment','analyst','planner','coder','tester','check','limit','reviewer','result'];"
+            "const t={entry_node:'environment',exit_node:'result',"
+            "steps:names.map(n=>({node_id:n,role:['check','limit','result'].includes(n)?null:n})),"
+            "edges:%s};"
+            "const l=layout(t);"
+            "console.log(JSON.stringify({top:[...l.topArcs],back:[...l.back].sort(),"
+            "coderY:l.nodes.find(n=>n.node_id==='coder').y,limitY:l.nodes.find(n=>n.node_id==='limit').y}));"
+        ) % ((ASSETS / "graph.mjs").as_uri(), json.dumps([list(edge) for edge in __import__(
+            "raac.collaboration.topologies", fromlist=["x"]).get_topology("chain_review_loop").edges]))
+        done = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        data = json.loads(done.stdout)
+        self.assertEqual(data["top"], ["reviewer>coder"])
+        self.assertEqual(data["back"], ["limit>coder", "reviewer>coder"])
+        self.assertGreater(data["coderY"], 64)  # room reserved above the row for the arc
+        self.assertGreater(data["limitY"], data["coderY"])

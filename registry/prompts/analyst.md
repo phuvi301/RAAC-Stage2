@@ -46,3 +46,6 @@ in interface_contracts. Preserve supplied examples with their expected outputs
 where needed to define behavior. Do not rely on downstream roles reading the
 original chat, and do not omit requirements just to shorten the handoff.
 Do not solve the task, edit files, choose another topology or create roles.
+
+## Batching
+- Prefer one batched call over many small ones: gather everything you need in a single call when the tools allow it, and combine related steps into one command.
