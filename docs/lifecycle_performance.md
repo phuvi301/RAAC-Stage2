@@ -1,5 +1,69 @@
 # MAS lifecycle performance — 2026-10-26
 
+## Coder follow-up — 2026-10-27
+
+The shared lifecycle now requests one output-format correction per activation for
+invalid final JSON/diff or DSML text. Recovery consumes the existing call/token/time
+limits, persists its quota through resume and never executes DSML. Adapter side
+effects are outside this retry boundary. Coder receives a bounded progress hint
+(three recent evidence receipts, tracked revision, calls/time left), with a handoff
+reminder at 60 seconds. This is guidance, not an automatic success or forced stop.
+Registry is `0.19.2`, Coder `chain-v6`, Tester `chain-v5`.
+
+The Coder fixture performs one implementation edit, six read/shell cycles and a
+final patch handoff: eight HTTP mock responses and thirteen top-level tools. The
+repository contains 1,901 files / 40,996,803 baseline bytes. Three new containers per
+version use the same local image `404ac6a56760`, with no provider request or image pull.
+The control loads the five lifecycle/workspace modules from `HEAD` in memory; it
+does not change working files, prompts, topology or configuration.
+
+| Metric | HEAD control | After |
+| --- | ---: | ---: |
+| Median lifecycle | 70.787 s | 48.583 s |
+| Median cumulative checkpoint | 24.936 s | 13.713 s |
+| Snapshot calls | 28 | 16 |
+| Checkpoint saves | 78 | 78 |
+
+Total fixture time decreases **31.4%**; checkpoint overhead decreases **45.0%**.
+The improvement comes from reusing the verified post-command snapshot for evidence
+and subsequent checkpoint fingerprinting, plus removing a redundant deep copy before
+synchronous checkpoint serialization. Every shell still receives fresh before/after
+integrity checks; file mutations, failures/cancellation and new activations invalidate
+the cache. Resume and candidate export still read fresh source. Local workspaces
+retain their fresh-snapshot behavior. SQLite durability/revision checks are unchanged.
+
+Raw measurements: `results/lifecycle-coder-control-20261027/summary.json` and
+`results/lifecycle-coder-after-20261027/summary.json`. Reproduce with:
+
+```powershell
+.venv/Scripts/python.exe scripts/profile_lifecycle.py --image 404ac6a56760 --scenario coder --control-ref HEAD --output results/coder-control-new
+.venv/Scripts/python.exe scripts/profile_lifecycle.py --image 404ac6a56760 --scenario coder --output results/coder-after-new
+```
+
+The default `--scenario analyst` retains the original two-response fixture. Output
+directories must be new. Detailed `checkpoint_timing` records separate runtime/memory
+snapshot, redaction, serialization, SQLite and payload bytes. `command_timing` records
+before/after snapshot and execution; `evidence_timing` measures patch evidence. Batch
+totals count only top-level tools. Events contain metrics, not source or command output.
+
+A separate instrumented Coder run (`results/lifecycle-coder-timing-20261027/llm.jsonl`)
+verified six command timing records and sixteen snapshots, finishing in 46.146 s.
+Each tiny shell execution takes 0.317–0.422 s while its before/after snapshots take
+about 1.58–2.00 s each. This explains why even a small command visibly takes several
+seconds; those integrity checks remain necessary.
+
+Context replay of the two latest traces is stored in
+`results/token-reduction/2026-10-27-lifecycle-replay.json`; source hashes were rechecked
+unchanged. The newest trace is already compacted (363,409 estimated input tokens
+across 27 requests); replaying existing policies does not reduce it further. The prior
+trace decreases from 642,723 to 467,040 under compact/filtered; concise adds input
+(468,456). Defaults and full raw evidence remain unchanged.
+
+These measurements do not estimate live-model speedup or solve rate. Browser UI
+automation was unavailable in this session; HTTP viewer and Node tests cover run
+selection, automatic following, pinned history and existing memory/usage behavior.
+
+
 ## What changed, in order
 
 1. Avoid saving an identical Reason outcome twice. Keep intent/outcome commits and tool observation advancement.

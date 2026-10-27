@@ -20,6 +20,16 @@ class LLMError(RuntimeError):
     """Safe error without response bodies, auth headers or provider credentials."""
 
 
+
+
+class CompletionFormatError(LLMError):
+    """A received completion needs correction; only public content crosses to lifecycle."""
+
+    def __init__(self, code, content, call_id):
+        super().__init__(code)
+        self.code, self.content, self.call_id = code, content, call_id
+
+
 @dataclass
 class Completion:
     message: dict
@@ -74,6 +84,7 @@ class LLMClient:
             return sorted(item["id"] for item in response.json()["data"])
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
             raise LLMError("Cannot list 9router models; check endpoint/authentication") from None
+
 
     async def complete(self, messages: list[dict], *, context: dict,
                        tools: list[dict] | None = None, allow_empty: bool = False,
@@ -153,29 +164,36 @@ class LLMClient:
                     await asyncio.sleep(self.config.backoff_seconds * 2 ** attempt)
                     continue
                 raise LLMError(f"9router call failed (HTTP {status or 'connection'})") from None
+            finish_reason, response_error = None, None
             try:
                 data = response.json()
                 message = data["choices"][0]["message"]
+                finish_reason = data["choices"][0].get("finish_reason")
                 if not isinstance(message, dict):
-                    raise ValueError("Missing assistant message")
+                    raise TypeError("Missing assistant message")
                 if message.get("content") is not None and not isinstance(message["content"], str):
                     raise ValueError("Unsupported assistant content")
-                explicit_noop = allow_empty and message.get("content") == "" and data["choices"][0].get("finish_reason") == "stop"
-                if not message.get("content") and not message.get("tool_calls") and not explicit_noop:
-                    raise ValueError("Empty completion")
-                if data["choices"][0].get("finish_reason") == "length":
-                    raise ValueError("Truncated completion")
+                explicit_noop = allow_empty and message.get("content") == "" and finish_reason == "stop"
+                if finish_reason == "length":
+                    response_error = "truncated_completion"
+                elif not message.get("content") and not message.get("tool_calls") and not explicit_noop:
+                    response_error = "empty_completion"
             except (ValueError, KeyError, IndexError, TypeError):
-                self.usage.add(context, None, count_call=False)
+                response_error = "invalid_response"
+            usage = data.get("usage") if isinstance(data, dict) else None
+            self.usage.add(context, usage, count_call=False)
+            if response_error:
                 self._log(context, event="llm_call", attempt=attempt + 1,
                           requested_model=settings.model, status=response.status_code,
                           latency_ms=round((time.perf_counter() - started) * 1000, 3),
-                          usage=None, error="InvalidResponse")
+                          usage=logged_usage(usage), error="InvalidResponse",
+                          response_error=response_error, finish_reason=finish_reason)
                 self.trace_event(context, "llm_response", attempt=attempt + 1,
-                                 message=self._visible_message(message), error="InvalidResponse")
-                raise LLMError("9router returned an invalid or truncated completion") from None
-            usage = data.get("usage")
-            self.usage.add(context, usage, count_call=False)
+                                 message=self._visible_message(message), error="InvalidResponse",
+                                 response_error=response_error, finish_reason=finish_reason)
+                if response_error in {"empty_completion", "truncated_completion"}:
+                    raise CompletionFormatError(response_error, message.get("content") or "", context["llm_call_id"])
+                raise LLMError("9router returned an invalid completion") from None
             self._log(context, event="llm_call", attempt=attempt + 1,
                       requested_model=settings.model, served_model=data.get("model"),
                       status=response.status_code,

@@ -3,8 +3,8 @@
 Đường chạy này hiện hỗ trợ **L1 Fixed**, **L2 Adaptive Routing** và **L3 Chain**,
 tuần tự, dùng chung setup Docker, export candidate, evaluator và RunRecord; chỉ
 phần agent khác nhau (`--level L1` chạy `L1Fixed`, `--level L2` chạy `L2Routing`
-qua Shared Engine, `--level L3` chạy Chain). L1 và L2 không có role Environment
-nên Tester dùng `test_spec` pytest của container. Host điều phối và gọi LLM;
+qua Shared Engine, `--level L3` chạy Chain). L1 và L2 không có role Environment;
+Tester chọn lệnh test phù hợp repository. Host điều phối và gọi LLM;
 file tools, shell và test của agent chạy trong container riêng, không mount repo host,
 không có Docker socket, API key, gold patch hoặc test đánh giá theo issue.
 Image chuẩn bị từ profile phải chứa sẵn dependency: container agent không có network.
@@ -23,6 +23,38 @@ python -m raac.cli benchmark batch --task-id psf__requests-6027 --task-id psf__r
 Chọn task ID tồn tại trong dataset của `--config` (mặc định
 `configs/benchmark.yaml`, tập 105 task). Cấu hình model/endpoint ở
 `configs/llm.yaml` và biến môi trường host; không chuyển credential vào container.
+
+`benchmark run` và `benchmark batch` tự mở web observe trong cùng lệnh, ngay khi log
+setup đã sẵn sàng. Có thể chọn `--observe web|terminal|none` (mặc định `web`):
+
+```powershell
+python -m raac.cli benchmark run --task-id astropy__astropy-12906
+python -m raac.cli benchmark run --task-id astropy__astropy-12906 --observe terminal
+python -m raac.cli benchmark run --task-id astropy__astropy-12906 --observe none
+```
+
+Web bind loopback và tự chọn port trống; URL/log được in ra stderr. Batch dùng một
+URL và một lần mở browser, tự theo run mới nhất; bộ chọn run cho phép xem lại run
+đã đăng ký, gồm attempt đã hoàn tất được bỏ qua khi resume. Kết quả JSON vẫn ở stdout.
+Web giữ mở sau evaluator/cleanup; Ctrl+C lúc này chỉ đóng viewer và trả mã kết quả
+benchmark. Ctrl+C trong lúc chạy hủy run, cleanup và trả 130. Terminal thoát sau phase
+cuối. Dùng `--observe none` trong CI/script cần tự thoát. Viewer lỗi không hủy benchmark;
+nếu browser không tự mở, mở URL đã in. `show-log` vẫn dùng để mở lại run cũ.
+
+Lifecycle requests one output-schema repair per activation within the existing call/token/deadline guards. Coder receives bounded progress and revision evidence and hands off after adequate smoke checks.
+
+Từ Registry `0.19.3` (Analyst `chain-v7`), client phân biệt `empty_completion`
+(không có content/tool-call), `truncated_completion` (`finish_reason=length`) và
+`invalid_response` (envelope không hợp lệ). Log lỗi giữ `finish_reason` và usage
+API thực tế, kể cả cache; không tự đánh mất usage chỉ vì nội dung sai. Nội dung
+reasoning riêng của provider không được log hoặc chuyển sang lifecycle.
+Response rỗng/bị cắt dùng chung quota sửa output một lần, chỉ khi usage đầy đủ,
+còn lượt/token/deadline. Tool-call trong response bị cắt không được thực thi;
+JSON trông hợp lệ nhưng finish_reason=length cũng không được nhận làm handoff.
+Analyst bắt đầu bàn giao không có tools ở lượt áp chót (mặc định lượt 5), giữ lượt
+6 để sửa nếu cần. Nếu vẫn lỗi, run dừng với mã rõ; không có lượt thứ 7. Giữ nguyên
+model, max_tokens=4096, token budget và số call tối đa. Chạy lệnh benchmark mới để
+nạp bản sửa; viewer đang mở của run đã kết thúc chỉ đọc log cũ.
 Cả sáu role hiện dùng `ref: default`: `LLM_MODEL` trong `.env` ghi đè model
 cấp gốc của YAML; nếu bỏ trống thì giữ model YAML.
 Mỗi attempt có run ID, container và memory mới. `agent_run_timeout_seconds` là
@@ -119,3 +151,53 @@ evaluator riêng `1ba56322af1e499f8c4f4d1cda8f5f13` thực thi đủ 15 selector
 Container đã dọn; report riêng ở `results/mas-benchmark-plan/implementation-only-resource-report.json`.
 Các pilot trước giữ nguyên và không gộp thành so sánh cùng hợp đồng với run mới.
 Đã kiểm chứng phạm vi plan L3; chưa nghiệm thu A5/bốn level hoặc full dataset.
+
+## Shared Tester fixes and output-budget trial (2026-10-27)
+
+Registry 0.19.4 / Tester chain-v6 applies to future L1/L2/L3 runs across the
+105-issue selection. Tool cwd values are repository-relative (`.` for root).
+Invalid tool paths are rejected with field-level guidance. A Docker command
+raising ValueError leaves attribution usable only after an unchanged content
+and mode snapshot is verified; earlier integrity violations remain blocking.
+
+Tester must select the repository's actual command with `run_tests(command=...)`.
+Neither Workspace nor L1/L2 silently guesses unittest/pytest. Invalid directory,
+report path, argv or environment selections preserve the previous suite.
+The isolated unittest helper restores installed external user-site dependencies
+for a base interpreter; virtualenv isolation and trusted bootstrap imports stay
+in place. Real failed assertions still reach Coder. A passing suite with missing
+AC coverage returns feedback to Tester within the same activation, under the
+existing call/deadline/token limits; exhaustion reports `incomplete_test_coverage`
+or `missing_test_command`. Each new final suite execution gets its own durable
+receipt; resuming that execution reuses its receipt.
+
+The default output budget remains 4096. The separate trial config changes only
+the output cap to 8192, preserving environment model overrides and recording the
+selected LLM file in provenance and batch fingerprint:
+
+```powershell
+.venv\Scripts\python.exe -m raac.cli benchmark run --task-id astropy__astropy-12906 --level L3 --config configs/experiments/benchmark-output-8192.yaml
+```
+
+This command starts the benchmark and its web observer together (default
+`--observe web`). Use a new run/batch identity for the changed configuration.
+Compare truncation count, total calls/tokens, latency and independent evaluation
+against the 4096 control before changing defaults. No live 8192 trial or full
+105-issue run has been performed as part of these fixes; no speedup or resolution
+rate is claimed. Existing runs and their integrity errors are preserved.
+
+## Managed pytest reports and error diagnostics (2026-10-28)
+
+For recognized pytest argv, run_tests normalizes report_path and both
+--junitxml/--junit-xml forms before selection and validation. Local and Docker
+helpers always use a harness-selected temporary JUnit file outside the repo.
+Existing report/source files are preserved; no XML files are broadly exempted
+from integrity checks. Custom JUnit runners retain their relative report_path
+contract. A verified unauthorized mutation returns WorkspaceIntegrityError with
+the relative offending path; export remains blocked after a genuine violation.
+
+The web viewer distinguishes transport, truncated/empty output, validation,
+test failure and integrity violations. Paired llm_call/llm_response errors merge
+into one card with response details, keyed by run/call/attempt; raw JSONL stays
+unchanged. Standalone/pasted response errors remain visible. The terminal view
+suppresses the second error heading and can show its content with --details.

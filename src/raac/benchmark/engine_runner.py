@@ -16,17 +16,6 @@ from raac.llm.client import LLMClient
 from .dataset import Task
 
 
-def bind_default_test_spec(workspace) -> None:
-    """L1/L2 have no Environment role; select the container's pytest for Tester validation."""
-    if workspace.test_spec is not None:
-        return
-    try:
-        python = workspace.python_candidates()[0]
-    except (IndexError, ValueError, OSError):
-        python = "python"
-    workspace.test_spec = {"command": [python, "-m", "pytest"], "cwd": ".", "env": {}, "report_path": None}
-
-
 async def _run_engine_level(
     task: Task,
     *,
@@ -42,6 +31,7 @@ async def _run_engine_level(
     output_dir: Path,
     trace=None,
     harness_path=None,
+    llm_path=None,
 ) -> dict:
     root = Path(__file__).resolve().parents[3]
     level_config = validate_config(level_config).model_dump(mode="json")
@@ -49,11 +39,10 @@ async def _run_engine_level(
     effective = {"llm": llm_config.model_dump(mode="json"), "harness": harness,
                  "level": level_config, "token_limit": harness["token_limit"],
                  "execution_mode": "docker", "role_models": {name: value.model_dump() for name, value in role_models.items()}}
-    provenance = collect_provenance(root, registry, [root / "configs/llm.yaml", Path(harness_path) if harness_path else root / "configs/harness.yaml",
+    provenance = collect_provenance(root, registry, [Path(llm_path) if llm_path else root / "configs/llm.yaml", Path(harness_path) if harness_path else root / "configs/harness.yaml",
         root / level_config_relpath], effective)
     provenance["task_snapshot"] = workspace.baseline_ref
     provenance["candidate_contract"] = "implementation-only-v1"
-    bind_default_test_spec(workspace)
     output_dir.mkdir(parents=True, exist_ok=True)
     client = LLMClient(llm_config, log_path=output_dir / "llm.jsonl", trace_content=harness["trace_content"])
     if trace is not None:
@@ -104,20 +93,20 @@ async def _run_engine_level(
 
 
 async def run_l1(task: Task, *, run_id: str, workspace, registry, llm_config,
-                 harness: dict, level_config: dict, output_dir: Path, trace=None, harness_path=None) -> dict:
+                 harness: dict, level_config: dict, output_dir: Path, trace=None, harness_path=None, llm_path=None) -> dict:
     return await _run_engine_level(
         task, level=L1Fixed(), validate_config=validate_l1_config,
         level_config_relpath="configs/levels/l1_fixed.yaml", run_id=run_id,
         workspace=workspace, registry=registry, llm_config=llm_config,
-        harness=harness, level_config=level_config, output_dir=output_dir, trace=trace, harness_path=harness_path,
+        harness=harness, level_config=level_config, output_dir=output_dir, trace=trace, harness_path=harness_path, llm_path=llm_path,
     )
 
 
 async def run_l2(task: Task, *, run_id: str, workspace, registry, llm_config,
-                 harness: dict, level_config: dict, output_dir: Path, trace=None, harness_path=None) -> dict:
+                 harness: dict, level_config: dict, output_dir: Path, trace=None, harness_path=None, llm_path=None) -> dict:
     return await _run_engine_level(
         task, level=L2Routing(), validate_config=validate_l2_config,
         level_config_relpath="configs/levels/l2_routing.yaml", run_id=run_id,
         workspace=workspace, registry=registry, llm_config=llm_config,
-        harness=harness, level_config=level_config, output_dir=output_dir, trace=trace, harness_path=harness_path,
+        harness=harness, level_config=level_config, output_dir=output_dir, trace=trace, harness_path=harness_path, llm_path=llm_path,
     )

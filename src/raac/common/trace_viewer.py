@@ -83,6 +83,7 @@ class TraceViewer:
         self.cached_tokens = 0
         self.unknown_cache = False
         self.token_limit = None
+        self.error_calls = set()
 
     def render(self, event):
         kind = event.get("event")
@@ -146,6 +147,9 @@ class TraceViewer:
             if event.get("agent_id") == "environment":
                 content = {"output": content, "runtime": event.get("runtime", {})}
                 message = "MÔI TRƯỜNG | " + _summary(event.get("output", {}))
+        elif kind in {"output_invalid", "output_recovery_started", "output_recovery_failed"}:
+            message = kind + " | " + str(event.get("code", ""))
+            content = event.get("detail")
         elif kind == "agent_failed":
             message = f"DỪNG | {event.get('code') or event.get('error_kind')}"
             content = {key: event.get(key) for key in ("code", "error_kind", "stack")}
@@ -180,7 +184,9 @@ class TraceViewer:
             cached = cached_tokens(usage)
             message += " | cache " + (f"{cached:,}" if cached is not None else "chưa có số liệu")
             if event.get("error"):
-                message += " | " + str(event["error"])
+                message += " | " + str(event.get("response_error") or event["error"])
+                if event.get("llm_call_id"):
+                    self.error_calls.add((event.get("run_id"), event["llm_call_id"], event.get("attempt")))
             if event.get("retry_blocked_reason") == "usage_unavailable":
                 message += " | Không gọi lại: usage chưa xác định"
         elif kind == "llm_response":
@@ -191,7 +197,13 @@ class TraceViewer:
             names = [_text(_mapping(_mapping(call).get("function")).get("name", "?"), 60) for call in calls]
             message = "LLM yêu cầu: " + ", ".join(names) if calls else "LLM trả lời | " + _summary(content or {})
             if event.get("error"):
-                message = f"LLM trả lỗi | {event['error']}"
+                key = (event.get("run_id"), event.get("llm_call_id"), event.get("attempt"))
+                if key in self.error_calls:
+                    if not self.details:
+                        return []
+                    message = "Chi tiết response của request đã báo lỗi"
+                else:
+                    message = f"LLM trả lỗi | {event.get('response_error') or event['error']}"
         elif kind == "command_output":
             message = f"Docker {event.get('stream', 'output')} | " + _text(event.get("content", f"{event.get('bytes', 0)} bytes"), 240)
             content = event.get("content")
@@ -240,7 +252,7 @@ class TraceViewer:
         return lines
 
 
-def show_trace(path: Path, *, details=False, agent=None, follow=False, memory=False, emit=print):
+def show_trace(path: Path, *, details=False, agent=None, follow=False, memory=False, emit=print, stop=None):
     viewer = TraceViewer(details=details, agent=agent)
     redactor = JSONLTrace(path)
     emit("Giờ Việt Nam (UTC+7) | --details: mở nội dung | --agent: lọc role")
@@ -248,6 +260,8 @@ def show_trace(path: Path, *, details=False, agent=None, follow=False, memory=Fa
         line_number = 0
         benchmark = False
         while True:
+            if stop is not None and stop.is_set():
+                break
             position = stream.tell()
             line = stream.readline()
             if not line or (follow and not line.endswith("\n")):

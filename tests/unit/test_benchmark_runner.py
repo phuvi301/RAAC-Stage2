@@ -42,11 +42,12 @@ def test_preparation_passes_archive_file_path(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("trial", [False, True])
 @pytest.mark.parametrize("agent_status,evaluation_status", [
     ("rejected", "resolved"), ("aborted", "unresolved"),
     ("completed", "protected_test_error"), ("completed", "timeout"),
 ])
-async def test_runner_grades_candidate_even_if_agent_rejected(tmp_path, monkeypatch, agent_status, evaluation_status):
+async def test_runner_grades_candidate_even_if_agent_rejected(tmp_path, monkeypatch, agent_status, evaluation_status, trial):
     import raac.benchmark.runner as module
 
     task = next(iter(load_tasks(ROOT / "data/tasks/benchmark105-v1.json").values()))
@@ -66,6 +67,8 @@ async def test_runner_grades_candidate_even_if_agent_rejected(tmp_path, monkeypa
     monkeypatch.setattr(module, "prepare_workspace", lambda *args, **kwargs: (Session(), Workspace(), {"image_id": "fixture"}))
 
     async def agent(*args, **kwargs):
+        assert kwargs["llm_config"].max_tokens == (8192 if trial else 4096)
+        assert kwargs["llm_path"].name == ("llm-output-8192.yaml" if trial else "llm.yaml")
         return {"status": agent_status, "verdict": "REJECT", "stop_reason": "agent_error" if agent_status == "aborted" else "max_rounds_reached", "usage": {
             "prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12, "calls": 1,
             "usage_complete": True, "cached_tokens": None, "cache_usage_complete": False}, "events": []}
@@ -77,7 +80,8 @@ async def test_runner_grades_candidate_even_if_agent_rejected(tmp_path, monkeypa
     monkeypatch.setattr(module, "run_chain", agent)
     monkeypatch.setattr(module, "evaluate_candidate", evaluate)
     output = tmp_path / "benchmark-fixture"
-    result = await run_task(task, level="L3", repetition=1, output_dir=output, config_path=ROOT / "configs/benchmark.yaml")
+    config_path = ROOT / ("configs/experiments/benchmark-output-8192.yaml" if trial else "configs/benchmark.yaml")
+    result = await run_task(task, level="L3", repetition=1, output_dir=output, config_path=config_path)
     expected_error = agent_status == "aborted" or evaluation_status not in {"resolved", "unresolved"}
     assert result.status == ("error" if expected_error else "completed") and result.agent_status == agent_status
     assert result.evaluation_status == evaluation_status and result.usage.total_tokens == 12
@@ -168,16 +172,25 @@ async def test_setup_failure_produces_record_without_fake_zero_usage(tmp_path, m
     import raac.benchmark.runner as module
 
     task = next(iter(load_tasks(ROOT / "data/tasks/benchmark105-v1.json").values()))
+    notifications = []
+
+    def ready(path):
+        assert path.is_file()
+        assert '"phase": "setup"' in path.read_text()
+        notifications.append(path)
 
     def fail(*args, **kwargs):
+        assert notifications
         raise RuntimeError("private setup detail")
 
     monkeypatch.setattr(module, "prepare_workspace", fail)
     output = tmp_path / "benchmark-error"
-    result = await run_task(task, level="L3", repetition=1, output_dir=output, config_path=ROOT / "configs/benchmark.yaml")
+    result = await run_task(task, level="L3", repetition=1, output_dir=output, config_path=ROOT / "configs/benchmark.yaml",
+                            on_trace_ready=ready)
     assert result.status == "error" and result.usage.total_tokens is None
     assert result.errors[0]["phase"] == "setup"
     assert "private setup detail" not in (output / "record.json").read_text()
+    assert notifications == [output / "llm.jsonl"]
 
 
 @pytest.mark.asyncio

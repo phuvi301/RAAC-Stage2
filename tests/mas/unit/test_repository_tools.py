@@ -92,6 +92,17 @@ class RepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("node_modules/ignored.js", snapshot)
         self.assertEqual(snapshot["asset.bin"], b"\0\xff\x01")
 
+    async def test_no_framework_guess_and_invalid_selection_preserves_previous_suite(self):
+        self.tools.edit_file(role="Tester", path="tests/test_value.py", content="assert True\n")
+        self.assertEqual((await self.tools.run_tests())["status"], "error")
+        self.assertIsNone(self.tools.test_spec)
+        await self.tools.run_tests(command=["node", "--test"])
+        selected = self.tools.test_spec.copy()
+        for values in ({"cwd": "/workspace"}, {"report_path": "../outside.xml"}, {"env": {"BAD=KEY": "x"}}):
+            with self.subTest(values=values), self.assertRaises(ValueError):
+                await self.tools.run_tests(command=["wrong"], **values)
+            self.assertEqual(self.tools.test_spec, selected)
+
     async def test_empty_repository_is_valid_input(self):
         (self.repo / "src/pkg/core.py").unlink()
         (self.repo / "obsolete.txt").unlink()

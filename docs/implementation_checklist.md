@@ -14,7 +14,7 @@ Cách dùng file này
 - Chữ trong ngoặc cuối dòng là người phụ trách, Vũ, Vinh hoặc Tuấn, đổi lại nếu hoán đổi việc.
 - Ghi ngày cập nhật cuối mỗi khi sửa file, và ghi vấn đề phát sinh vào mục nhật ký cuối file.
 
-Cập nhật gần nhất ngày 2026-10-27
+Cập nhật gần nhất ngày 2026-10-28
 
 ---
 
@@ -31,6 +31,8 @@ Thư mục liên quan là `src/raac/harness/`, `src/raac/llm/`, `src/raac/regist
 - [x] Thống nhất quy ước branch, cách review và cách đặt tên commit (cả nhóm)
 
 ### LLM client dùng chung (`src/raac/llm/`)
+
+- 2026-10-27 | Sửa sau hai run `benchmark-70d9c88a…`/`benchmark-bb8f2506…` lỗi ở Analyst: client phân biệt empty/truncated/invalid envelope, giữ usage hợp lệ và finish_reason khi nội dung lỗi; không log hidden reasoning. Layer 1 checkpoint lỗi completion trước Decide, dùng chung quota sửa output một lần và mọi guard; không thực thi tool-call bị cắt. Analyst bàn giao từ lượt áp chót, chừa lượt cuối để sửa, prompt chain-v7/Registry 0.19.3; giữ model/max_tokens/budget/call cap. | Agent hỗ trợ Vinh/Vũ/Tuấn | 161 test +42 subtest client/recovery/lifecycle/resume/registry/viewer qua (38,03s), Ruff client/Layer 1/test mới qua. HTTP mock, không gọi API thật hoặc sửa lịch sử run; giữ nghiệm thu chung A0/A1/A5.
 
 - [~] `client.py` gọi API, retry với backoff, đo latency (Vinh) — đang làm dở: đã có client HTTP OpenAI-compatible Chat Completions không streaming, cấu hình endpoint/model, retry/backoff, latency và usage guard cho MAS/9router; đã tích hợp adapter L3 candidate benchmark; còn pilot model thật và các level khác. Endpoint khác có thể cấu hình nhưng chưa kiểm chứng ngoài 9router.
 - [~] Đọc số token vào và ra từ trường usage của API (Vinh) — có trong client MAS, thiếu usage thì dừng; thêm cached_tokens từ response, phân biệt thiếu cache/0, kiểm chứng HTTP mock.
@@ -51,9 +53,13 @@ Thư mục liên quan là `src/raac/harness/`, `src/raac/llm/`, `src/raac/regist
 
 ## A1 - Layer 1, Interface và Vòng đời
 
+- 2026-10-27 | Agent hỗ trợ Vũ/Vinh/Tuấn: Tester thiếu lệnh test hoặc suite pass nhưng thiếu AC nhận phản hồi trong cùng activation, giữ call cap/deadline/token guard; hết lượt báo missing_test_command/incomplete_test_coverage, không đẩy thiếu test về Coder. Lỗi assertion thực tế vẫn bàn giao Coder. Receipt kiểm tra cuối phân biệt theo turn và giữ chống chạy lại khi resume. Registry 0.19.4, Tester chain-v6. Kiểm chứng chung với A3/benchmark: 183 test +49 subtest qua; giữ trạng thái nghiệm thu/pilot hiện có.
+
 - 2026-10-26 | Agent hỗ trợ theo plan tối ưu MAS: bỏ checkpoint outcome Reason trùng; cache encoding/redaction baseline theo nội dung/secret/run, vẫn redact state động và giữ intent/outcome, approval, usage/deadline. Schema SQLite v1 và synchronous=FULL không đổi. Kiểm chứng cuối 43 test lifecycle/cache/resume qua (10,11s), gồm crash/receipt, secret mới, baseline đổi và reset cache giữa run; 3 test Docker offline qua (11,17s). Bộ unit rộng 675 pass +153 subtest, còn 14 lỗi topology/model-count/prompt đã tái hiện với bốn module core gốc HEAD trong bộ nhớ (56 pass/14 fail đối chứng); không sửa topology đang có của người dùng. Số đo và giới hạn tại docs/lifecycle_performance.md; chưa nghiệm thu resume toàn collaboration/A5, không gọi API thật/commit/push.
 
 Thư mục `src/raac/harness/layer1_lifecycle/`.
+
+- 2026-10-27 | Ghi chú tiến độ phần A, A1 đối chiếu A0/A2/A3: phục hồi output schema/DSML tối đa một lần mỗi activation trước finalize, chung budget/call/deadline, quota checkpoint đọc legacy mặc định 0; không thực thi DSML hoặc retry side effect adapter. Coder nhận evidence theo patch/revision và thời gian/lượt còn lại; prompt Coder chain-v6/Tester chain-v5, Registry 0.19.2. Giữ trạng thái nghiệm thu chung. Bằng chứng: 64 test recovery/observe/benchmark/collaboration qua (19,29s); kiểm tra callback/setup/resume batch và cache cuối 64 pass (21,55s); recovery riêng 12 pass (3,81s), gồm quota resume/allowlist/guard/final-call, valid JSON chứa DSML, lỗi adapter không retry và nhắc gần deadline vẫn giữ tool/context có giới hạn. Không gọi API thật.
 
 - [~] `agent.py` lắp một Agent từ role trong registry và gắn đủ 4 layer (Vũ) — bản merge giữ `AgentRunner` thực của upstream (registry/LLM/context/memory/tools, approval/checkpoint/resume) và bổ sung `Agent` facade resolve role, expose Layer 1–4; connector Layer 4 ngoại vi vẫn interface/stub, không nghiệm thu adapter ngoại vi.
 - [x] `event_loop.py` hiện thực vòng lặp Reason, Act, Observe (Vũ)
@@ -98,6 +104,12 @@ Thư mục `src/raac/harness/layer2_core/`.
 - 2026-10-20 | Theo yêu cầu Tuấn, log và xem memory Coder: memory_saved ghi entry/metrics, memory_loaded ghi đúng snapshot gửi retry, memory_compacted ghi snapshot sau compact; vẫn ghi audit memory khi tắt trace_content. Web thêm panel Memory Coder chọn work, snapshot hiện tại và journal phân trang 50 bản ghi; API chỉ đọc sidecar trong đúng run, kiểm tra ID/đường dẫn/scope và redaction. Terminal nhận --memory, --details mở snapshot/journal; giữ flow/token/cache và không compact khi đọc. | Agent hỗ trợ Vinh/Vũ/Tuấn | 313 test + 144 subtest qua (50,46s), còn 4 lỗi prompt Analyst/Planner có sẵn; 12 Node test và JS syntax qua, diff check qua. Kiểm tra trình duyệt local bằng demo riêng: snapshot revision/compact, tải journal 50→58, mở observation literal HTML không tạo phần tử ảnh, không tràn ngang hoặc lỗi console. Đã đóng tab/server demo, không gọi model thật/chạy currentProject hoặc sửa run cũ. Giữ A0/A2/L3 [~], không push.
 
 ## A3 - Layer 3, Thực thi và Bảo mật
+
+- 2026-10-28 | Agent hỗ trợ Vinh: pytest dùng JUnit tạm ngoài repo ở Local/Docker, chuẩn hóa report_path và --junitxml/--junit-xml trước validation/lưu test_spec; giữ hợp đồng runner JUnit khác. Không bỏ qua mọi XML hoặc xóa vi phạm integrity cũ. WorkspaceIntegrityError trả đường dẫn và lý do khi guard xác nhận sửa trái quyền. 8 ca Docker offline qua, gồm báo cáo không đè source/XML có sẵn, export sạch và giữ chặn source/baseline test. Hai bộ tập trung 174 test +19 subtest và 118 test +36 subtest qua; Không sửa run lịch sử hoặc topology ngoài phạm vi.
+
+- 2026-10-27 | Sửa lỗi dùng chung sau run benchmark-42da8a7853e84ceb904d18fb535d8407: schema hướng dẫn cwd tương đối, chặn đường dẫn sai; ValueError chỉ giữ attribution nếu snapshot nội dung/mode không đổi, không xóa vi phạm integrity cũ. Bỏ đoán unittest/pytest, cấu hình test sai không ghi đè suite đã chọn; helper unittest cách ly vẫn thấy dependency user-site bên ngoài repo với base interpreter và dùng đúng interpreter được chọn. | Agent hỗ trợ Vinh | 7 test Docker offline qua, gồm sai cwd → sửa lệnh → export, dependency user-site, trusted bootstrap và chặn sửa trái quyền; hai ca mới qua lại sau sửa chọn interpreter. Bộ tập trung 183 test +49 subtest qua (57,19s). Không gọi API thật; không sửa log/run cũ; giữ A5 và full dataset chưa nghiệm thu.
+
+- 2026-10-27 | Tối ưu tiếp theo plan: dùng snapshot sau shell đã kiểm chứng cho patch evidence/checkpoint, vô hiệu trước mutation/lỗi/cancellation/activation mới; resume/export vẫn đọc mới. Bỏ deep copy dư trước serialize checkpoint, thêm timing snapshot/redact/serialize/SQLite/shell/evidence. Ba fixture Coder mỗi phiên bản: median 70,787→48,583s (−31,4%), checkpoint 24,936→13,713s (−45,0%), snapshot 28→16, vẫn 78 save. Docker cache/resume 4/4 qua (14,13s); thêm fixture telemetry 46,146s với đủ 6 command timing/16 snapshot. Xem docs/lifecycle_performance.md. Giữ A3 [~]/chưa nghiệm thu API thật hoặc A5.
 
 - 2026-10-26 | Kiểm chứng bổ sung cuối: 23 test tập trung cache/lifecycle + Docker qua (11,64s), gồm cả 3 Docker case; profiler mới assert tool thành công, median 3 lượt 11,500s tổng / 8,443s checkpoint, 12 save và 2 snapshot trên cùng 1901 file/40,99MB. Core gốc đối chứng 109,823s tổng / 106,260s checkpoint; không phải phép đo L3/model thật. Ruff file mới/Layer 1 qua, Layer 3 không thêm cảnh báo so với HEAD; diff check qua.
 
@@ -291,6 +303,10 @@ Ghi chú tuần 9
 - [x] Xác nhận mỗi run bắt đầu từ môi trường sạch
 
 ### Harness chạy hàng loạt (`benchmark/runner.py`)
+
+- 2026-10-27 | Thêm benchmark config llm_config để thử output cap 8192 qua configs/experiments/benchmark-output-8192.yaml, giữ mặc định 4096; truyền đúng file LLM qua L1/L2/L3 và provenance, fingerprint bao gồm file ngoài repo để chặn resume trộn cấu hình. CLI hiện có chạy benchmark + observe web mặc định. | Agent hỗ trợ Tuấn/Vũ | Test runner kiểm tra 4096/8192, fingerprint khi đổi file và adapter/checkpoint trong bộ 183 test qua. Lệnh --help đã kiểm tra; chưa chạy thử model thật/105 issue nên chưa kết luận tốc độ hay tỷ lệ resolved. Kiểm tra rộng trước cập nhật fixture cuối: 525 test +156 subtest qua, 19 fail; đã sửa 3 fail do fixture kỳ vọng fallback/receipt cũ, các fail còn lại liên quan topology, model-count và hợp đồng prompt/registry có sẵn, không đổi phạm vi hạng mục chung.
+
+- 2026-10-27 | Agent hỗ trợ Vinh theo plan: `benchmark run|batch --observe web|terminal|none`, mặc định web loopback/port tự chọn; một URL/browser cho batch, chọn lại run đã đăng ký và resume skipped attempts; callback chỉ sau khi trace setup có thật, trước Docker. Viewer lỗi không dừng run, JSON kết quả ở stdout/log ở stderr; Ctrl+C đang chạy cleanup/130, sau hoàn tất đóng viewer/giữ exit code benchmark. `show-log` độc lập giữ nguyên. HTTP/CLI/Node offline đã kiểm chứng; browser automation không khả dụng nên chưa QA trực quan. Giữ nghiệm thu CLI đa level/pilot ở [~].
 
 - 2026-10-22 | Người dùng duyệt đổi hợp đồng benchmark cho run mới: implementation-only-v1, Coder không sửa test; Tester chỉ viết test phát triển mới, không sửa baseline. Chặn tại file tools/shell/export, ghi contract vào context/provenance; local demo giữ nguyên. | Agent hỗ trợ Vinh/Vũ/Tuấn | 4 regression RED→GREEN, 25 unit test liên quan qua; Docker 14 test + 1 test riêng chặn Coder shell sửa test qua. make test 599 passed,33 skipped,153 subtests passed,4 lỗi prompt cũ. Pilot Astropy mới benchmark-ce36a0a672404019ae26e24b50fa0727: MAS PASS, evaluator resolved, baseline hợp lệ, 2/2 F2P và13/13 P2P pass; candidate chỉ sửa separable.py.94901 token,19call,224,422s,1vòng; container dọn sạch. Đủ nghiệm thu plan L3 candidate benchmark, giữ các mốc bốn level/Engine/A5 ngoài phạm vi. Log cũ không thay đổi; code/hồ sơ sau push chỉ local.
 
@@ -498,6 +514,12 @@ Ghi chú tuần 9
 ---
 
 # Nhật ký vấn đề và quyết định
+
+- 2026-10-28 | Theo yêu cầu người dùng, chuẩn bị commit và push các sửa MAS độc lập; giữ topology và DSML riêng ở local, gồm probe, prompt và test liên quan. | Agent hỗ trợ Vũ/Vinh/Tuấn | Bản staged đã xuất sang checkout tạm và qua 281 test +55 subtest, 4 ca Node; Ruff Layer 1/client/test mới và diff check qua. Docker daemon hiện không chạy nên chưa chạy lại Docker tại thời điểm commit; giữ bằng chứng 8 ca Docker đã qua trong lượt triển khai trước. Không đưa log/results, secret hoặc cấu hình .env vào commit; không đổi mốc nghiệm thu full 105 issue.
+
+- 2026-10-27 | Run mới dừng trước schema recovery vì client từ chối response rỗng/bị cắt và bỏ usage; Analyst đã tiêu hết lượt tìm kiếm trước handoff. | Agent hỗ trợ Vinh/Vũ/Tuấn | Đã sửa phân loại/ghi usage/finish_reason, chuyển empty/truncated về lifecycle để sửa tối đa một lần và bắt Analyst bàn giao từ lượt 5/6. Test chứng minh usage thiếu/budget vẫn chặn, không call thứ 7, không thực thi tool bị cắt, pending error qua checkpoint/resume; 161 pass +42 subtest. Chưa pilot model thật; không tăng giới hạn hay thay model, không sửa topology có sẵn/commit/push.
+
+- 2026-10-27 | Hiện thực plan phục hồi output-schema → nhắc Coder theo evidence → đo/tối ưu lifecycle → replay context → gộp benchmark/observe. | Agent hỗ trợ Vũ/Vinh/Tuấn | Bộ rộng cuối 535 pass +153 subtest/17 fail (104,30s); đúng 17 lỗi còn lại tái hiện với năm module core HEAD trong RAM: topology Environment/layout, model-count, prompt Analyst/Planner và expectation path provenance khi temp nằm trong repo (86 pass/17 fail đối chứng). Bộ tập trung cuối 64 pass; Docker cache/resume 4 pass, Node 17 pass; Ruff core mới/Layer 1 và diff check qua. Replay 2 trace giữ hash nguồn, trace mới đã compact nên không giảm thêm; giữ context defaults/model/budget/topology/evaluator. Không API thật, không sửa topology có sẵn của người dùng, không commit/push.
 
 - 2026-10-27 | Người dùng yêu cầu commit/push phần tăng tốc MAS: checkpoint, baseline/redaction cache, fingerprint Docker và hướng dẫn gom đọc file Analyst/Planner. Giữ thay đổi điểm vào topology riêng ở local. | Agent hỗ trợ Vũ/Vinh/Tuấn | Kiểm chứng bản staged trong checkout tạm: 93 test qua (26,49s), gồm 3 Docker offline; Ruff profiler/test mới/Layer 1 và diff check qua. Không gọi API thật; số đo trước/sau và giới hạn tại docs/lifecycle_performance.md.
 

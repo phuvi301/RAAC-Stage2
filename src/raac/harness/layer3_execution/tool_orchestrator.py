@@ -1,22 +1,43 @@
 """Role-scoped file tools and local argv commands for MAS development."""
 
-from copy import deepcopy
 import asyncio
 import hashlib
 import json
 import time
 import uuid
+from copy import deepcopy
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
+
+from raac.common.errors import WorkspaceIntegrityError
+from raac.common.working_memory import WorkingMemoryNotes
 
 from .env_provisioner import provision
+from .local_test_runner import normalize_pytest_report
+from .tools.paths import repo_path
 from .tools.workspace import EditConflictError
-from raac.common.working_memory import WorkingMemoryNotes
 
 
 class Arguments(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
+
+    @field_validator("cwd", "report_path", check_fields=False)
+    @classmethod
+    def relative_path(cls, value, info):
+        if value is not None:
+            try:
+                repo_path(value, allow_root=info.field_name == "cwd")
+            except ValueError:
+                raise ValueError("Use a repository-relative path; cwd='.' means repository root (not /workspace)") from None
+        return value
 
 
 class ReadFile(Arguments):
@@ -51,15 +72,23 @@ class ListFiles(Arguments):
 
 
 class RunTests(Arguments):
+    @model_validator(mode="before")
+    @classmethod
+    def managed_pytest_report(cls, values):
+        if isinstance(values, dict):
+            command, report = normalize_pytest_report(values.get("command"), values.get("report_path"))
+            return {**values, "command": command, "report_path": report}
+        return values
+
     command: list[str] | None = Field(default=None, min_length=1, max_length=64)
-    cwd: str | None = None
+    cwd: str | None = Field(default=None, description="Repository-relative directory; '.' is repository root.")
     env: dict[str, str] | None = None
-    report_path: str | None = None
+    report_path: str | None = Field(default=None, description="Custom JUnit runner only: XML path relative to cwd. Pytest reports are managed outside the repository; omit this field.")
 
 
 class RunCommand(Arguments):
     command: list[str] = Field(min_length=1, max_length=64)
-    cwd: str = "."
+    cwd: str = Field(default=".", description="Repository-relative directory; use '.', never /workspace.")
     env: dict[str, str] | None = None
     timeout_seconds: float | None = Field(default=None, gt=0, le=300)
 
@@ -188,18 +217,23 @@ class ToolOrchestrator:
                    "tool_call_id": tool_call_id or uuid.uuid4().hex}
         details = {"tool_name": name, "origin": origin}
         started = time.perf_counter()
+        mutating = (name not in {"read_file", "read_files", "list_files", "search_repo", "read_tool_result", "update_memory"}
+                    and hasattr(self.workspace, "invalidate_runtime_snapshot"))
+        if mutating:
+            self.workspace.invalidate_runtime_snapshot()
+        succeeded = False
         if self.trace:
             self.trace(context, "tool_call_started", **details, arguments=arguments)
         try:
             result = await self._execute(role, name, arguments, context=context)
+            succeeded = True
         except (Exception, asyncio.CancelledError) as exc:
             if self.trace:
                 self.trace(context, "tool_call_failed", **details, error_kind=type(exc).__name__,
                            latency_ms=round((time.perf_counter() - started) * 1000, 3))
             raise
         finally:
-            if (name not in {"read_file", "read_files", "list_files", "search_repo", "read_tool_result", "update_memory"}
-                    and hasattr(self.workspace, "invalidate_runtime_snapshot")):
+            if mutating and (not succeeded or getattr(self.workspace, "_verified_command_snapshot", None) is None):
                 self.workspace.invalidate_runtime_snapshot()
         if name in {"run_tests", "configure_environment", "run_command"} and result.get("ok") and context.get("run_id"):
             reference = uuid.uuid4().hex
@@ -270,6 +304,7 @@ class ToolOrchestrator:
             preview.append(clipped)
             remaining -= len(clipped)
         entry = {"tool": name, "tool_call_id": context["tool_call_id"], "command": preview,
+                 "code_edit_count": self.workspace.code_edit_count,
                  "command_sha256": hashlib.sha256(rendered.encode()).hexdigest(),
                  "command_shortened": preview != command,
                  "cwd": execution.get("cwd") or arguments.get("cwd") or data.get("cwd") or ".",
@@ -282,8 +317,12 @@ class ToolOrchestrator:
             if field in data:
                 entry[field] = data[field]
         try:
-            patch = self.workspace.current_patch()
+            started = time.perf_counter()
+            current = getattr(self.workspace, "_verified_command_snapshot", None)
+            patch = self.workspace.current_patch() if current is None else self.workspace._patch_from_snapshot(current)
             entry["patch_hash"] = hashlib.sha256((self.workspace.baseline_ref + "\0" + patch).encode()).hexdigest()
+            if self.trace:
+                self.trace(context, "evidence_timing", latency_ms=round((time.perf_counter() - started) * 1000, 3))
         except (OSError, ValueError):
             entry["patch_hash"] = None
         self._evidence.setdefault(key, []).append(entry)
@@ -300,6 +339,15 @@ class ToolOrchestrator:
     def execution_evidence(self, context, final_patch_hash):
         entries = self._evidence.get(context.get("agent_call_id"), [])[-8:]
         return [{**entry, "matches_final_patch": entry["patch_hash"] == final_patch_hash}
+                for entry in entries]
+
+    def coder_progress(self, context):
+        entries = self._evidence.get(context.get("agent_call_id"), [])[-3:]
+        latest_hash = entries[-1].get("patch_hash") if entries else None
+        return [{"tool_call_id": entry["tool_call_id"], "status": entry["status"],
+                 "exit_code": entry.get("exit_code"),
+                 "matches_current_revision": bool(latest_hash and entry.get("patch_hash") == latest_hash
+                     and entry.get("code_edit_count") == self.workspace.code_edit_count)}
                 for entry in entries]
 
     def _read_tool_result(self, args, context):
@@ -383,6 +431,9 @@ class ToolOrchestrator:
             return {"ok": False, "error_kind": "EditConflict", "matches": exc.actual,
                     "expected_occurrences": exc.expected,
                     "error": "No file was written. Re-read the current region and provide an exact, unambiguous old_text."}
+        except WorkspaceIntegrityError as exc:
+            return {"ok": False, "error_kind": "WorkspaceIntegrityError", "path": exc.path,
+                    "error": str(exc), "violation": "unauthorized_repository_mutation"}
         except (ValueError, PermissionError, OSError) as exc:
             return {"ok": False, "error": "Invalid tool arguments, forbidden path or unavailable file",
                     "error_kind": type(exc).__name__}

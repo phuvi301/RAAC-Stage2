@@ -1,18 +1,19 @@
 """Read-only, loopback web viewer for existing JSONL traces; no model calls."""
 
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import re
+import threading
+import webbrowser
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
-import webbrowser
 
 from raac.collaboration.topologies import get_topology
-
-from .trace_viewer import _mapping, _summary, _text
-from .tracing import JSONLTrace
-from .memory_viewer import MemoryFeed
 from raac.llm.usage import cached_tokens
 
+from .memory_viewer import MemoryFeed
+from .trace_viewer import _mapping, _summary, _text
+from .tracing import JSONLTrace
 
 ASSETS = Path(__file__).with_name("trace_assets")
 MAX_LINE_BYTES = 16 * 1024 * 1024
@@ -23,6 +24,9 @@ STOP_REASONS = {
     "environment_setup_failed": "Môi trường chưa sẵn sàng; xem báo cáo Environment",
     "max_rounds_reached": "Đã đạt số vòng tối đa",
     "timeout": "Hết thời gian chạy",
+    "invalid_output": "Kết quả không đúng schema",
+    "empty_completion": "Model trả response rỗng",
+    "truncated_completion": "Response bị cắt bởi giới hạn đầu ra",
 }
 
 
@@ -46,7 +50,7 @@ def present_event(event, identifier):
            "timestamp": event.get("timestamp"), "round": event.get("round"), "turn": event.get("turn"),
            "source": "Hệ thống", "target": role, "title": kind, "summary": "",
            "tone": "info", "technical": False, "payloads": []}
-    for name in ("run_id", "agent_call_id", "llm_call_id", "tool_call_id", "tool_name", "origin", "parent_tool_call_id", "batch_index", "batch_size"):
+    for name in ("run_id", "agent_call_id", "llm_call_id", "tool_call_id", "tool_name", "origin", "parent_tool_call_id", "batch_index", "batch_size", "attempt"):
         if event.get(name) is not None:
             row[name] = event[name]
 
@@ -86,13 +90,21 @@ def present_event(event, identifier):
             row.update(title="Môi trường chưa sẵn sàng" if blocked else "Môi trường đã xác minh",
                        tone="error" if blocked else "success")
             payload("Cấu hình và kiểm tra thực tế", event.get("runtime"))
+    elif kind in {"output_invalid", "output_recovery_started", "output_recovery_failed"}:
+        titles = {"output_invalid": "Output sai định dạng", "output_recovery_started": "Yêu cầu model sửa output một lần",
+                  "output_recovery_failed": "Không thể phục hồi output"}
+        row.update(title=titles[kind], tone="error" if kind == "output_recovery_failed" else "warning",
+                   summary=STOP_REASONS.get(event.get("code"), event.get("code", "")))
+        payload("Lỗi định dạng", event.get("detail"))
     elif kind == "agent_failed":
         code = event.get("code") or event.get("error_kind")
         row.update(title="Agent dừng", tone="error", summary=STOP_REASONS.get(code, str(code or "Không rõ lỗi")))
         payload("Lỗi", {name: event[name] for name in ("code", "error_kind", "stack") if name in event})
     elif kind == "agent_final_call":
         row.update(title="Yêu cầu kết thúc lượt role", tone="warning",
-                   summary="Lượt LLM cuối: trả báo cáo bàn giao, không gọi thêm tool")
+                   summary=("Bàn giao ngay, dành lượt cuối để sửa output nếu cần; không gọi thêm tool"
+                            if event.get("repair_call_reserved") else
+                            "Lượt LLM cuối: trả báo cáo bàn giao, không gọi thêm tool"))
     elif kind == "coder_patch_rebased":
         row.update(title="Chuẩn hóa đường dẫn patch", summary="Dùng Git worktree từ lệnh diff đã chạy để đưa đường dẫn về repo/.")
     elif kind == "coder_patch_rebuilt":
@@ -135,7 +147,9 @@ def present_event(event, identifier):
         row.update(source=role, target="Hệ thống", title="Phản hồi LLM", technical=not bool(content) or is_report,
                    summary=_summary(response.get("content") or "Yêu cầu gọi tool"))
         if event.get("error"):
-            row.update(tone="error", technical=False, summary=str(event["error"]))
+            code = event.get("response_error") or event["error"]
+            row.update(tone="error", technical=False, summary=STOP_REASONS.get(code, str(code)))
+            row["llm_error"] = True
         payload("Message LLM trả về", response)
     elif kind == "llm_attempt_started":
         row.update(title="Bắt đầu gọi LLM", technical=True, summary=f"HTTP attempt {event.get('attempt', 1)}")
@@ -146,10 +160,15 @@ def present_event(event, identifier):
         cached = cached_tokens(usage)
         row["summary"] += " · cache " + (f"{cached:,}" if cached is not None else "chưa có số liệu")
         if event.get("error"):
-            row.update(title="Lỗi gọi LLM", tone="error", technical=False)
+            code = event.get("response_error") or event["error"]
+            title = {"truncated_completion": "Output bị cắt", "empty_completion": "Output rỗng",
+                     "invalid_response": "Response không hợp lệ", "InvalidResponse": "Response không hợp lệ",
+                     "Cancelled": "Yêu cầu LLM bị hủy"}.get(code, "Lỗi HTTP/kết nối LLM")
+            row.update(title=title, tone="error", technical=False, llm_error=True)
+            row["summary"] += " · " + STOP_REASONS.get(code, str(code))
         if event.get("retry_blocked_reason") == "usage_unavailable":
             row["summary"] += " · Không gọi lại: usage của request chưa xác định"
-        payload("HTTP và usage", {key: event[key] for key in ("status", "attempt", "latency_ms", "requested_model", "served_model", "usage", "error", "retry_scheduled", "retry_blocked_reason") if key in event})
+        payload("HTTP và usage", {key: event[key] for key in ("status", "attempt", "latency_ms", "requested_model", "served_model", "usage", "error", "response_error", "finish_reason", "retry_scheduled", "retry_blocked_reason") if key in event})
     elif kind == "context_compacted":
         row.update(title="Rút gọn context", technical=True,
                    summary=f"{event.get('before_chars', '?')} → {event.get('after_chars', '?')} ký tự")
@@ -182,6 +201,12 @@ def present_event(event, identifier):
                   or execution.get("exit_code", 0) not in (None, 0))
         row.update(title="Kết quả · " + str(event.get("tool_name", "?")), tone="error" if failed else "success",
                    summary=_summary(result) if observation.get("ok") else _text(observation.get("error") or observation.get("error_kind", "Tool lỗi")))
+        if observation.get("error_kind") == "WorkspaceIntegrityError":
+            row.update(title="Vi phạm integrity workspace", summary=str(observation.get("path", "")) + " · " + row["summary"])
+        elif observation.get("error_kind") == "ValidationError":
+            row["title"] = "Tham số tool không hợp lệ"
+        elif observation.get("ok") and result.get("status") == "failed" and event.get("tool_name") == "run_tests":
+            row["title"] = "Test không đạt"
         row["latency_ms"] = event.get("latency_ms")
         payload("Kết quả hệ thống trả cho agent", observation)
     elif kind in {"tool_call_failed", "tool_arguments_invalid"}:
@@ -248,7 +273,34 @@ class TraceFeed:
                 "reset": reset, "warnings": warnings}
 
 
-def create_trace_server(path, *, port=0, agent=None):
+class TraceRuns:
+    """Only runner-registered traces are selectable by the browser."""
+
+    def __init__(self):
+        self.paths = {}
+        self.active = None
+        self.lock = threading.Lock()
+
+    def register(self, path):
+        path = Path(path).resolve(strict=True)
+        if path.name != "llm.jsonl" or not re.fullmatch(r"benchmark-[0-9a-f]{32}", path.parent.name):
+            raise ValueError("Invalid benchmark trace")
+        with self.lock:
+            if self.paths and path.parent.parent != next(iter(self.paths.values())).parent.parent:
+                raise ValueError("Trace outside benchmark results")
+            self.paths[path.parent.name] = path
+            self.active = path.parent.name
+
+    def select(self, run_id=None):
+        with self.lock:
+            return self.paths[run_id or self.active]
+
+    def listing(self):
+        with self.lock:
+            return {"runs": list(self.paths), "active": self.active}
+
+
+def create_trace_server(path, *, port=0, agent=None, runs=None):
     feed = TraceFeed(path)
     memory_feed = MemoryFeed(path)
     with feed.path.open("rb"):
@@ -282,21 +334,35 @@ def create_trace_server(path, *, port=0, agent=None):
                       "/graph.mjs": ("graph.mjs", "text/javascript; charset=utf-8"),
                       "/viewer.js": ("viewer.js", "text/javascript; charset=utf-8")}
             try:
+                selected_feed, selected_memory = feed, memory_feed
+                if runs is not None:
+                    if request.path == "/api/runs":
+                        self.respond(200, json.dumps(runs.listing()).encode(), "application/json; charset=utf-8")
+                        return
+                    try:
+                        selected = runs.select(parse_qs(request.query).get("run", [None])[0])
+                    except KeyError:
+                        self.respond(404, b"Unknown registered run", "text/plain")
+                        return
+                    selected_feed, selected_memory = TraceFeed(selected), MemoryFeed(selected)
+                elif request.path == "/api/runs":
+                    self.respond(200, b'{"runs":[],"active":null}', "application/json; charset=utf-8")
+                    return
                 if request.path in assets:
                     name, kind = assets[request.path]
                     self.respond(200, (ASSETS / name).read_bytes(), kind)
                 elif request.path in {"/api/memory/history", "/api/memory/change"}:
                     query = parse_qs(request.query)
                     identifier = query.get("id", [None])[0]
-                    result = (memory_feed.history(identifier, int(query.get("cursor", ["0"])[0]))
+                    result = (selected_memory.history(identifier, int(query.get("cursor", ["0"])[0]))
                               if request.path.endswith("history") else
-                              memory_feed.change(identifier, int(query.get("revision", ["0"])[0])))
+                              selected_memory.change(identifier, int(query.get("revision", ["0"])[0])))
                     self.respond(200, json.dumps(result, ensure_ascii=False).encode(), "application/json; charset=utf-8")
                 elif request.path == "/api/memory":
                     query = parse_qs(request.query)
                     identifier = query.get("id", [None])[0]
-                    result = (memory_feed.journal(identifier, int(query.get("cursor", ["0"])[0]))
-                              if identifier else memory_feed.snapshots())
+                    result = (selected_memory.journal(identifier, int(query.get("cursor", ["0"])[0]))
+                              if identifier else selected_memory.snapshots())
                     self.respond(200, json.dumps(result, ensure_ascii=False).encode(), "application/json; charset=utf-8")
                 elif request.path == "/api/topology":
                     name = parse_qs(request.query).get("name", ["chain"])[0]
@@ -308,8 +374,8 @@ def create_trace_server(path, *, port=0, agent=None):
                         self.respond(200, body, "application/json; charset=utf-8")
                 elif request.path == "/api/events":
                     cursor = int(parse_qs(request.query).get("cursor", ["0"])[0])
-                    result = feed.read(cursor)
-                    result.update(log_name=feed.path.parent.name + "/" + feed.path.name, initial_agent=agent)
+                    result = selected_feed.read(cursor)
+                    result.update(log_name=selected_feed.path.parent.name + "/" + selected_feed.path.name, initial_agent=agent)
                     self.respond(200, json.dumps(result, ensure_ascii=False).encode(), "application/json; charset=utf-8")
                 else:
                     self.respond(404, b"Not found", "text/plain")

@@ -21,12 +21,22 @@ class WorkspaceSnapshotError(ValueError):
         super().__init__(messages[code])
 
 
+class WorkspaceIntegrityError(PermissionError):
+    """A verified repository mutation, with a safe relative path for diagnostics."""
+
+    def __init__(self, message, path):
+        super().__init__(message)
+        self.path = path
+
+
 class AgentExecutionError(RuntimeError):
     """Allowlisted adapter failures, safe to expose in result/event metadata."""
 
     def __init__(self, code: str):
         if code not in {"too_many_tool_calls", "invalid_tool_call", "invalid_coder_patch",
-                        "patch_generation_failed", "agent_call_limit"}:
+                        "patch_generation_failed", "agent_call_limit", "invalid_output",
+                        "empty_completion", "truncated_completion",
+                        "missing_test_command", "incomplete_test_coverage"}:
             raise ValueError("Unknown agent error code")
         self.code = code
         super().__init__(code)

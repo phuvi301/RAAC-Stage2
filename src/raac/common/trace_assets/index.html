@@ -12,6 +12,7 @@
   <main>
     <section class="heading"><div><p class="eyebrow">AGENT ↔ HỆ THỐNG</p><h1>Luồng trao đổi</h1><p class="subtitle">Theo dõi nhiệm vụ, lời gọi tool và kết quả bàn giao trong một run.</p></div><button id="pause" type="button">Tạm dừng cập nhật</button></section>
     <section class="run-banner" id="run-banner"><div><span class="status-pill" id="run-status">Đang đọc log</span><span id="run-id">—</span></div><p id="run-reason">Đang tải dữ liệu…</p><p id="log-name"></p></section>
+    <label id="run-picker" hidden>Run benchmark <select id="run-select" aria-label="Chọn run benchmark"></select></label>
     <section class="stats" aria-label="Thống kê toàn run">
       <div><span>LƯỢT ROLE BẮT ĐẦU</span><strong id="stat-agents">0</strong><small>Gồm cả các lượt chạy lại</small></div>
       <div><span>LẦN GỌI LLM</span><strong id="stat-calls">0</strong><small id="stat-token-split">Token vào / ra: —</small></div>

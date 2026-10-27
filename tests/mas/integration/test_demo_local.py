@@ -332,7 +332,7 @@ class ServiceTests(unittest.TestCase):
                 output = None
                 tool_calls = [{"id": "write-tests", "type": "function", "function": {
                     "name": "edit_file", "arguments": json.dumps({"path": "test_generated.py", "content": generated_source}),
-                }}]
+                }}, {"id": "select-suite", "type": "function", "function": {"name": "run_tests", "arguments": json.dumps({"command": ["python", "-m", "unittest", "discover"]})}}]
             elif system.startswith("You are the Tester"):
                 output = {"patch_hash": work["artifacts"]["patch_hash"], "status": "passed",
                           "tests_run": 99, "failed": 0, "test_cases": ["invented"],

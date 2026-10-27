@@ -23,7 +23,7 @@ from .dataset import Task
 
 
 async def run_chain(task: Task, *, run_id: str, workspace, registry, llm_config,
-                    harness: dict, level_config: dict, output_dir: Path, trace=None, harness_path=None) -> dict:
+                    harness: dict, level_config: dict, output_dir: Path, trace=None, harness_path=None, llm_path=None) -> dict:
     root = Path(__file__).resolve().parents[3]
     decision = coordinate_chain(level_config)
     limits = ChainLimits(max_rounds=decision.max_rounds, hard_max_rounds=level_config["hard_max_rounds"],
@@ -32,7 +32,7 @@ async def run_chain(task: Task, *, run_id: str, workspace, registry, llm_config,
     effective = {"llm": llm_config.model_dump(mode="json"), "harness": harness,
                  "level": level_config, "token_limit": harness["token_limit"],
                  "execution_mode": "docker", "role_models": {name: value.model_dump() for name, value in role_models.items()}}
-    provenance = collect_provenance(root, registry, [root / "configs/llm.yaml", Path(harness_path) if harness_path else root / "configs/harness.yaml",
+    provenance = collect_provenance(root, registry, [Path(llm_path) if llm_path else root / "configs/llm.yaml", Path(harness_path) if harness_path else root / "configs/harness.yaml",
         root / "configs/levels/l3_collaboration.yaml"], effective)
     provenance["task_snapshot"] = workspace.baseline_ref
     provenance["candidate_contract"] = "implementation-only-v1"

@@ -38,6 +38,7 @@ async def test_l1_adapter_preserves_usage_and_writes_partial_on_cancel(tmp_path,
 
         async def run(self, *, run_id, task, level, config):
             assert level.name == "L1" and config["version"] == "l1-fixed-v1"
+            assert workspace.test_spec is None  # Tester chooses the repository's actual framework.
             assert task["requirement"] == "Fix value"
             if cancel:
                 client.usage.record_attempt({"run_id": run_id, "agent_id": "coder", "level": "L1"})
@@ -65,7 +66,7 @@ async def test_l1_adapter_preserves_usage_and_writes_partial_on_cancel(tmp_path,
         assert result["provenance"]["registry_version"] == registry.version
         assert "configs/levels/l1_fixed.yaml" in result["provenance"]["configs"]
         assert result["events"] == list(FakeEngine.events)
-    assert workspace.test_spec["command"] == ["/usr/local/bin/python", "-m", "pytest"]
+    assert workspace.test_spec is None
 
 
 @pytest.mark.asyncio

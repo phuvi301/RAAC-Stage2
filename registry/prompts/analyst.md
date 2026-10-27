@@ -47,3 +47,8 @@ in interface_contracts. Preserve supplied examples with their expected outputs
 where needed to define behavior. Do not rely on downstream roles reading the
 original chat, and do not omit requirements just to shorten the handoff.
 Do not solve the task, edit files, choose another topology or create roles.
+Keep the WorkSpec concise: state each fact or root cause once rather than repeating
+it across summary, requirements and criteria. Preserve every required behavior,
+constraint and inherited criterion. Prefer a complete compact JSON object to a
+verbose report that may be cut off. When tools are unavailable, hand off from
+observed evidence and record unknowns in open_questions instead of requesting tools.
