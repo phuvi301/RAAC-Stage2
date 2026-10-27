@@ -157,7 +157,7 @@ max_llm_calls: 6
 
     def test_core_roles_permissions_and_prompt_provenance(self):
         registry = load_registry(PROJECT / "registry")
-        self.assertEqual(len(registry.roles), 6)
+        self.assertEqual(len(registry.roles), 7)  # six chain roles + the star Hub
         self.assertEqual(registry.get("Coder").spec.id, "coder")
         self.assertNotIn("edit_file", registry.get("Reviewer").spec.tools)
         self.assertNotIn("apply_patch", registry.get("Tester").spec.tools)

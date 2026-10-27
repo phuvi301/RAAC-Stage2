@@ -30,7 +30,7 @@ def topology_payload(name):
     """Declared layout only (nodes and edges); progress is derived client-side from the log."""
     topology = get_topology(name)
     return {"topology_id": topology.topology_id, "version": topology.version,
-            "entry_node": topology.entry_node, "exit_node": topology.exit_node,
+            "entry_node": topology.entry_node, "exit_node": topology.exit_node, "layout": topology.layout,
             "steps": [{"node_id": step.node_id, "role": step.role} for step in topology.steps],
             "edges": [list(edge) for edge in topology.edges]}
 

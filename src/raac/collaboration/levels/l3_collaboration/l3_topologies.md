@@ -295,6 +295,26 @@ Tester và Reviewer chạy lại trên patch đó. Test fail vẫn đi qua `limi
 với `reviewer_rejected`. Template này được chọn bằng tay (`topology` trong `configs/levels/l3_collaboration.yaml`
 hoặc `--topology chain_review_loop` của `raac-mas run-chain`); Chain thường không có cạnh này.
 
+# Star — Hub điều phối mọi role
+
+`star` (phiên bản 1) dùng cùng các role và hợp đồng, thêm role **Hub** ở giữa. Environment chạy trước như Chain; sau đó
+mọi role (Analyst, Planner, Coder, Tester, Reviewer) chỉ nhận việc từ Hub và báo kết quả về Hub. `check`/`limit` của
+Chain được gộp vào luật điều phối của Hub (`hub_policy.py`).
+
+- **Tập role được phép** do code tính từ những gì state đã có: chưa có spec thì chỉ Analyst; chưa có plan thì chỉ Planner;
+  chưa có patch hoặc plan vừa đổi thì chỉ Coder; chưa có test report thì chỉ Tester; test đạt mà chưa review thì chỉ Reviewer.
+  Chỉ khi test fail còn vòng thì chọn được `coder`/`planner`; khi Reviewer từ chối còn vòng (`max_rounds`) và còn
+  `max_review_rounds` thì chọn được `coder`/`planner`/`finish`. Hết vòng mà test chưa đạt: một lượt Reviewer cuối rồi dừng.
+- **Luật mặc định:** test fail → Coder; Reviewer từ chối và còn AC chưa được phủ → Planner (rồi Coder), ngược lại → Coder.
+- **Hub LLM** (`hub.mode: llm`) chỉ được gọi khi tập được phép có từ 2 lựa chọn; trả `{next, reason, note}` đã validate.
+  Chọn ngoài tập được phép, JSON sai hoặc lỗi gọi → quay về luật mặc định (`source: fallback`). Timeout, vượt ngân sách
+  vẫn dừng run như các role khác. Hub không nhận yêu cầu gốc, chỉ nhận bản tóm tắt do framework dựng (vòng, test, review).
+- **Kết quả PASS vẫn do code tính** (test đạt + Reviewer duyệt); Hub không tuyên bố đạt.
+- **Giới hạn:** `max_rounds`, `max_review_rounds`, `max_dispatches` (tổng số lần Hub gọi một role; chạm trần thì dừng với
+  `max_dispatches_reached`). Mỗi quyết định ghi `hub_decision` (`source` rules/llm/fallback/forced, `next`, `allowed`, `reason`).
+- Chọn bằng `topology: star` + khối `hub` trong `configs/levels/l3_collaboration.yaml`, hoặc
+  `raac-mas run-chain --topology star --hub llm|rules --max-dispatches N`.
+
 # Subtask Chain — dùng lại Chain cho từng subtask
 
 Subtask Chain phân rã công việc và gọi lại đúng mẫu Chain ở trên cho từng

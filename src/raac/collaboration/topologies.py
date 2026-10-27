@@ -24,6 +24,7 @@ class TopologySpec:
     edges: tuple[tuple[str, str], ...]
     entry_node: str
     exit_node: str
+    layout: str = "chain"  # drawing hint for viewers: chain | star
 
     def incoming_nodes(self, node_id: str) -> tuple[str, ...]:
         if not any(step.node_id == node_id for step in self.steps):
@@ -63,7 +64,25 @@ CHAIN_REVIEW_LOOP = TopologySpec(
     entry_node=CHAIN.entry_node, exit_node=CHAIN.exit_node,
 )
 
-TOPOLOGIES = MappingProxyType({spec.topology_id: spec for spec in (CHAIN, CHAIN_REVIEW_LOOP)})
+_SPOKES = ("analyst", "planner", "coder", "tester", "reviewer")
+
+# Star: every role reports to the Hub, which chooses the next role. Same five-role team plus
+# Environment; check/limit are folded into the Hub's routing rules.
+STAR = TopologySpec(
+    topology_id="star", version="1",
+    steps=(
+        TopologyStep("environment", "Environment"),
+        TopologyStep("hub", "Hub"),
+        *(TopologyStep(node, node.capitalize()) for node in _SPOKES),
+        TopologyStep("result", None),
+    ),
+    edges=(("environment", "hub"),
+           *(edge for node in _SPOKES for edge in (("hub", node), (node, "hub"))),
+           ("hub", "result")),
+    entry_node="environment", exit_node="result", layout="star",
+)
+
+TOPOLOGIES = MappingProxyType({spec.topology_id: spec for spec in (CHAIN, CHAIN_REVIEW_LOOP, STAR)})
 
 
 def get_topology(topology_id: str) -> TopologySpec:

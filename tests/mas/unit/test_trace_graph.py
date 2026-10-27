@@ -175,3 +175,34 @@ class ReviewLoopGraphTests(unittest.TestCase):
         self.assertEqual(data["back"], ["limit>coder", "reviewer>coder"])
         self.assertGreater(data["coderY"], 64)  # room reserved above the row for the arc
         self.assertGreater(data["limitY"], data["coderY"])
+
+
+class StarGraphTests(unittest.TestCase):
+    def test_topology_payload_exposes_layout(self):
+        from raac.common.trace_web import topology_payload
+        self.assertEqual(topology_payload("star")["layout"], "star")
+        self.assertEqual(topology_payload("chain")["layout"], "chain")
+
+    @unittest.skipUnless(shutil.which("node"), "node is needed to run the graph module")
+    def test_star_layout_puts_the_hub_in_the_middle_with_no_loop_edges(self):
+        from raac.common.trace_web import topology_payload
+        script = (
+            "import {layout} from %r;"
+            "const l=layout(%s);"
+            "const at=Object.fromEntries(l.nodes.map(n=>[n.node_id,[Math.round(n.x),Math.round(n.y)]]));"
+            "console.log(JSON.stringify({back:[...l.back],at}));"
+        ) % ((ASSETS / "graph.mjs").as_uri(), json.dumps(topology_payload("star")))
+        done = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        data = json.loads(done.stdout)
+        self.assertEqual(data["back"], [])
+        at = data["at"]
+        self.assertLess(at["environment"][0], at["hub"][0])
+        self.assertLess(at["hub"][0], at["result"][0])
+        self.assertEqual(at["environment"][1], at["hub"][1])
+        spokes = [at[name] for name in ("analyst", "planner", "coder", "tester", "reviewer")]
+        self.assertEqual(len({tuple(point) for point in spokes}), 5)
+        # Spokes sit clear of the hub box and of the entry node on the left.
+        for x, y in spokes:
+            self.assertGreater(((x - at["hub"][0]) ** 2 + (y - at["hub"][1]) ** 2) ** 0.5, 130)
+            self.assertGreater(((x - at["environment"][0]) ** 2 + (y - at["environment"][1]) ** 2) ** 0.5, 125)

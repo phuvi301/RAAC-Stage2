@@ -51,11 +51,14 @@ async def execute(args) -> int:
     harness = yaml.safe_load(harness_path.read_text(encoding="utf-8-sig"))
     level = yaml.safe_load(level_path.read_text(encoding="utf-8-sig"))
     decision = coordinate_chain(level, max_rounds=args.max_rounds, topology=getattr(args, "topology", None),
-                                max_review_rounds=getattr(args, "max_review_rounds", None))
+                                max_review_rounds=getattr(args, "max_review_rounds", None),
+                                hub_mode=getattr(args, "hub", None),
+                                max_dispatches=getattr(args, "max_dispatches", None))
     limits = ChainLimits(
         max_rounds=decision.max_rounds,
         hard_max_rounds=level["hard_max_rounds"],
         max_review_rounds=decision.max_review_rounds or 0,
+        max_dispatches=decision.max_dispatches or 12,
         timeout_seconds=harness["timeout_seconds"],
         agent_timeout_seconds=harness["agent_timeout_seconds"],
     )
@@ -146,7 +149,7 @@ async def execute(args) -> int:
             ChainNodes(runner, budget_guard=runner.budget_guard)
         )
 
-        initial_state = initial_chain_state(work, limits, decision.topology)
+        initial_state = initial_chain_state(work, limits, decision.topology, decision.hub_mode or "rules")
         initial_state["events"] = [{"node": "coordinator", "event": "topology_selected",
                                     "round": 0, "topology": decision.topology,
                                     "topology_version": decision.topology_version, "level": "L3",
@@ -201,7 +204,11 @@ def main(argv=None) -> int:
     parser.add_argument("--max-rounds", type=int, default=None)
     parser.add_argument("--max-review-rounds", type=int, default=None,
                         help="run-chain with chain_review_loop: Reviewer -> Coder feedback loops (default from config)")
-    parser.add_argument("--topology", choices=["chain", "chain_review_loop"], default=None,
+    parser.add_argument("--hub", choices=["rules", "llm"], default=None,
+                        help="run-chain with star: how the Hub picks the next role (default from config)")
+    parser.add_argument("--max-dispatches", type=int, default=None,
+                        help="run-chain with star: maximum Hub dispatches (default from config)")
+    parser.add_argument("--topology", choices=["chain", "chain_review_loop", "star"], default=None,
                         help="run-chain: collaboration topology; default is configs/levels/l3_collaboration.yaml")
     args = parser.parse_args(argv)
 

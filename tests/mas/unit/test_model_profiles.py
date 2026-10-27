@@ -83,7 +83,7 @@ def test_deployed_roles_use_default_model_from_dotenv(tmp_path, model):
         registry = load_registry(ROOT / "registry")
         models = config.resolve_role_models({role.id: role.model.ref for role in registry.roles.values()})
     expected = model or yaml.safe_load((ROOT / "configs/llm.yaml").read_text())["model"]
-    assert len(models) == 6
+    assert len(models) == 7  # six chain roles + the star Hub
     assert all(settings.model == expected for settings in models.values())
 
 

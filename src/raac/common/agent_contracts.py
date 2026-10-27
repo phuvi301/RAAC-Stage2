@@ -92,6 +92,13 @@ class EnvironmentOutput(StructuredOutput):
         return self
 
 
+class HubOutput(StructuredOutput):
+    """Hub routing decision. The framework validates it against the allowed set before use."""
+    next: Literal["analyst", "planner", "coder", "tester", "reviewer", "finish"]
+    reason: Text
+    note: str = ""
+
+
 class CoderOutput(RootModel[str]):
     """Unified diff on the wire; empty text explicitly represents a no-op."""
 
@@ -160,6 +167,7 @@ JSON_OUTPUT_MODELS = {
     "tester": TesterOutput,
     "reviewer": ReviewerOutput,
     "environment": EnvironmentOutput,
+    "hub": HubOutput,
 }
 ROLE_OUTPUT_MODELS = {**JSON_OUTPUT_MODELS, "coder": CoderOutput}
 

@@ -36,7 +36,7 @@ class ChainTopologyTests(unittest.TestCase):
             get_topology("chain").incoming_nodes("security")
 
     def test_unimplemented_or_generated_topology_is_rejected(self):
-        for topology_id in ("star", "coder_reviewer_loop", "debate", "custom", ""):
+        for topology_id in ("hub_and_spoke", "coder_reviewer_loop", "debate", "custom", ""):
             with self.subTest(topology_id=topology_id):
                 with self.assertRaisesRegex(ValueError, "Unsupported topology"):
                     get_topology(topology_id)
@@ -50,3 +50,20 @@ class ReviewLoopTopologyTests(unittest.TestCase):
         self.assertEqual(set(chain.edges) - set(loop.edges), set())
         self.assertEqual(loop.incoming_nodes("coder"), ("planner", "limit", "reviewer"))
         self.assertEqual((loop.entry_node, loop.exit_node), (chain.entry_node, chain.exit_node))
+
+
+class StarTopologyTests(unittest.TestCase):
+    def test_hub_connects_environment_every_chain_role_and_the_result(self):
+        star = get_topology("star")
+        self.assertEqual(star.layout, "star")
+        self.assertEqual([step.role for step in star.steps if step.role is not None],
+                         ["Environment", "Hub", "Analyst", "Planner", "Coder", "Tester", "Reviewer"])
+        self.assertEqual(star.incoming_nodes("hub"), ("environment", "analyst", "planner", "coder", "tester", "reviewer"))
+        for node in ("analyst", "planner", "coder", "tester", "reviewer"):
+            self.assertEqual(star.incoming_nodes(node), ("hub",))
+            self.assertIn((node, "hub"), star.edges)
+        self.assertEqual(star.incoming_nodes("result"), ("hub",))
+        self.assertFalse(any(source == "result" for source, _ in star.edges))
+
+    def test_only_star_uses_the_star_layout(self):
+        self.assertEqual({get_topology(name).layout for name in ("chain", "chain_review_loop")}, {"chain"})

@@ -288,7 +288,15 @@ function renderFlow() {
       }
       const text = edgeLabel(edge);
       if (!text) label = null; else label.text = text;
-    } else { const a = clip(from, to), b = clip(to, from, 5); d = `M${a.x} ${a.y} L${b.x} ${b.y}`; }
+    } else {
+      const a = clip(from, to), b = clip(to, from, 5);
+      if (flow.topology.layout === "star") {
+        // Hub and spoke exchange messages both ways: draw the two directions side by side.
+        const dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy) || 1, offset = (edge.from < edge.to ? 1 : -1) * 5;
+        const ox = -dy / length * offset, oy = dx / length * offset;
+        d = `M${a.x + ox} ${a.y + oy} L${b.x + ox} ${b.y + oy}`;
+      } else d = `M${a.x} ${a.y} L${b.x} ${b.y}`;
+    }
     const cls = `flow-edge${edge.traversed ? " traversed" : ""}${edge.active ? " active" : ""}`;
     canvas.append(svg("path", {d, class: cls, "marker-end": `url(#${edge.active ? "arrow-live" : edge.traversed ? "arrow-on" : "arrow"})`}));
     if (label) canvas.append(svg("text", {class: `flow-edge-label${edge.traversed ? " traversed" : ""}`, x: label.x, y: label.y}, label.text));

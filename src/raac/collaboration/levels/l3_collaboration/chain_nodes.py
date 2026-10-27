@@ -15,6 +15,7 @@ from raac.collaboration.topologies import get_topology
 from raac.common.errors import AgentExecutionError, RunGuardError, WorkspaceSnapshotError
 
 from .chain_handoff import prepare_role_request
+from .hub_policy import SPOKES, hub_options, hub_summary
 from .chain_state import (
     ChainState, CodeOutput, ReviewReport, RoleHandoff, execution_report, parse_role_output, role_output_model,
 )
@@ -67,6 +68,11 @@ class ChainNodes:
             "node": node, "round": state["round_number"],
             "event": event, **details,
         }
+
+    @staticmethod
+    def _next(state, normal):
+        """Star roles always report back to the Hub; other topologies follow their own edges."""
+        return "hub" if get_topology(state.get("topology_id", "chain")).layout == "star" else normal
 
     def _abort(self, state, node, reason, *, error_kind=None, events=()):
         return {
@@ -170,12 +176,16 @@ class ChainNodes:
                     index += 1
                 catalog[f"AC{index}"] = description
                 index += 1
-        return {"spec": output, "ac_catalog": catalog, "next_node": "planner", "events": events}
+        return {"spec": output, "ac_catalog": catalog, "next_node": self._next(state, "planner"), "events": events}
 
     async def planner(self, state: ChainState) -> dict:
+        rework = state.get("patch") is not None
         output, failure, events = await self._call(
             state, "planner", "Planner",
-            {"from": "Analyst", "content": state["spec"]}, {"spec": state["spec"]},
+            {"from": "Hub" if rework else "Analyst", "content": state["spec"]},
+            {"spec": state["spec"],
+             **({"test_report": state["test_report"], "review_report": state.get("review_feedback")} if rework else {}),
+             **({"hub_note": state["hub_note"]} if state.get("hub_note") else {})},
         )
         if failure:
             return failure
@@ -184,7 +194,12 @@ class ChainNodes:
         if (set(output["covered_ac_ids"]) != _ac_ids(state)
                 or step_criteria != _ac_ids(state)):
             return self._abort(state, "planner", "incomplete_plan", events=events)
-        return {"plan": output, "next_node": "coder", "events": events}
+        update = {"plan": output, "next_node": self._next(state, "coder"), "events": events}
+        if rework:
+            # A new plan makes the earlier tests/review stale; the patch stays as the Coder's baseline.
+            update.update(plan_changed=True, test_report=None, review_report=None, tests_passed=False,
+                          verdict=None, stop_reason=None)
+        return update
 
     async def environment(self, state: ChainState) -> dict:
         # First node: verify the runtime before spending Analyst/Planner tokens.
@@ -202,7 +217,7 @@ class ChainNodes:
         if output.output["status"] != "ready" or output.runtime.get("verified") is not True:
             return {**self._abort(state, "environment", "environment_setup_failed", events=events),
                     "environment_report": report}
-        return {"environment_report": report, "next_node": "analyst",
+        return {"environment_report": report, "next_node": self._next(state, "analyst"),
                 "deadline_at": output.runtime.get("deadline_at", state["deadline_at"]),
                 "events": [*events, self._event(state, "environment", "environment_verified", target="analyst")]}
 
@@ -216,7 +231,8 @@ class ChainNodes:
             {"from": "Reviewer" if review else "Tester" if feedback else "Planner",
              "content": review or feedback or state["plan"]},
             {"spec": state["spec"], "plan": state["plan"],
-             "previous_patch": state["patch"], "test_report": feedback, "review_report": review},
+             "previous_patch": state["patch"], "test_report": feedback, "review_report": review,
+             **({"hub_note": state["hub_note"]} if state.get("hub_note") else {})},
         )
         if failure:
             return failure
@@ -237,8 +253,9 @@ class ChainNodes:
             "coder_summary": output["summary"],
             "round_number": state["round_number"] + 1,
             "test_report": None, "review_report": None, "review_feedback": None, "tests_passed": False,
+            "plan_changed": False, "hub_note": "",
             "verdict": None, "stop_reason": None,
-            "next_node": "tester", "events": events,
+            "next_node": self._next(state, "tester"), "events": events,
         }
 
     async def tester(self, state: ChainState) -> dict:
@@ -262,8 +279,47 @@ class ChainNodes:
             }
         return {
             "test_report": output, "rounds_completed": state["round_number"],
-            "next_node": "check", "events": events,
+            "next_node": self._next(state, "check"), "events": events,
         }
+
+    async def hub(self, state: ChainState) -> dict:
+        """Star routing: rules always bound the choice; an LLM Hub may pick among the allowed roles."""
+        passed = _tests_pass(state)
+        options, default = hub_options(state, passed)
+        limits = state["limits"]
+        used = state.get("hub_dispatches", 0)
+        choice, source, reason, note, events = default, "rules", "rule-based default", "", []
+        if default != "finish" and used >= limits["max_dispatches"]:
+            choice, source, reason = "finish", "forced", "max_dispatches reached"
+        elif state.get("hub_mode") == "llm" and len(options) > 1:
+            output, failure, events = await self._call(
+                state, "hub", "Hub",
+                {"from": "Framework", "content": "Choose the next role"},
+                {"allowed": options, "default": default, "summary": hub_summary(state, passed)},
+            )
+            if failure and failure["stop_reason"] not in {"invalid_output", "agent_error"}:
+                return failure
+            if failure:
+                events, source, reason = failure["events"], "fallback", f"hub call failed: {failure['stop_reason']}"
+            elif output.output["next"] not in options:
+                source, reason = "fallback", f"hub chose {output.output['next']!r}, not in the allowed set"
+            else:
+                choice, source = output.output["next"], "llm"
+                reason, note = output.output["reason"], output.output.get("note", "")
+        decision = {"source": source, "next": choice, "default": default, "allowed": options, "reason": reason,
+                    "dispatch": used + (choice != "finish"), "max_dispatches": limits["max_dispatches"]}
+        decided = [*events, self._event(state, "hub", "hub_decision", **decision)]
+        if choice == "finish":
+            stop = state["stop_reason"]
+            if state.get("verdict") != "PASS" and source == "forced":
+                stop = "max_dispatches_reached"
+            return {"next_node": "result", "stop_reason": stop, "events": decided}
+        update = {"next_node": choice, "hub_dispatches": used + 1, "hub_note": note, "events": decided}
+        if choice == "reviewer" and not passed and state["stop_reason"] is None:
+            update["stop_reason"] = "max_rounds_reached"
+        if state.get("review_report") is not None and passed and state.get("verdict") != "PASS" and choice in {"coder", "planner"}:
+            update.update(review_feedback=state["review_report"], review_rounds=state.get("review_rounds", 0) + 1)
+        return update
 
     def check(self, state: ChainState) -> dict:
         passed = _tests_pass(state)
@@ -327,7 +383,7 @@ class ChainNodes:
             }
         return {
             "review_report": output, "verdict": verdict, "stop_reason": reason,
-            "next_node": "result", "events": [*events, self._event(
+            "next_node": self._next(state, "result"), "events": [*events, self._event(
                 state, "reviewer", "review_evaluated", verdict=verdict,
                 reported_verdict=output["verdict"], reason=reason,
             )],

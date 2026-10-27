@@ -235,6 +235,8 @@ patch không tự biến run thành PASS. Run cũ đã aborted giữ nguyên l�
 Coordinator hiện cố định chọn chain, không gọi LLM để chọn topology.
 Graph chạy Environment → Analyst → Planner → Coder → Tester → Reviewer; retry vẫn qua Limit, có sáu role.
 Mặc định tối đa ba lượt Coder–Tester; --max-rounds phải từ 1 đến hard cap 4.
+
+Topology chọn bằng tay: `--topology chain|chain_review_loop|star` (mặc định lấy từ `configs/levels/l3_collaboration.yaml`). `chain_review_loop` thêm `--max-review-rounds N`; `star` thêm `--hub rules|llm` và `--max-dispatches N`. Chi tiết mẫu ở [l3_topologies.md](../src/raac/collaboration/levels/l3_collaboration/l3_topologies.md).
 Đây chưa phải coordinator thích ứng nhiều topology.
 
 | Role | Tool | Vai trò |

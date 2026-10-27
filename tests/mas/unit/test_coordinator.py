@@ -21,7 +21,8 @@ class CoordinatorTests(unittest.TestCase):
         decision = coordinate_chain(self.config)
         self.assertEqual(json.loads(decision.model_dump_json()), {
             "topology": "chain", "topology_version": "5", "max_rounds": 3,
-            "max_review_rounds": None, "source": "fixed_default",
+            "max_review_rounds": None, "hub_mode": None, "max_dispatches": None,
+            "source": "fixed_default",
         })
         self.assertEqual(CoordinatorDecision.model_validate_json(decision.model_dump_json()), decision)
 
@@ -70,7 +71,7 @@ class ManualTopologyTests(unittest.TestCase):
         self.assertEqual(coordinate_chain({**self.config, "topology": "chain_review_loop"}, topology="chain").topology, "chain")
 
     def test_undeclared_topology_is_rejected_before_execution(self):
-        for name in ("debate", "star", ""):
+        for name in ("debate", "mesh", ""):
             with self.subTest(name=name), self.assertRaises(ValidationError):
                 coordinate_chain(self.config, topology=name)
             with self.subTest(config=name), self.assertRaises(ValidationError):
@@ -101,3 +102,35 @@ class ReviewRoundsConfigTests(unittest.TestCase):
         for value in (-1, 5, True, "2"):
             with self.subTest(value=value), self.assertRaises(ValidationError):
                 coordinate_chain(self.config, max_review_rounds=value)
+
+
+class StarCoordinatorTests(unittest.TestCase):
+    def setUp(self):
+        self.config = {"version": "test-v1", "topology": "star", "max_rounds": 3, "max_review_rounds": 2,
+                       "hard_max_rounds": 4, "hub": {"mode": "llm", "max_dispatches": 12}}
+
+    def test_star_decision_carries_hub_settings(self):
+        decision = coordinate_chain(self.config)
+        self.assertEqual((decision.topology, decision.topology_version), ("star", "1"))
+        self.assertEqual((decision.hub_mode, decision.max_dispatches, decision.max_review_rounds), ("llm", 12, 2))
+
+    def test_arguments_override_the_hub_configuration(self):
+        decision = coordinate_chain(self.config, hub_mode="rules", max_dispatches=6)
+        self.assertEqual((decision.hub_mode, decision.max_dispatches), ("rules", 6))
+        self.assertEqual(self.config["hub"], {"mode": "llm", "max_dispatches": 12})
+
+    def test_hub_settings_are_only_reported_for_star(self):
+        decision = coordinate_chain(self.config, topology="chain")
+        self.assertEqual((decision.hub_mode, decision.max_dispatches, decision.max_review_rounds), (None, None, None))
+
+    def test_invalid_hub_settings_are_rejected(self):
+        for kwargs in ({"hub_mode": "auto"}, {"max_dispatches": 0}, {"max_dispatches": True}):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValidationError):
+                coordinate_chain(self.config, **kwargs)
+
+    def test_star_dispatches_to_the_chain_factory_with_its_topology(self):
+        decision = coordinate_chain(self.config)
+        module = "raac.collaboration.levels.l3_collaboration.l3_collaboration"
+        with patch(module + ".build_chain_graph") as factory:
+            build_collaboration_graph(decision, object())
+            self.assertEqual(factory.call_args.kwargs["topology"].topology_id, "star")

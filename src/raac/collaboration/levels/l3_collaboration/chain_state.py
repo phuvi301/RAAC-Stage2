@@ -125,6 +125,7 @@ class ChainLimits(StructuredOutput):
     max_rounds: int = Field(ge=1)
     hard_max_rounds: int = Field(ge=1)
     max_review_rounds: int = Field(default=2, ge=0)
+    max_dispatches: int = Field(default=12, ge=1)
     timeout_seconds: float = Field(gt=0, allow_inf_nan=False)
     agent_timeout_seconds: float = Field(gt=0, allow_inf_nan=False)
 
@@ -154,6 +155,10 @@ class ChainState(TypedDict):
     review_report: dict[str, Any] | None
     review_feedback: dict[str, Any] | None
     review_rounds: int
+    hub_mode: str
+    hub_dispatches: int
+    hub_note: str
+    plan_changed: bool
     topology_id: str
     tests_passed: bool
     verdict: str | None
@@ -164,7 +169,8 @@ class ChainState(TypedDict):
     result: dict[str, Any] | None
 
 
-def initial_chain_state(work: WorkItem, limits: ChainLimits, topology_id: str = "chain") -> ChainState:
+def initial_chain_state(work: WorkItem, limits: ChainLimits, topology_id: str = "chain",
+                        hub_mode: str = "rules") -> ChainState:
     """Start fresh; resume must use this contract version's graph checkpoint."""
     return {
         "work": work.model_dump(), "limits": limits.model_dump(),
@@ -173,6 +179,7 @@ def initial_chain_state(work: WorkItem, limits: ChainLimits, topology_id: str = 
         "spec": None, "plan": None, "patch": None, "patch_hash": None,
         "coder_evidence": [], "coder_summary": None, "repository_changes": [],
         "test_report": None, "review_report": None, "review_feedback": None, "review_rounds": 0,
+        "hub_mode": hub_mode, "hub_dispatches": 0, "hub_note": "", "plan_changed": False,
         "topology_id": topology_id, "tests_passed": False,
         "verdict": None, "stop_reason": None, "error": None,
         "environment_report": None,

@@ -241,7 +241,7 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(await execute(args), 0)
         output_dir = Path(json.loads(stdout.getvalue())["output"])
         record = json.loads((output_dir / "result.json").read_text(encoding="utf-8"))
-        self.assertEqual(set(selected), set(registry.roles))
+        self.assertEqual(set(selected), set(registry.roles) - {"hub"})  # the Hub only runs in star
         self.assertGreater(selected.count("coder"), 1)
         self.assertGreater(selected.count("tester"), 1)
         role_models = record["provenance"]["effective_config"]["role_models"]
@@ -437,6 +437,208 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual((self.project_dir / "repo/test_generated.py").read_text(), ENVELOPE_TESTS)
         self.assertEqual({path.name for path in second_dir.iterdir() if not path.name.startswith("lifecycle-")}, {"result.json", "llm.jsonl", "memory", "lifecycle.sqlite3"})
 
+
+    async def test_cli_star_topology_runs_through_the_hub_with_http_mock(self):
+        wrote_tests = False
+        wrote_code = False
+        seen_requirements = []
+        generated_source = GENERATED
+        implementation = SOLUTION
+
+        def handler(request):
+            nonlocal wrote_tests, wrote_code
+            messages = json.loads(request.content)["messages"]
+            work = json.loads(messages[1]["content"])
+            system = messages[0]["content"].replace("**", "")
+            if system.startswith(("You are the Analyst", "You are the Reviewer")):
+                seen_requirements.append(work["requirement"])
+            elif system.startswith("You are the Environment"):
+                self.assertIn("requirement", work)
+            elif system.startswith("You are the Hub"):
+                self.assertNotIn("requirement", work)
+            else:
+                self.assertNotIn("requirement", work)
+                self.assertIn("spec", work["artifacts"])
+            tool_calls = None
+            if system.startswith("You are the Analyst"):
+                output = {"summary": work["requirement"], "constraints": [], "acceptance_criteria": [
+                    {"id": "AC1", "description": "Implement the current requested operation"}]}
+            elif system.startswith("You are the Planner"):
+                output = {"steps": [{"id": "S1", "ac_ids": ["AC1"], "target": "solution.py",
+                                     "approach": "Implement the current operation"}],
+                          "covered_ac_ids": ["AC1"]}
+            elif system.startswith("You are the Environment"):
+                if any(message.get("role") == "tool" for message in messages[2:]):
+                    output = {"status": "ready", "summary": "Verified temporary test runtime", "blocking_issues": []}
+                else:
+                    output = None
+                    tool_calls = [{"id": "configure-runtime", "type": "function", "function": {
+                        "name": "configure_environment", "arguments": json.dumps({
+                            "python_executable": sys.executable, "cwd": ".",
+                            "test_command": ["python", "-m", "unittest", "discover"],
+                            "check_command": ["python", "-c", "import unittest"]})}}]
+            elif system.startswith("You are the Coder") and not wrote_code:
+                wrote_code = True
+                output = None
+                tool_calls = [{"id": "write-code", "type": "function", "function": {
+                    "name": "edit_file", "arguments": json.dumps({"path": "solution.py", "content": implementation}),
+                }}]
+            elif system.startswith("You are the Coder"):
+                output = {"summary": "Saved implementation fixture through edit_file"}
+            elif system.startswith("You are the Tester") and not wrote_tests:
+                wrote_tests = True
+                output = None
+                tool_calls = [{"id": "write-tests", "type": "function", "function": {
+                    "name": "edit_file", "arguments": json.dumps({"path": "test_generated.py", "content": generated_source}),
+                }}]
+            elif system.startswith("You are the Tester"):
+                output = {"patch_hash": work["artifacts"]["patch_hash"], "status": "passed",
+                          "tests_run": 99, "failed": 0, "test_cases": ["invented"],
+                          "covered_ac_ids": ["AC1"], "blocking_issues": [], "summary": "HTTP mock report"}
+            elif system.startswith("You are the Hub"):
+                output = {"next": "coder", "reason": "scripted hub"}
+            else:
+                output = {"patch_hash": work["artifacts"]["patch_hash"], "verdict": "PASS",
+                          "covered_ac_ids": ["AC1"], "blocking_issues": [], "summary": "HTTP mock review"}
+            return httpx.Response(200, json={"model": "http-mock-verification", "choices": [{
+                "finish_reason": "tool_calls" if tool_calls else "stop",
+                "message": {"role": "assistant", "content": (commit_payload(output) if isinstance(commit_payload(output), str) else json.dumps(commit_payload(output))) if output is not None else None,
+                            **({"tool_calls": tool_calls} if tool_calls else {})},
+            }], "usage": {"prompt_tokens": 10, "completion_tokens": 5,
+                           "prompt_tokens_details": {"cached_tokens": 6}}})
+
+        def client_factory(config, *, log_path):
+            return LLMClient(config, log_path=log_path, transport=httpx.MockTransport(handler))
+
+        stdout = io.StringIO()
+        args = SimpleNamespace(command="run-chain", model="http-mock-verification",
+                               base_url="http://http-mock.invalid/v1", max_rounds=1,
+                               topology="star", hub="llm", max_dispatches=None, project_dir=str(self.project_dir))
+        with patch.dict(os.environ, {"LLM_API_KEY": "integration-test-only"}),                 patch("raac.mas_cli.LLMClient", side_effect=client_factory), redirect_stdout(stdout):
+            code = await execute(args)
+        self.assertEqual(code, 0)
+        output_dir = Path(json.loads(stdout.getvalue())["output"])
+        record = json.loads((output_dir / "result.json").read_text(encoding="utf-8"))
+        self.assertEqual(record["verdict"], "PASS")
+        decision = record["coordinator_decision"]
+        self.assertEqual((decision["topology"], decision["topology_version"]), ("star", "1"))
+        self.assertEqual((decision["hub_mode"], decision["max_dispatches"]), ("llm", 12))
+        self.assertEqual(record["topology"], "star")
+        hub_events = [event for event in record["events"] if event["event"] == "hub_decision"]
+        self.assertEqual([event["next"] for event in hub_events],
+                         ["analyst", "planner", "coder", "tester", "reviewer", "finish"])
+        trace = [json.loads(line) for line in (output_dir / "llm.jsonl").read_text(encoding="utf-8").splitlines()]
+        started = [event["agent_id"] for event in trace if event["event"] == "agent_started"]
+        self.assertEqual(started, ["environment", "analyst", "planner", "coder", "tester", "reviewer"])
+        self.assertEqual(record["provenance"]["effective_config"]["coordinator_decision"], decision)
+
+    async def test_cli_star_hub_llm_routes_a_review_rejection_through_the_real_runner(self):
+        wrote_tests = False
+        wrote_code = False
+        seen_requirements = []
+        generated_source = GENERATED
+        implementation = SOLUTION
+        reviews = 0
+        hub_requests = []
+
+        def handler(request):
+            nonlocal wrote_tests, wrote_code, reviews
+            messages = json.loads(request.content)["messages"]
+            work = json.loads(messages[1]["content"])
+            system = messages[0]["content"].replace("**", "")
+            if system.startswith(("You are the Analyst", "You are the Reviewer")):
+                seen_requirements.append(work["requirement"])
+            elif system.startswith("You are the Environment"):
+                self.assertIn("requirement", work)
+            elif system.startswith("You are the Hub"):
+                self.assertNotIn("requirement", work)
+            else:
+                self.assertNotIn("requirement", work)
+                self.assertIn("spec", work["artifacts"])
+            tool_calls = None
+            if system.startswith("You are the Analyst"):
+                output = {"summary": work["requirement"], "constraints": [], "acceptance_criteria": [
+                    {"id": "AC1", "description": "Implement the current requested operation"}]}
+            elif system.startswith("You are the Planner"):
+                output = {"steps": [{"id": "S1", "ac_ids": ["AC1"], "target": "solution.py",
+                                     "approach": "Implement the current operation"}],
+                          "covered_ac_ids": ["AC1"]}
+            elif system.startswith("You are the Environment"):
+                if any(message.get("role") == "tool" for message in messages[2:]):
+                    output = {"status": "ready", "summary": "Verified temporary test runtime", "blocking_issues": []}
+                else:
+                    output = None
+                    tool_calls = [{"id": "configure-runtime", "type": "function", "function": {
+                        "name": "configure_environment", "arguments": json.dumps({
+                            "python_executable": sys.executable, "cwd": ".",
+                            "test_command": ["python", "-m", "unittest", "discover"],
+                            "check_command": ["python", "-c", "import unittest"]})}}]
+            elif system.startswith("You are the Coder") and not wrote_code:
+                wrote_code = True
+                output = None
+                tool_calls = [{"id": "write-code", "type": "function", "function": {
+                    "name": "edit_file", "arguments": json.dumps({"path": "solution.py", "content": implementation}),
+                }}]
+            elif system.startswith("You are the Coder"):
+                output = {"summary": "Saved implementation fixture through edit_file"}
+            elif system.startswith("You are the Tester") and not wrote_tests:
+                wrote_tests = True
+                output = None
+                tool_calls = [{"id": "write-tests", "type": "function", "function": {
+                    "name": "edit_file", "arguments": json.dumps({"path": "test_generated.py", "content": generated_source}),
+                }}]
+            elif system.startswith("You are the Tester"):
+                output = {"patch_hash": work["artifacts"]["patch_hash"], "status": "passed",
+                          "tests_run": 99, "failed": 0, "test_cases": ["invented"],
+                          "covered_ac_ids": ["AC1"], "blocking_issues": [], "summary": "HTTP mock report"}
+            elif system.startswith("You are the Hub"):
+                hub_requests.append(work)
+                output = {"next": "coder", "reason": "fix the edge case the Reviewer named"}
+            else:
+                reviews += 1
+                rejected = reviews == 1
+                output = {"patch_hash": work["artifacts"]["patch_hash"], "verdict": "REJECT" if rejected else "PASS",
+                          "covered_ac_ids": ["AC1"], "blocking_issues": ["Handle the edge case"] if rejected else [],
+                          "summary": "HTTP mock review"}
+            return httpx.Response(200, json={"model": "http-mock-verification", "choices": [{
+                "finish_reason": "tool_calls" if tool_calls else "stop",
+                "message": {"role": "assistant", "content": (commit_payload(output) if isinstance(commit_payload(output), str) else json.dumps(commit_payload(output))) if output is not None else None,
+                            **({"tool_calls": tool_calls} if tool_calls else {})},
+            }], "usage": {"prompt_tokens": 10, "completion_tokens": 5,
+                           "prompt_tokens_details": {"cached_tokens": 6}}})
+
+        def client_factory(config, *, log_path):
+            return LLMClient(config, log_path=log_path, transport=httpx.MockTransport(handler))
+
+        stdout = io.StringIO()
+        args = SimpleNamespace(command="run-chain", model="http-mock-verification",
+                               base_url="http://http-mock.invalid/v1", max_rounds=2,
+                               topology="star", hub="llm", max_dispatches=None, project_dir=str(self.project_dir))
+        with patch.dict(os.environ, {"LLM_API_KEY": "integration-test-only"}),                 patch("raac.mas_cli.LLMClient", side_effect=client_factory), redirect_stdout(stdout):
+            code = await execute(args)
+        self.assertEqual(code, 0, stdout.getvalue())
+        output_dir = Path(json.loads(stdout.getvalue())["output"])
+        record = json.loads((output_dir / "result.json").read_text(encoding="utf-8"))
+        self.assertEqual(record["verdict"], "PASS")
+        decision = record["coordinator_decision"]
+        self.assertEqual((decision["topology"], decision["topology_version"]), ("star", "1"))
+        self.assertEqual((decision["hub_mode"], decision["max_dispatches"]), ("llm", 12))
+        self.assertEqual(record["topology"], "star")
+        hub_events = [event for event in record["events"] if event["event"] == "hub_decision"]
+        self.assertEqual([(event["next"], event["source"]) for event in hub_events],
+                         [("analyst", "rules"), ("planner", "rules"), ("coder", "rules"), ("tester", "rules"),
+                          ("reviewer", "rules"), ("coder", "llm"), ("tester", "rules"), ("reviewer", "rules"),
+                          ("finish", "rules")])
+        trace = [json.loads(line) for line in (output_dir / "llm.jsonl").read_text(encoding="utf-8").splitlines()]
+        started = [event["agent_id"] for event in trace if event["event"] == "agent_started"]
+        self.assertEqual(started, ["environment", "analyst", "planner", "coder", "tester", "reviewer",
+                                   "hub", "coder", "tester", "reviewer"])
+        self.assertEqual(len(hub_requests), 1)
+        self.assertEqual(hub_requests[0]["artifacts"]["allowed"], ["coder", "planner", "finish"])
+        self.assertEqual(hub_requests[0]["artifacts"]["summary"]["review"]["blocking_issues"], ["Handle the edge case"])
+        self.assertNotIn("requirement", hub_requests[0])
+        self.assertEqual(record["review_report"]["verdict"], "PASS")
+        self.assertEqual(record["provenance"]["effective_config"]["coordinator_decision"], decision)
 
     async def test_unknown_profile_fails_before_workspace_or_http(self):
         registry = load_registry(PROJECT / "registry")
