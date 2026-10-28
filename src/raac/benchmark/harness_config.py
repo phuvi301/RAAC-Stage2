@@ -15,7 +15,7 @@ class HarnessConfig(BaseModel):
 
     version: str
     trace_content: bool
-    token_limit: int = Field(gt=0)
+    token_limit: int | None = Field(gt=0)
     timeout_seconds: float = Field(gt=0)
     agent_timeout_seconds: float = Field(gt=0)
     context: RoleContextPolicy = Field(default_factory=RoleContextPolicy)

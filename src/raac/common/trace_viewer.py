@@ -243,7 +243,10 @@ class TraceViewer:
             if self.token_limit is not None:
                 message += f"/{self.token_limit:,}"
             message += " | cache " + ("chưa có số liệu" if self.unknown_cache else f"{self.cached_tokens:,}")
-            content = event.get("error")
+            cause = _mapping(event.get("upstream_error"))
+            if cause:
+                message += f" | upstream HTTP {cause.get('status')} / {cause.get('role') or cause.get('agent_id')} / turn {cause.get('turn')}"
+            content = cause or event.get("error")
         else:
             return []
         lines = [f"{stamp} [{where}] {_text(message, 280)}"]

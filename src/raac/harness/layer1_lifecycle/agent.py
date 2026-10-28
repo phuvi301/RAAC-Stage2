@@ -33,7 +33,7 @@ from raac.harness.layer2_core.memory.short_term import (
     action_receipt,
 )
 from raac.harness.layer2_core.prompt_hydrator import hydrate_messages
-from raac.llm.client import CompletionFormatError
+from raac.llm.client import CompletionFormatError, has_dsml_tool_call
 
 from .approval import AgentPaused, ApprovalDecision, validate_approval
 from .checkpoint import CheckpointStore, LifecycleError, digest
@@ -49,7 +49,7 @@ class AgentRunner:
         tools,
         *,
         provenance: dict,
-        token_limit=50000,
+        token_limit: int | None = 50000,
         context_policy: RoleContextPolicy | None = None,
         memory_policy: ShortTermMemoryPolicy | None = None,
         auto_approve: bool = True,
@@ -73,13 +73,15 @@ class AgentRunner:
 
     def budget_guard(self, state: dict) -> bool:
         usage = self.client.usage.snapshot(run_id=state["work"]["run_id"])
-        return usage["usage_complete"] and usage["total_tokens"] < self.token_limit
+        return usage["usage_complete"] and (
+            self.token_limit is None or usage["total_tokens"] < self.token_limit
+        )
 
     def _check_budget(self, request):
         usage = self.client.usage.snapshot(run_id=request["run_id"])
         if not usage["usage_complete"]:
             raise RunGuardError("usage_unavailable")
-        if usage["total_tokens"] >= self.token_limit:
+        if self.token_limit is not None and usage["total_tokens"] >= self.token_limit:
             raise RunGuardError("budget_exceeded")
 
     def _remember(self, context, kind, **data):
@@ -672,6 +674,30 @@ class AgentRunner:
         if metrics["after_chars"] < metrics["before_chars"]:
             self.client.trace_event(call_context, "context_compacted", **metrics)
         remaining = role.spec.max_llm_calls - turn
+        handoff_turn = role.spec.max_llm_calls - (role.spec.name in {"Analyst", "Tester"})
+        tool_turns_left = max(0, handoff_turn - turn)
+        if 0 < tool_turns_left <= 2:
+            prepared[0]["content"] += (
+                f"\nPrepare to hand off: {tool_turns_left} tool-enabled model call(s) remain including this call. "
+                f"Tools will be unavailable starting at call {handoff_turn}. "
+                "Stop broad exploration. Use remaining tools only for essential missing evidence, "
+                "then return the required handoff from observed results. Report uncertainties and "
+                "unfinished checks as blockers; do not invent results. Do not emit DSML to bypass unavailable tools."
+            )
+        if role.spec.name == "Tester" and tool_turns_left > 0:
+            if self.tools.workspace.test_spec is None:
+                prepared[0]["content"] += (
+                    "\nNo test suite has been selected. Prioritize identifying the repository's native test command "
+                    "and calling run_tests(command=[...], cwd='.', env={}) while tools are available. "
+                    "run_command/run_commands probes and Coder evidence do not select your test suite. "
+                    "Choose a focused suite covering the acceptance criteria before optional exploration; "
+                    "do not guess a framework or weaken assertions to obtain a pass."
+                )
+            elif tool_turns_left <= 2:
+                prepared[0]["content"] += (
+                    "\nA test suite is selected. Prioritize running it on any updated tests via run_tests, "
+                    "then hand off observed failures, coverage gaps and blockers. Avoid unrelated probes."
+                )
         if role.spec.name == "Coder":
             seconds = None if state["deadline_at"] is None else max(0, int(state["deadline_at"] - time.time()))
             progress = {
@@ -691,7 +717,7 @@ class AgentRunner:
                 f"\nYou have {remaining + 1} model call(s) left including this call. "
                 "Prioritize a truthful structured handoff. Report unfinished work and blockers."
             )
-        final_call = remaining == 0 or (role.spec.name == "Analyst" and remaining == 1)
+        final_call = remaining == 0 or (role.spec.name in {"Analyst", "Tester"} and remaining == 1)
         if final_call:
             prepared[0]["content"] += (
                 f" This {'final' if remaining == 0 else 'handoff'} call has no tools. Return the required output now: "
@@ -740,7 +766,10 @@ class AgentRunner:
         completion_error = state.pop("completion_error", None)
         if completion_error:
             self._recover_output(state, completion_error,
-                                 "The prior completion was empty or cut off. Return a concise, complete replacement, not a continuation. "
+                                 ("Tools are unavailable. Return the required handoff JSON, no DSML. "
+                                  if state["turn"] >= self.registry.get(context["role"]).spec.max_llm_calls - (context["role"] in {"Analyst", "Tester"})
+                                  else "Use native tool_calls while tools are available; otherwise return the required handoff. ") +
+                                 "The prior completion had an invalid format or was empty/cut off. Return a complete replacement. "
                                  "Preserve all required fields and acceptance criteria; avoid repeated explanations.")
             return
         if message.get("content"):
@@ -748,7 +777,7 @@ class AgentRunner:
         calls = message.get("tool_calls") or []
         if calls:
             maximum = self.registry.get(context["role"]).spec.max_llm_calls
-            if state["turn"] == maximum or (context["role"] == "Analyst" and state["turn"] == maximum - 1):
+            if state["turn"] == maximum or (context["role"] in {"Analyst", "Tester"} and state["turn"] == maximum - 1):
                 raise AgentExecutionError("agent_call_limit")
             if not isinstance(calls, list) or len(calls) > 4:
                 raise AgentExecutionError("too_many_tool_calls")
@@ -766,7 +795,13 @@ class AgentRunner:
             try:
                 parse_role_output(role, content)
             except OutputFormatError as exc:
-                if role == "Coder" and self.tools.workspace.code_edit_count != state["code_edits_before"]:
+                if has_dsml_tool_call(content):
+                    maximum = self.registry.get(role).spec.max_llm_calls
+                    handoff = state["turn"] >= maximum - (role in {"Analyst", "Tester"})
+                    detail = ("Tools are unavailable. Return the required handoff JSON using observed results; no tool calls or DSML."
+                              if handoff else "Use native tool_calls while tools are available, never DSML text. Otherwise return the required handoff.")
+                    self._recover_output(state, "invalid_tool_call_format", detail)
+                elif role == "Coder" and self.tools.workspace.code_edit_count != state["code_edits_before"]:
                     state["phase"] = "finalize"
                 else:
                     self._recover_output(state, "invalid_output", str(exc))

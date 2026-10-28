@@ -67,8 +67,11 @@ async def run_chain(task: Task, *, run_id: str, workspace, registry, llm_config,
         record.update(status="interrupted", stop_reason="cancelled")
         raise
     finally:
+        if record["status"] in {"aborted", "error", "interrupted", "timeout"} and client.upstream_errors.get(run_id):
+            record["upstream_error"] = client.upstream_errors[run_id]
         record["usage"] = client.usage.snapshot(run_id=run_id)
         client.trace.emit(context, event="run_completed", status=record["status"],
-                          stop_reason=record.get("stop_reason"), usage=record["usage"])
+                          stop_reason=record.get("stop_reason"), usage=record["usage"],
+                          upstream_error=record.get("upstream_error"))
         atomic_json(output_dir / "agent-result.json", client.trace.redact(record))
         await client.aclose()

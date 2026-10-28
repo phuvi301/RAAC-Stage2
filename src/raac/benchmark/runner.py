@@ -204,6 +204,9 @@ async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path,
             record.agent_status = agent["status"]
             record.verdict, record.stop_reason = agent.get("verdict"), agent.get("stop_reason")
             record.usage = RunUsage.model_validate(agent["usage"])
+            if agent.get("upstream_error"):
+                record.errors.append({"phase": "agent", "kind": "LLMProtocolError" if agent["upstream_error"].get("error") == "InvalidResponse" else "LLMUpstreamError", "retryable": "false",
+                                      **{key: str(value) for key, value in agent["upstream_error"].items()}})
             record.provenance.update(agent.get("provenance", {}))
             if agent.get("routing") is not None:
                 record.provenance["routing"] = agent["routing"]

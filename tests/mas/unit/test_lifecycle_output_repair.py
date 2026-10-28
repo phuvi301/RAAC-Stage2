@@ -10,7 +10,7 @@ from raac.harness.layer1_lifecycle.approval import AgentPaused
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("invalid", ["not json"])
+@pytest.mark.parametrize("invalid", ["not json", '<｜｜DSML｜｜ invoke name="replace_text">'])
 async def test_repair_once_without_executing_text(tmp_path, invalid):
     runner, client, seen = make_runner(tmp_path, [
         {"content": invalid}, {"content": json.dumps(FINAL)},
@@ -38,6 +38,15 @@ async def test_second_invalid_output_fails_with_code(tmp_path):
         await client.aclose()
 
 
+@pytest.mark.asyncio
+async def test_dsml_documented_inside_valid_json_is_not_a_tool_call(tmp_path):
+    output = {**FINAL, "summary": '<DSML invoke name="example"> is documentation'}
+    runner, client, seen = make_runner(tmp_path, [{"content": json.dumps(output)}])
+    try:
+        assert (await runner("Analyst", request()))["summary"] == output["summary"]
+        assert len(seen) == 1
+    finally:
+        await client.aclose()
 
 
 @pytest.mark.asyncio
@@ -108,7 +117,7 @@ async def test_repair_does_not_bypass_guards(tmp_path, guard):
 @pytest.mark.asyncio
 async def test_repaired_tool_call_still_enforces_allowlist(tmp_path):
     runner, client, seen = make_runner(tmp_path, [
-        {"content": "invalid output"},
+        {"content": '<DSML invoke name="replace_text">'},
         {"tool_calls": [tool("delete_file", {"path": "value.py"})]},
         {"content": json.dumps(FINAL)},
     ])

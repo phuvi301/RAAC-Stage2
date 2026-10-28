@@ -24,6 +24,7 @@ STOP_REASONS = {
     "environment_setup_failed": "Môi trường chưa sẵn sàng; xem báo cáo Environment",
     "max_rounds_reached": "Đã đạt số vòng tối đa",
     "timeout": "Hết thời gian chạy",
+    "invalid_tool_call_format": "Model trả tool-call sai định dạng",
     "invalid_output": "Kết quả không đúng schema",
     "empty_completion": "Model trả response rỗng",
     "truncated_completion": "Response bị cắt bởi giới hạn đầu ra",
@@ -32,7 +33,12 @@ STOP_REASONS = {
 
 def topology_payload(name):
     """Declared layout only (nodes and edges); progress is derived client-side from the log."""
-    topology = get_topology(name)
+    from raac.collaboration.levels.l1_fixed import L1_LINEAR
+    from raac.collaboration.levels.l2_routing import L2_ROUTED_LINEAR
+
+    topology = {"linear": L1_LINEAR, "linear-routed": L2_ROUTED_LINEAR}.get(name)
+    if topology is None:
+        topology = get_topology(name)
     return {"topology_id": topology.topology_id, "version": topology.version,
             "entry_node": topology.entry_node, "exit_node": topology.exit_node,
             "steps": [{"node_id": step.node_id, "role": step.role} for step in topology.steps],
@@ -50,7 +56,7 @@ def present_event(event, identifier):
            "timestamp": event.get("timestamp"), "round": event.get("round"), "turn": event.get("turn"),
            "source": "Hệ thống", "target": role, "title": kind, "summary": "",
            "tone": "info", "technical": False, "payloads": []}
-    for name in ("run_id", "agent_call_id", "llm_call_id", "tool_call_id", "tool_name", "origin", "parent_tool_call_id", "batch_index", "batch_size", "attempt"):
+    for name in ("run_id", "level", "agent_call_id", "llm_call_id", "tool_call_id", "tool_name", "origin", "parent_tool_call_id", "batch_index", "batch_size", "attempt", "selected_roles", "skipped"):
         if event.get(name) is not None:
             row[name] = event[name]
 
@@ -74,6 +80,14 @@ def present_event(event, identifier):
     elif kind in {"workspace_changed", "candidate_exported", "benchmark_phase_started", "benchmark_phase_completed", "benchmark_phase_failed", "container_started", "container_removed"}:
         row.update(title=kind, summary=_text(event.get("phase") or event.get("paths") or event.get("patch_sha256") or event.get("container_id", ""), 280))
         payload("Chi tiết", {key: event[key] for key in ("phase", "paths", "patch_sha256", "container_id") if key in event})
+    elif kind == "agent_skipped":
+        row.update(title="Role được bỏ qua", tone="info", summary=_text(event.get("reason", "Router không chọn role này")))
+        payload("Lý do bỏ qua", event.get("reason"))
+    elif kind in {"routing_decided", "routing_fallback"}:
+        row.update(source="Router", target="MAS", title="Fallback về L1" if kind == "routing_fallback" else "Quyết định routing",
+                   tone="warning" if kind == "routing_fallback" else "info",
+                   summary=_text(event.get("reason") or event.get("fallback_reason") or ", ".join(event.get("selected_roles", []))))
+        payload("Routing", {key: event.get(key) for key in ("selected_roles", "skipped", "reason", "fallback_reason")})
     elif kind == "agent_started":
         request = _mapping(event.get("request"))
         sender = _mapping(request.get("incoming_message")).get("from", "Hệ thống")
@@ -85,6 +99,11 @@ def present_event(event, identifier):
         row.update(source=role, target="Hệ thống", title="Bàn giao kết quả", tone="success",
                    summary=_summary(event.get("output", {})))
         payload("Kết quả bàn giao", event.get("output"))
+        if agent.lower() == "router":
+            output = _mapping(event.get("output"))
+            for name in ("selected_roles", "skipped"):
+                if name in output:
+                    row[name] = output[name]
         if event.get("agent_id") == "environment":
             blocked = _mapping(event.get("output")).get("status") == "blocked"
             row.update(title="Môi trường chưa sẵn sàng" if blocked else "Môi trường đã xác minh",
@@ -219,7 +238,11 @@ def present_event(event, identifier):
                    stop_reason=reason, usage=_mapping(event.get("usage")),
                    tone="success" if event.get("status") == "completed" else "error",
                    summary=f"{event.get('status', '?')} · {STOP_REASONS.get(reason, str(reason or 'Không có lý do dừng'))}")
-        payload("Kết quả cuối run", {key: event.get(key) for key in ("status", "stop_reason", "usage", "error")})
+        payload("Kết quả cuối run", {key: event.get(key) for key in ("status", "stop_reason", "usage", "error", "upstream_error")})
+        cause = _mapping(event.get("upstream_error"))
+        if cause:
+            row["summary"] += f" | upstream HTTP {cause.get('status')} / {cause.get('role') or cause.get('agent_id')} / turn {cause.get('turn')}"
+
     else:
         row.update(technical=True, title="Sự kiện · " + kind)
         payload("Dữ liệu sự kiện", {key: value for key, value in event.items() if key != "provenance"})
@@ -228,6 +251,21 @@ def present_event(event, identifier):
 
 class TraceFeed:
     """Read complete appended records with a byte cursor, without modifying files."""
+
+    def metadata(self):
+        try:
+            path = self.path.parent / "record.json"
+            if path.is_symlink() or path.stat().st_size > MAX_LINE_BYTES:
+                return {}
+            record = json.loads(path.read_text(encoding="utf-8-sig"))
+            if not isinstance(record, dict):
+                return {}
+            routing = _mapping(record.get("provenance")).get("routing")
+            routing = ({key: routing[key] for key in ("selected_roles", "skipped", "reason", "fallback_reason") if key in routing}
+                       if isinstance(routing, dict) else None)
+            return self.redactor.redact({"level": record.get("level"), "routing": routing})
+        except (OSError, ValueError):
+            return {}
 
     def __init__(self, path):
         self.path = Path(path)
@@ -375,6 +413,7 @@ def create_trace_server(path, *, port=0, agent=None, runs=None):
                 elif request.path == "/api/events":
                     cursor = int(parse_qs(request.query).get("cursor", ["0"])[0])
                     result = selected_feed.read(cursor)
+                    result.update(selected_feed.metadata())
                     result.update(log_name=selected_feed.path.parent.name + "/" + selected_feed.path.name, initial_agent=agent)
                     self.respond(200, json.dumps(result, ensure_ascii=False).encode(), "application/json; charset=utf-8")
                 else:

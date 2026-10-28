@@ -1,12 +1,21 @@
 // Topology graph model: layout and per-node progress derived only from logged events.
 // Control nodes (check/limit/result) write no agent events; their state is inferred from neighbours.
 
-export const STATUS_LABELS = {idle: "Chưa chạy", running: "Đang chạy", done: "Hoàn tất", failed: "Lỗi / dừng", stopped: "Bị ngắt"};
+export const STATUS_LABELS = {idle: "Chưa chạy", running: "Đang chạy", done: "Hoàn tất", failed: "Lỗi / dừng", stopped: "Bị ngắt", skipped: "Bỏ qua"};
 export const CONTROL_NOTES = {
   check: "Kiểm tra test: đạt, đủ AC, patch hash khớp → Reviewer; chưa đạt → Limit.",
   limit: "Còn lượt Coder–Tester thì quay lại Coder, hết vòng thì sang Reviewer.",
   result: "Kết quả cuối của chain (PASS / REJECT hoặc lý do dừng).",
+  finish: "Kết quả cuối của luồng điều phối.",
 };
+
+export function topologyForRun(events, level = null) {
+  const declared = [...events].reverse().find(event => event.event === "run_started" && event.topology);
+  if (declared) return declared.topology;
+  const observedLevel = [...events].reverse().find(event => event.level)?.level || level;
+  if (observedLevel) return {L1: "linear", L2: "linear-routed", L3: "chain"}[observedLevel] || null;
+  return events.length ? "chain" : null;
+}
 
 const edgeKey = (from, to) => `${from}>${to}`;
 const agentOf = step => String(step.role || "").toLowerCase();
@@ -117,26 +126,44 @@ function agentSummary(step, events, ended) {
 }
 
 /** Per-node progress and edge states for the declared topology. */
-export function summarize(topology, events) {
+export function summarize(topology, events, routing = null) {
   const ended = events.some(event => event.event === "run_completed");
   const end = [...events].reverse().find(event => event.event === "run_completed");
   const nodes = new Map();
   for (const step of topology.steps) if (step.role) nodes.set(step.node_id, agentSummary(step, events, ended));
-  const visited = id => id === "result" ? ended : (nodes.get(id)?.runs || 0) > 0;
+  const decision = [...events].reverse().find(event => event.event === "routing_decided") || routing ||
+    [...events].reverse().find(event => event.event === "agent_completed" && event.agent === "router" && event.selected_roles);
+  const skippedValue = decision?.skipped || routing?.skipped;
+  const skipped = Array.isArray(skippedValue) ? skippedValue.filter(item => item && typeof item.role === "string") : [];
+  for (const info of nodes.values()) {
+    const event = [...events].reverse().find(event => event.event === "agent_skipped" && event.agent === info.agent);
+    const item = skipped.find(item => String(item.role).toLowerCase() === info.agent);
+    if (!info.runs && (event || item)) {
+      info.status = "skipped";
+      info.skipReason = event?.summary || item?.reason || "Router không chọn role này";
+    }
+  }
+  const visited = id => ["result", "finish"].includes(id) ? ended : (nodes.get(id)?.runs || 0) > 0;
   for (const step of topology.steps) {
     if (step.role) continue;
     const id = step.node_id;
     let seen = false;
     if (id === "check") seen = (nodes.get("tester")?.status === "done");
     else if (id === "limit") seen = (nodes.get("coder")?.runs || 0) > 1;
-    else if (id === "result") seen = ended;
+    else if (["result", "finish"].includes(id)) seen = ended;
     else seen = topology.edges.some(([from, to]) => to === id && visited(from));
     nodes.set(id, {node_id: id, role: null, agent: "", control: true, status: seen ? "done" : "idle", runs: seen ? 1 : 0,
-      activity: null, note: CONTROL_NOTES[id] || "", recent: [], handoff: id === "result" && end ? end.summary || "" : "",
-      error: id === "result" && end?.tone === "error" ? end.summary || "" : ""});
+      activity: null, note: CONTROL_NOTES[id] || "", recent: [], handoff: ["result", "finish"].includes(id) && end ? end.summary || "" : "",
+      error: ["result", "finish"].includes(id) && end?.tone === "error" ? end.summary || "" : ""});
   }
   const back = backEdges(topology);
   const reentered = new Set([...back].map(key => key.split(">")[1]));
+  const selectedRoles = decision?.selected_roles || routing?.selected_roles;
+  let routedEdges = null;
+  if (topology.topology_id === "linear-routed" && Array.isArray(selectedRoles)) {
+    const path = ["router", ...topology.steps.filter(step => step.role && step.role !== "Router" && selectedRoles.includes(step.role)).map(step => step.node_id), "finish"];
+    routedEdges = new Set(path.slice(1).map((node, index) => edgeKey(path[index], node)));
+  }
   const edges = topology.edges.map(([from, to]) => {
     const target = nodes.get(to), source = nodes.get(from);
     const reentry = back.has(edgeKey(from, to));
@@ -144,7 +171,8 @@ export function summarize(topology, events) {
     const traversed = reentry ? (target?.runs || 0) > 1 : Boolean(visited(to) && visited(from));
     // While a node reruns, only the loop-back edge is live; its first-pass edge is history.
     const active = target?.status === "running" && Boolean(visited(from)) && (reentry ? retrying : !retrying);
-    return {from, to, back: reentry, traversed, active};
+    const skipped = source?.status === "skipped" || target?.status === "skipped" || (routedEdges !== null && !routedEdges.has(edgeKey(from, to)));
+    return {from, to, back: reentry, traversed: !skipped && traversed, active: !skipped && active, skipped};
   });
   return {nodes, edges, ended};
 }

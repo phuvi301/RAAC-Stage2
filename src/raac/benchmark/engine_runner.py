@@ -57,7 +57,12 @@ async def _run_engine_level(
 
     tools = ToolOrchestrator(workspace, timeout_seconds=workspace.executor.policy.timeout_seconds + 15,
                              trace=trace_tool)
+    def trace_routing(event):
+        if event.get("event") in {"routing_decided", "routing_fallback", "agent_skipped"}:
+            client.trace.emit(context, **event)
+
     engine = Engine.from_runtime(registry=registry, client=client, tools=tools, provenance=provenance,
+        logger=trace_routing,
         token_limit=harness["token_limit"],
         context_policy=RoleContextPolicy.model_validate(harness.get("context", {})),
         memory_policy=ShortTermMemoryPolicy.model_validate(harness.get("memory", {})))
@@ -85,9 +90,12 @@ async def _run_engine_level(
         raise
     finally:
         record["events"] = list(engine.events)
+        if record["status"] in {"aborted", "error", "interrupted", "timeout"} and client.upstream_errors.get(run_id):
+            record["upstream_error"] = client.upstream_errors[run_id]
         record["usage"] = client.usage.snapshot(run_id=run_id)
         client.trace.emit(context, event="run_completed", status=record["status"],
-                          stop_reason=record.get("stop_reason"), usage=record["usage"])
+                          stop_reason=record.get("stop_reason"), usage=record["usage"],
+                          upstream_error=record.get("upstream_error"))
         atomic_json(output_dir / "agent-result.json", client.trace.redact(record))
         await client.aclose()
 

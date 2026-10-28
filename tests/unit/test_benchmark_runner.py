@@ -69,7 +69,7 @@ async def test_runner_grades_candidate_even_if_agent_rejected(tmp_path, monkeypa
     async def agent(*args, **kwargs):
         assert kwargs["llm_config"].max_tokens == (8192 if trial else 4096)
         assert kwargs["llm_path"].name == ("llm-output-8192.yaml" if trial else "llm.yaml")
-        return {"status": agent_status, "verdict": "REJECT", "stop_reason": "agent_error" if agent_status == "aborted" else "max_rounds_reached", "usage": {
+        return {"upstream_error": {"status": 524, "role": "Tester", "turn": 9} if agent_status == "aborted" else None, "status": agent_status, "verdict": "REJECT", "stop_reason": "agent_error" if agent_status == "aborted" else "max_rounds_reached", "usage": {
             "prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12, "calls": 1,
             "usage_complete": True, "cached_tokens": None, "cache_usage_complete": False}, "events": []}
 
@@ -87,6 +87,9 @@ async def test_runner_grades_candidate_even_if_agent_rejected(tmp_path, monkeypa
     assert result.evaluation_status == evaluation_status and result.usage.total_tokens == 12
     if expected_error:
         assert result.errors and all(error.get("retryable") == "false" for error in result.errors)
+    if agent_status == "aborted":
+        cause = next(error for error in result.errors if error["kind"] == "LLMUpstreamError")
+        assert cause["status"] == "524" and cause["role"] == "Tester" and cause["turn"] == "9"
     assert removed == [True] and len(evaluated) == 1
     assert RunRecord.model_validate_json((output / "record.json").read_text()).evaluation_status == evaluation_status
 

@@ -99,6 +99,7 @@ console.log(JSON.stringify(out));
         result = self.run_node({})["layout"]
         nodes = result["nodes"]
         main = ["environment", "analyst", "planner", "coder", "tester", "check", "reviewer", "result"]
+        main = main[main.index(CHAIN.entry_node):]
         self.assertEqual({nodes[i]["row"] for i in main}, {0})
         self.assertEqual([nodes[i]["x"] for i in main], sorted(nodes[i]["x"] for i in main))
         self.assertEqual(nodes["limit"]["row"], 1)

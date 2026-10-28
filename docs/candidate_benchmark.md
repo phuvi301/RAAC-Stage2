@@ -41,7 +41,11 @@ benchmark. Ctrl+C trong lúc chạy hủy run, cleanup và trả 130. Terminal t
 cuối. Dùng `--observe none` trong CI/script cần tự thoát. Viewer lỗi không hủy benchmark;
 nếu browser không tự mở, mở URL đã in. `show-log` vẫn dùng để mở lại run cũ.
 
-Lifecycle requests one output-schema repair per activation within the existing call/token/deadline guards. Coder receives bounded progress and revision evidence and hands off after adequate smoke checks.
+Lifecycle yêu cầu model sửa output sai schema hoặc DSML text tối đa một lần mỗi
+activation, trong call/token/deadline hiện có; không tự thực thi DSML. Lỗi lần hai
+ghi `invalid_output` hoặc `invalid_tool_call_format`. Usage thiếu/timeout không được
+vượt qua để sửa output. Coder nhận tiến độ ngắn và evidence theo revision, ưu tiên bàn
+giao sau smoke phù hợp, không bị ép kết thúc hoặc tự coi smoke là nghiệm thu đầy đủ.
 
 Từ Registry `0.19.3` (Analyst `chain-v7`), client phân biệt `empty_completion`
 (không có content/tool-call), `truncated_completion` (`finish_reason=length`) và
@@ -186,7 +190,14 @@ against the 4096 control before changing defaults. No live 8192 trial or full
 105-issue run has been performed as part of these fixes; no speedup or resolution
 rate is claimed. Existing runs and their integrity errors are preserved.
 
-## Managed pytest reports and error diagnostics (2026-10-28)
+## Tool protocol and managed pytest reports (2026-10-28)
+
+Registry 0.19.5 / Tester chain-v7 reserves Tester call 9 for a handoff and
+call 10 for one output repair. Tool declarations and execution checks agree;
+DSML is diagnostic text, never executable input. When tools are unavailable,
+recovery asks for a truthful handoff rather than another tool invocation.
+The prompt asks Tester to check an oracle against the WorkSpec and input shape
+before blaming implementation, without weakening valid acceptance criteria.
 
 For recognized pytest argv, run_tests normalizes report_path and both
 --junitxml/--junit-xml forms before selection and validation. Local and Docker
@@ -196,8 +207,143 @@ from integrity checks. Custom JUnit runners retain their relative report_path
 contract. A verified unauthorized mutation returns WorkspaceIntegrityError with
 the relative offending path; export remains blocked after a genuine violation.
 
+Check endpoint tool compatibility before a benchmark:
+
+```powershell
+.venv\Scripts\python.exe -m raac.mas_cli probe-tools
+```
+
+This makes at most two logical model calls with a harmless echo tool. It checks
+native tool-call name, ID and arguments, then supplies the tool result and checks
+the final acknowledgement. Exit 0 means passed; exit 1 reports a protocol/API
+failure. It never executes repository tools or logs hidden reasoning. Audit
+metadata goes to results/model-check.jsonl. A passing probe does not guarantee
+that the model will follow the protocol in every longer task context.
+
 The web viewer distinguishes transport, truncated/empty output, validation,
 test failure and integrity violations. Paired llm_call/llm_response errors merge
 into one card with response details, keyed by run/call/attempt; raw JSONL stays
 unchanged. Standalone/pasted response errors remain visible. The terminal view
 suppresses the second error heading and can show its content with --details.
+
+Pilot comparison completed under benchmark-batches/tool-protocol-20261028-4096
+and tool-protocol-20261028-8192: Astropy-12906 and Requests-6027 once per cap,
+with no retry selection, model change or extra budget. All four runs used the
+same Registry 0.19.5, model deepseek-v4.1-flash-1017 and harness settings.
+
+| Requested output cap | Issue | Total tokens | Total seconds | Result |
+| --- | --- | ---: | ---: | --- |
+| 4096 | astropy-12906 | 161,863 | 199.656 | Planner DSML; unresolved |
+| 4096 | requests-6027 | 142,210 | 146.360 | Planner DSML; unresolved |
+| 8192 | astropy-12906 | 158,379 | 289.454 | Planner DSML; unresolved |
+| 8192 | requests-6027 | 120,712 | 134.563 | Planner DSML; unresolved |
+
+Each run made 12 model calls (6 Analyst, 6 Planner), observed two DSML responses,
+and stopped with invalid_tool_call_format at Planner's final call. Analyst's
+reserved repair succeeded. All candidates were empty and all four independent
+evaluations were unresolved; zero truncation events were observed. The pilot
+used 583,164 tokens, excluding the 1,502-token/two-call successful protocol probe.
+Workspace containers were removed. Machine-readable evidence and run IDs are in
+results/tool-protocol-pilot-20261028.json.
+
+Keep the default at 4096: increasing the requested output cap did not fix this
+protocol failure. The endpoint passes a short native-tool probe but still emits
+raw DSML in longer handoff contexts. This does not establish a general model
+quality or speed ranking. Provider-reported completion usage sometimes exceeded
+the requested control cap (maximum 5,995 tokens); available trace fields cannot
+distinguish reasoning-token accounting from endpoint cap handling. These are
+requested caps, not a verified provider-enforced token ceiling.
+
+Coder and Tester were not reached by these four runs. Their report protection,
+integrity diagnostics and reserved handoff are verified with offline HTTP
+fixtures and real Docker cases, not with these live pilots. Further structured
+handoff enforcement at Planner/endpoint remains separate follow-up work; no
+additional paid retries or full 105-issue run were started.
+
+
+## Shared protocol normalization (2026-10-28)
+
+Native OpenAI-compatible tool calls remain the default. The shared LLM client
+also converts a standalone, complete DSML calls/invoke/parameter envelope into
+native calls automatically; changing models requires no additional CLI flag.
+ASCII and fullwidth pipe delimiters are supported. String parameters preserve
+text; non-string parameters must be valid finite JSON. Mixed native/DSML calls,
+prose/fences around an envelope, duplicate parameters, unsupported syntax and
+more than four calls are rejected. Valid handoff JSON may quote DSML as data.
+Only currently declared tool names are accepted: bash/run_shell aliases are not
+inferred, and no DSML is executed when tools are disabled for handoff.
+Converted calls use the same schema/permission checks, receipts and resume path
+as native calls. Invalid protocol output shares the existing single repair quota.
+Truncated responses never reach conversion. Successful conversions emit
+`tool_protocol_normalized` with `protocol=dsml`; usage is retained on rejection.
+
+HTTP 408/504/524 and transport failures without usage mark run usage incomplete
+and block additional LLM calls/retries. HTTP 429 retains bounded retry behavior.
+Failed activations retain safe upstream status/role/turn/attempt metadata in the
+agent result and benchmark errors; final trace summaries display the upstream
+cause alongside the stop reason. No HTTP error bodies or hidden reasoning are
+included. An evaluator resolved result does not imply the MAS activation completed.
+
+
+### Early handoff guidance
+
+The lifecycle now warns during the last two tool-enabled model calls, before
+handoff disables tools. The warning includes the remaining tool-enabled calls
+and the first tools-disabled call number. It asks roles to stop broad exploration,
+finish essential checks and report uncertainty without inventing evidence.
+Existing call caps and handoff/repair reservations are unchanged.
+Tester is reminded from its first tool-enabled call to identify the repository's
+native suite and select it through run_tests when no test command is configured.
+Shell probes and Coder evidence do not select the Tester's suite. Once a suite is
+selected, near-handoff guidance prioritizes rerunning updated tests and reporting
+observed failures/coverage gaps. These reminders do not execute tests automatically,
+change permissions or authorize DSML while tools are disabled.
+
+
+### Run without a total-token budget
+
+`token_limit: null` in a harness YAML disables only the total-token ceiling.
+Positive integers retain the existing budget behavior; zero, negative values,
+booleans and strings are invalid. Usage collection and the usage-unavailable
+stop remain active. Model-call caps, completion output limits, deadlines and
+max cycles are unchanged. The default harness still uses 800000 tokens.
+
+Use the isolated preset (web observation remains the CLI default):
+
+```powershell
+python -m raac.cli benchmark run --task-id sympy__sympy-17624 --level L3 --config configs/experiments/benchmark-no-budget.yaml
+```
+
+The preset works with L1/L2/L3 and batch via the existing `--config` option.
+Its harness/config snapshot records a null token limit; changing this policy
+invalidates lifecycle resume compatibility. Start a new run rather than resuming
+a budget-limited run with the policy changed. This configuration does not raise
+role call caps, and total token consumption can exceed the usual default budget.
+
+
+For no total-token budget plus 16384 requested output tokens per response, use:
+
+```powershell
+python -m raac.cli benchmark run --task-id sympy__sympy-17624 --level L3 --config configs/experiments/benchmark-no-budget-output-16384.yaml
+```
+
+The preset selects `llm-output-16384.yaml` with max_tokens=16384 and the existing
+no-budget harness. It does not
+change defaults, call caps or deadlines, nor guarantee the provider will avoid
+truncation. Model/endpoint continue to follow environment overrides.
+
+
+### Viewer topology follows the selected level
+
+The observe graph selects L1 linear, L2 linear-routed (including Router) or L3
+chain from run metadata/setup events; it no longer initially assumes L3 for every
+run. Layouts reuse the level builders' declarations. L2 shows routing decisions,
+fallback and skipped roles with reasons, and highlights only the selected branch.
+New benchmark traces include routing events; older traces can use Router handoff
+or the saved record routing snapshot. Switching registered runs reloads the view;
+late topology responses cannot overwrite a newer selection. Historical traces
+without a level/topology retain the legacy chain layout.
+
+An already-running observe server needs reopening to load the updated Python
+backend; the benchmark itself does not need restarting. Use `show-log --run-id
+RUN_ID --web` to open a new read-only viewer for its existing trace.

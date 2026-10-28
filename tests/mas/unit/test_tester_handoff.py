@@ -84,3 +84,24 @@ async def test_unfinished_tester_stops_at_existing_call_cap(tmp_path, selected):
 def test_path_errors_explain_repository_relative_contract(model, args):
     with pytest.raises(ValueError, match="repository-relative"):
         model.model_validate(args)
+
+
+@pytest.mark.asyncio
+async def test_tester_reserves_final_call_to_repair_dsml_without_executing_it(tmp_path):
+    replies = [{"tool_calls": [tool(identifier=str(i))]} for i in range(8)]
+    replies += [{"content": '<｜DSML｜ invoke name="delete_file">value.py</DSML>'},
+                {"content": json.dumps(report(["AC1", "AC2"]))}]
+    runner, client, seen = make_runner(tmp_path, replies)
+    runner.tools.workspace.test_spec = {"command": ["node", "--test"], "cwd": ".", "env": {}}
+    async def execute(*args, **kwargs):
+        return {"status": "passed", "tests_run": 1, "failed": 0, "test_cases": ["suite"], "summary": "observed"}
+    runner.tools.workspace.executor.run_tests = execute
+    try:
+        result = await runner("Tester", handoff_request())
+        assert result.runtime["tests_run"] == 1 and len(seen) == 10
+        assert all(item.get("tools") for item in seen[:8])
+        assert not seen[8].get("tools") and not seen[9].get("tools")
+        assert "Tools are unavailable" in seen[9]["messages"][-1]["content"]
+        assert (runner.tools.workspace.root / "value.py").exists()
+    finally:
+        await client.aclose()

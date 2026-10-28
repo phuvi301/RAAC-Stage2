@@ -35,7 +35,7 @@ class AgentExecutionError(RuntimeError):
     def __init__(self, code: str):
         if code not in {"too_many_tool_calls", "invalid_tool_call", "invalid_coder_patch",
                         "patch_generation_failed", "agent_call_limit", "invalid_output",
-                        "empty_completion", "truncated_completion",
+                        "invalid_tool_call_format", "empty_completion", "truncated_completion",
                         "missing_test_command", "incomplete_test_coverage"}:
             raise ValueError("Unknown agent error code")
         self.code = code

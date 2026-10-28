@@ -20,10 +20,10 @@
       <div><span>KẾT QUẢ TOOL LỖI</span><strong id="stat-errors">0</strong><small>Gồm test fail và lỗi thực thi</small></div>
     </section>
     <section class="flow" id="flow" aria-label="Tiến trình theo topology">
-      <div class="flow-head"><div><h2>Tiến trình theo topology</h2><p class="subtitle">Mỗi node là một bước của chain, cập nhật theo log. Bấm vào node để xem role đó đang làm gì.</p></div><span class="tag" id="flow-topology">Đang tải…</span></div>
+      <div class="flow-head"><div><h2>Tiến trình theo topology</h2><p class="subtitle">Tự đồng bộ theo mức điều phối của run. Bấm vào node để xem role đó đang làm gì.</p></div><span class="tag" id="flow-topology">Đang đọc mức điều phối…</span></div>
       <div class="flow-body">
         <div class="flow-main"><div class="flow-canvas" id="flow-canvas" tabindex="-1"></div>
-      <ul class="flow-legend" aria-label="Chú thích"><li class="idle">Chưa chạy</li><li class="running">Đang chạy</li><li class="done">Hoàn tất</li><li class="failed">Lỗi / dừng</li><li class="loop">Nét đứt chạy: luồng đang đi</li></ul></div>
+      <ul class="flow-legend" aria-label="Chú thích"><li class="idle">Chưa chạy</li><li class="running">Đang chạy</li><li class="done">Hoàn tất</li><li class="skipped">Bỏ qua theo routing</li><li class="failed">Lỗi / dừng</li><li class="loop">Nét đứt chạy: luồng đang đi</li></ul></div>
         <aside class="flow-detail" id="flow-detail" aria-live="polite"><p class="notice">Đang đọc topology…</p></aside>
       </div>
     </section>

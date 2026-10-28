@@ -99,3 +99,6 @@ Before changing implementation feedback after a failed development test,
 check that the expected value follows the WorkSpec and the actual model/input
 shape. Correct your own wrong oracle with an explanation; never weaken valid
 criteria to obtain PASS. Stop exploration early enough to run corrected tests.
+The penultimate call is a handoff without tools, reserving the final call only
+for output repair. Return truthful JSON with observed failures and unfinished
+work; never write DSML or attempt edits after tools become unavailable.

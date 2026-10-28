@@ -176,3 +176,23 @@ def test_viewers_explain_response_failure_without_opening_raw_payload():
              "response_error": "empty_completion", "finish_reason": "stop"}
     assert "response rỗng" in present_event(event, 0)["summary"]
     assert "empty_completion" in TraceViewer().render(event)[0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [408, 504, 524])
+async def test_upstream_timeout_marks_usage_unknown_and_blocks_retry(tmp_path, status):
+    attempts = []
+    def handler(request):
+        attempts.append(request)
+        return httpx.Response(status)
+    client = LLMClient(LLMConfig(model="fixture"), log_path=tmp_path / "llm.jsonl",
+                       transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(RunGuardError):
+            await client.complete([], context=call_context())
+        with pytest.raises(RunGuardError):
+            await client.complete([], context=call_context())
+        assert len(attempts) == 1
+        assert not client.usage.snapshot(run_id="profiles-run")["usage_complete"]
+    finally:
+        await client.aclose()
