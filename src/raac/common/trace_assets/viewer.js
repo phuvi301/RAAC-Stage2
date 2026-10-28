@@ -1,16 +1,40 @@
 "use strict";
 
 import {indexUsage, tokenLabel, summarizeCache} from "/usage.mjs";
-import {layout, summarize, STATUS_LABELS} from "/graph.mjs";
+import {layout, summarize, STATUS_LABELS, topologyForRun} from "/graph.mjs";
 import {memorySummary, memoryEntryTitle, mergeMemoryPage, memoryRevisionLabel, memoryChangeSummary, mergeMemoryHistory} from "/memory.mjs";
 
 // All log content is inserted as text, including code and nested JSON strings.
 const $ = id => document.getElementById(id);
-const colors = {environment:"#477b9e",analyst:"#6186b9",planner:"#9170ae",coder:"#248e83",tester:"#c18a38",reviewer:"#a46f82",mas:"#6f8792"};
-const names = {environment:"Environment",analyst:"Analyst",planner:"Planner",coder:"Coder",tester:"Tester",reviewer:"Reviewer",mas:"MAS"};
+let currentRun = "";
+const pinnedRun = new URLSearchParams(location.search).get("run") || "";
+function traceFetch(path, options) {
+  const url = new URL(path, location.origin);
+  if (currentRun) url.searchParams.set("run", currentRun);
+  return fetch(url, options);
+}
+async function refreshRuns() {
+  const response = await fetch("/api/runs", {cache:"no-store"});
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const data = await response.json();
+  if (!data.runs.length) return true;
+  const selected = pinnedRun || data.active;
+  if (currentRun && selected !== currentRun) { location.reload(); return false; }
+  currentRun = selected;
+  const select = $("run-select");
+  if (select.options.length !== data.runs.length + 1) {
+    select.replaceChildren(new Option("Tự theo dõi run mới nhất", ""));
+    for (const run of data.runs) select.add(new Option(run, run));
+    select.value = pinnedRun;
+  }
+  $("run-picker").hidden = false;
+  return true;
+}
+const colors = {router:"#556db4",environment:"#477b9e",analyst:"#6186b9",planner:"#9170ae",coder:"#248e83",tester:"#c18a38",reviewer:"#a46f82",mas:"#6f8792"};
+const names = {router:"Router",environment:"Environment",analyst:"Analyst",planner:"Planner",coder:"Coder",tester:"Tester",reviewer:"Reviewer",mas:"MAS"};
 const labels = {requirement:"Yêu cầu",incoming_message:"Bàn giao đầu vào",artifacts:"Tài liệu và kết quả",spec:"Đặc tả",plan:"Kế hoạch",summary:"Tóm tắt",acceptance_criteria:"Tiêu chí nghiệm thu",constraints:"Ràng buộc",approach:"Phương án",steps:"Các bước",risks:"Rủi ro",content:"Nội dung",messages:"Messages",role:"Vai trò",tool_calls:"Yêu cầu tool",arguments:"Tham số",result:"Kết quả",execution:"Thực thi",stdout:"stdout",stderr:"stderr",tests_run:"Số test",failed:"Test lỗi",status:"Trạng thái",verdict:"Phán quyết",notes:"Ghi chú",patch:"Patch",test_cases:"Các test case",code:"Mã lỗi",error:"Lỗi",error_kind:"Loại lỗi",path:"Đường dẫn",command:"Lệnh",repository_files:"Danh sách file",repository_changes:"File thay đổi",from:"Bên gửi",output_schema:"Cấu trúc kết quả yêu cầu",role_memory:"Memory các vòng trước",entries:"Các bản ghi",identity:"Phạm vi memory",revision:"Revision",compactions:"Số lần compact",estimated_tokens:"Token ước lượng",kind:"Loại bản ghi",round:"Vòng",sequence:"Thứ tự",observation:"Quan sát thực tế",tool:"Tool",feedback:"Phản hồi",preview:"Nội dung rút gọn",tool_counts:"Số lần dùng tool",changed_files:"File đã thay đổi",working_notes:"Ghi chú làm việc",conclusions:"Kết luận",ruled_out:"Giả thuyết đã loại",next_steps:"Bước tiếp theo",statement:"Kết luận",evidence:"Bằng chứng tham chiếu",hypothesis:"Giả thuyết",reason:"Lý do",detail_ref:"Chi tiết trong journal"};
-const state = {events:[], ids:new Set(), cards:new Map(), usageSlots:new Map(), cursor:0, paused:false, role:"", query:"", initial:true, warnings:new Set(), completed:false};
-const flow = {topology:null, name:"", selected:null, loading:false};
+const state = {events:[], ids:new Set(), cards:new Map(), usageSlots:new Map(), cursor:0, paused:false, role:"", query:"", initial:true, warnings:new Set(), completed:false, routing:null};
+const flow = {topology:null, name:"", selected:null, request:0};
 const memoryState = {loaded:false, busy:false, id:"", revision:null, journal:null, journalBusy:false, history:null, historyBusy:false, changeRequest:0};
 const number = value => Number(value || 0).toLocaleString("en-US");
 const normalize = value => String(value).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g,"d");
@@ -187,9 +211,9 @@ function clip(item, toward, margin = 3) {
   const dx = toward.x - item.x, dy = toward.y - item.y, length = Math.hypot(dx, dy) || 1;
   const ux = dx / length, uy = dy / length;
   let reach;
-  if (item.control && item.node_id !== "result") reach = 22;
+  if (item.control && !["result", "finish"].includes(item.node_id)) reach = 22;
   else {
-    const hw = item.node_id === "result" ? 36 : 59, hh = item.node_id === "result" ? 18 : 25;
+    const hw = ["result", "finish"].includes(item.node_id) ? 36 : 59, hh = ["result", "finish"].includes(item.node_id) ? 18 : 25;
     reach = Math.min(Math.abs(ux) > 1e-9 ? hw / Math.abs(ux) : Infinity, Math.abs(uy) > 1e-9 ? hh / Math.abs(uy) : Infinity);
   }
   return {x: item.x + ux * (reach + margin), y: item.y + uy * (reach + margin)};
@@ -203,7 +227,7 @@ function renderFlowDetail(summary, id) {
   panel.replaceChildren();
   if (!info) { panel.append(node("p", "notice", "Chọn một node trong đồ thị.")); return; }
   const head = node("div", "flow-detail-head");
-  head.append(node("h3", "", info.control ? (id === "result" ? "Kết quả chain" : id === "check" ? "Check · kiểm tra test" : "Limit · giới hạn vòng") : names[info.agent] || info.role),
+  head.append(node("h3", "", info.control ? (["result", "finish"].includes(id) ? "Kết quả run" : id === "check" ? "Check · kiểm tra test" : "Limit · giới hạn vòng") : names[info.agent] || info.role),
     node("span", `status-pill flow-status ${info.status}`, STATUS_LABELS[info.status]));
   panel.append(head);
   const manual = flow.selected !== null;
@@ -222,6 +246,7 @@ function renderFlowDetail(summary, id) {
     doing.append(node("strong", "", info.activity.title));
     if (info.activity.detail) doing.append(node("span", "flow-detail-text", info.activity.detail));
   } else if (info.status === "idle") doing.append(node("strong", "", "Chưa tới lượt, đang chờ bước trước bàn giao."));
+  else if (info.status === "skipped") doing.append(node("strong", "", info.skipReason));
   else if (info.status === "done") doing.append(node("strong", "", "Đã xong lượt này và bàn giao kết quả."));
   else if (info.status === "failed") doing.append(node("strong", "", "Lượt chạy kết thúc với lỗi hoặc không đạt."));
   else doing.append(node("strong", "", "Run đã kết thúc khi role chưa trả kết quả."));
@@ -254,7 +279,7 @@ function renderFlowDetail(summary, id) {
 }
 function renderFlow() {
   if (!flow.topology) return;
-  const summary = summarize(flow.topology, state.events), shape = layout(flow.topology);
+  const summary = summarize(flow.topology, state.events, state.routing), shape = layout(flow.topology);
   const current = flow.selected && summary.nodes.has(flow.selected) ? flow.selected : followedNode(summary);
   const canvas = svg("svg", {viewBox: `0 0 ${shape.width} ${shape.height}`, role: "group", "aria-label": "Đồ thị topology"});
   const defs = svg("defs");
@@ -271,7 +296,7 @@ function renderFlow() {
       const sx = from.x, sy = from.y + 24, tx = to.x, ty = to.y + 27;
       d = `M${sx} ${sy} C${sx} ${sy + 46} ${tx} ${ty + 84} ${tx} ${ty}`;
     } else { const a = clip(from, to), b = clip(to, from, 5); d = `M${a.x} ${a.y} L${b.x} ${b.y}`; }
-    const cls = `flow-edge${edge.traversed ? " traversed" : ""}${edge.active ? " active" : ""}`;
+    const cls = `flow-edge${edge.traversed ? " traversed" : ""}${edge.active ? " active" : ""}${edge.skipped ? " skipped" : ""}`;
     canvas.append(svg("path", {d, class: cls, "marker-end": `url(#${edge.active ? "arrow-live" : edge.traversed ? "arrow-on" : "arrow"})`}));
   }
   for (const item of shape.nodes) {
@@ -280,9 +305,9 @@ function renderFlow() {
       transform: `translate(${item.x} ${item.y})`, tabindex: 0, role: "button",
       "aria-label": `${item.control ? item.node_id : names[item.agent] || item.role}: ${STATUS_LABELS[info.status]}`, "aria-pressed": String(item.node_id === current)});
     if (item.control) {
-      const r = item.node_id === "result" ? 28 : 22;
-      group.append(item.node_id === "result" ? svg("rect", {x: -r - 8, y: -18, width: (r + 8) * 2, height: 36, rx: 18}) : svg("circle", {r}));
-      group.append(svg("text", {class: "flow-name", y: 4}, item.node_id === "result" ? "Kết quả" : item.node_id === "check" ? "Check" : "Limit"));
+      const r = ["result", "finish"].includes(item.node_id) ? 28 : 22;
+      group.append(["result", "finish"].includes(item.node_id) ? svg("rect", {x: -r - 8, y: -18, width: (r + 8) * 2, height: 36, rx: 18}) : svg("circle", {r}));
+      group.append(svg("text", {class: "flow-name", y: 4}, ["result", "finish"].includes(item.node_id) ? "Kết quả" : item.node_id === "check" ? "Check" : "Limit"));
     } else {
       group.style.setProperty("--accent", colors[item.agent] || colors.mas);
       group.append(svg("rect", {x: -59, y: -25, width: 118, height: 50, rx: 10}), svg("rect", {class: "flow-accent", x: -59, y: -25, width: 5, height: 50, rx: 2}));
@@ -298,18 +323,26 @@ function renderFlow() {
   $("flow-topology").textContent = `${flow.topology.topology_id} · v${flow.topology.version}`;
   renderFlowDetail(summary, current);
 }
-async function loadTopology(name = "chain") {
-  if (flow.loading || flow.name === name) return;
-  flow.loading = true;
+async function loadTopology(name) {
+  if (!name || flow.name === name) return;
+  const request = ++flow.request;
+  flow.name = name; flow.topology = null; flow.selected = null;
+  $("flow-canvas").replaceChildren();
+  $("flow-topology").textContent = name;
   try {
-    const response = await fetch(`/api/topology?name=${encodeURIComponent(name)}`, {cache: "no-store"});
+    const response = await traceFetch(`/api/topology?name=${encodeURIComponent(name)}`, {cache: "no-store"});
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    flow.topology = await response.json(); flow.name = name; flow.selected = null; renderFlow();
+    const topology = await response.json();
+    if (request !== flow.request) return;
+    flow.topology = topology; renderFlow();
   } catch (error) {
+    if (request !== flow.request) return;
+    flow.name = "";
     $("flow-topology").textContent = "Chưa tải được topology";
     $("flow-detail").replaceChildren(node("p", "notice", `Không đọc được topology: ${error.message}`));
-  } finally { flow.loading = false; }
+  }
 }
+
 function resetMemoryChanges() {
   memoryState.history=null;memoryState.changeRequest++;
   $("memory-revision").replaceChildren();$("memory-change-content").replaceChildren();
@@ -320,7 +353,7 @@ async function loadMemoryChange() {
   if(!id || !revision)return;
   $("memory-change-status").textContent="Đang đọc thay đổi…";$("memory-change-content").replaceChildren();
   try {
-    const response=await fetch(`/api/memory/change?id=${encodeURIComponent(id)}&revision=${revision}`,{cache:"no-store"});
+    const response=await traceFetch(`/api/memory/change?id=${encodeURIComponent(id)}&revision=${revision}`,{cache:"no-store"});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
     const change=await response.json();if(memoryState.id!==id || request!==memoryState.changeRequest)return;
     $("memory-change-status").textContent=memoryChangeSummary(change);
@@ -358,7 +391,7 @@ async function loadMemoryHistory(more=false) {
   memoryState.historyBusy=true;$("memory-history-more").disabled=true;
   try {
     const cursor=more && previous?.id===id?previous.cursor:0;
-    const response=await fetch(`/api/memory/history?id=${encodeURIComponent(id)}&cursor=${cursor}`,{cache:"no-store"});
+    const response=await traceFetch(`/api/memory/history?id=${encodeURIComponent(id)}&cursor=${cursor}`,{cache:"no-store"});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
     const page=await response.json();if(memoryState.id!==id)return;
     const history=mergeMemoryHistory(more?previous:null,page);memoryState.history=history;
@@ -384,7 +417,7 @@ async function loadMemoryJournal() {
   const id=memoryState.id, previous=memoryState.journal;
   try {
     const cursor=previous?.id===id?previous.cursor:0;
-    const response=await fetch(`/api/memory?id=${encodeURIComponent(id)}&cursor=${cursor}`,{cache:"no-store"});
+    const response=await traceFetch(`/api/memory?id=${encodeURIComponent(id)}&cursor=${cursor}`,{cache:"no-store"});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
     const page=await response.json();if(memoryState.id!==id)return;
     const before=page.reset?0:previous?.entries.length||0;
@@ -405,7 +438,7 @@ async function loadMemoryJournal() {
 async function refreshMemory() {
   if(memoryState.busy)return;memoryState.busy=true;
   try {
-    const response=await fetch("/api/memory",{cache:"no-store"});if(!response.ok)throw new Error(`HTTP ${response.status}`);
+    const response=await traceFetch("/api/memory",{cache:"no-store"});if(!response.ok)throw new Error(`HTTP ${response.status}`);
     const data=await response.json(), memories=data.memories||[];
     memoryState.loaded=true;$("memory-count").textContent=`${memories.length} phạm vi`;
     $("memory-warning").textContent=(data.warnings||[]).join(" ");
@@ -427,27 +460,43 @@ async function refreshMemory() {
   finally{memoryState.busy=false;}
 }
 
+function mergeResponseError(events, event) {
+  if(event.event!=="llm_response" || !event.llm_error || !event.llm_call_id)return null;
+  const call=events.find(item=>item.event==="llm_call" && item.llm_error &&
+    item.llm_call_id===event.llm_call_id && item.attempt===event.attempt && item.run_id===event.run_id);
+  if(call)call.payloads.push(...event.payloads);
+  return call || null;
+}
+
 async function poll() {
   if(state.paused){$("connection").textContent="Đã tạm dừng";setTimeout(poll,1200);return;}
   let delay=1500;
   try {
-    const response=await fetch(`/api/events?cursor=${state.cursor}`,{cache:"no-store"});if(!response.ok)throw new Error(`HTTP ${response.status}`);
+    if (!await refreshRuns()) return;
+    const response=await traceFetch(`/api/events?cursor=${state.cursor}`,{cache:"no-store"});if(!response.ok)throw new Error(`HTTP ${response.status}`);
     const data=await response.json();
     let changed=Boolean(data.reset)||state.initial;
-    if(data.reset){state.events=[];state.ids.clear();state.cards.clear();state.usageSlots.clear();$("feed").replaceChildren();}
+    if(data.reset){flow.request++;flow.name="";flow.topology=null;flow.selected=null;state.routing=null;$("flow-canvas").replaceChildren();state.events=[];state.ids.clear();state.cards.clear();state.usageSlots.clear();$("feed").replaceChildren();}
     if(state.initial){state.role=String(data.initial_agent||"").toLowerCase();state.initial=false;}
     for(const event of data.events) {
       if(state.ids.has(event.id))continue;
       changed=true;
+      const paired=mergeResponseError(state.events,event);
+      if(paired) {
+        paired.search=normalize([paired.source,paired.target,paired.title,paired.summary,JSON.stringify(paired.payloads)].join(" "));
+        const replacement=makeCard(paired);state.cards.get(paired.id).replaceWith(replacement);state.cards.set(paired.id,replacement);
+        state.ids.add(event.id);continue;
+      }
       event.search=normalize([event.source,event.target,event.title,event.summary,event.tool_call_id||"",JSON.stringify(event.payloads)].join(" "));
       state.events.push(event);state.ids.add(event.id);const card=makeCard(event);state.cards.set(event.id,card);$("feed").append(card);
     }
     state.cursor=data.cursor;$("log-name").textContent=data.log_name;
     for(const warning of data.warnings)state.warnings.add(warning);
     $("warning").textContent=[...state.warnings].join(" ");$("warning").hidden=!state.warnings.size;
+    if(data.routing && JSON.stringify(data.routing)!==JSON.stringify(state.routing)){state.routing=data.routing;changed=true;}
+    const topologyName=topologyForRun(state.events, data.level);
+    if(topologyName && topologyName!==flow.name)loadTopology(topologyName);
     if(changed){
-      const declared=[...data.events].reverse().find(event=>event.event==="run_started"&&event.topology);
-      if(declared&&declared.topology!==flow.name)loadTopology(declared.topology);
       updateStats();updateCommunicationUsage();updateFilters();renderFlow();
     }
     if(!memoryState.loaded || $("memory-panel").open || data.events.some(event=>event.event.startsWith("memory_")))await refreshMemory();
@@ -457,6 +506,7 @@ async function poll() {
   setTimeout(poll,delay);
 }
 $("search").addEventListener("input",event=>{state.query=normalize(event.target.value);updateFilters();});
+$("run-select").addEventListener("change",event=>{location.search=event.target.value ? `?run=${encodeURIComponent(event.target.value)}` : "";});
 $("errors-only").addEventListener("change",updateFilters);$("technical").addEventListener("change",updateFilters);
 $("pause").addEventListener("click",()=>{state.paused=!state.paused;$("pause").textContent=state.paused?"Tiếp tục cập nhật":"Tạm dừng cập nhật";});
 $("memory-panel").addEventListener("toggle",()=>{if($("memory-panel").open)refreshMemory();});
@@ -472,5 +522,4 @@ $("memory-changes-toggle").addEventListener("click",()=>{
 $("memory-revision").addEventListener("change",loadMemoryChange);
 $("memory-history-more").addEventListener("click",()=>loadMemoryHistory(true));
 $("memory-scope").addEventListener("change",event=>{memoryState.id=event.target.value;memoryState.revision=null;resetMemoryJournal();refreshMemory();});
-loadTopology();
 poll();

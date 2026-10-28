@@ -11,6 +11,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from raac.common.agent_contracts import (
+    OutputFormatError,
     RoleHandoff,
     parse_role_output,
 )
@@ -32,6 +33,7 @@ from raac.harness.layer2_core.memory.short_term import (
     action_receipt,
 )
 from raac.harness.layer2_core.prompt_hydrator import hydrate_messages
+from raac.llm.client import CompletionFormatError, has_dsml_tool_call
 
 from .approval import AgentPaused, ApprovalDecision, validate_approval
 from .checkpoint import CheckpointStore, LifecycleError, digest
@@ -47,7 +49,7 @@ class AgentRunner:
         tools,
         *,
         provenance: dict,
-        token_limit=50000,
+        token_limit: int | None = 50000,
         context_policy: RoleContextPolicy | None = None,
         memory_policy: ShortTermMemoryPolicy | None = None,
         auto_approve: bool = True,
@@ -71,13 +73,15 @@ class AgentRunner:
 
     def budget_guard(self, state: dict) -> bool:
         usage = self.client.usage.snapshot(run_id=state["work"]["run_id"])
-        return usage["usage_complete"] and usage["total_tokens"] < self.token_limit
+        return usage["usage_complete"] and (
+            self.token_limit is None or usage["total_tokens"] < self.token_limit
+        )
 
     def _check_budget(self, request):
         usage = self.client.usage.snapshot(run_id=request["run_id"])
         if not usage["usage_complete"]:
             raise RunGuardError("usage_unavailable")
-        if usage["total_tokens"] >= self.token_limit:
+        if self.token_limit is not None and usage["total_tokens"] >= self.token_limit:
             raise RunGuardError("budget_exceeded")
 
     def _remember(self, context, kind, **data):
@@ -470,10 +474,12 @@ class AgentRunner:
                 self._memory_sessions.pop(invocation_id, None)
 
     def _save(self, state):
+        started = time.perf_counter()
         state["runtime"] = self.tools.snapshot_runtime(refresh_workspace=False)
         state["usage"] = self.client.usage.export_run(state["run_id"])
         memory = self._memory_sessions.get(state["invocation_id"])
         state["memory"] = memory.view() if memory else None
+        snapshot_done = time.perf_counter()
         import base64
 
         def semantic(value):
@@ -510,8 +516,13 @@ class AgentRunner:
         else:
             safe = probe
             safe["runtime"]["workspace"]["baseline_files"] = dict(baseline)
-        self.checkpoints.save(safe)
+        redaction_done = time.perf_counter()
+        metrics = self.checkpoints.save(safe)
         state["revision"] = safe["revision"]
+        self._emit(state, event="checkpoint_timing", phase=state["phase"], revision=state["revision"],
+                   snapshot_ms=round((snapshot_done - started) * 1000, 3),
+                   redact_ms=round((redaction_done - snapshot_done) * 1000, 3),
+                   total_ms=round((time.perf_counter() - started) * 1000, 3), **(metrics or {}))
 
     async def _run(self, role, request, context):
         executor_deadline = getattr(self.tools.workspace.executor, "deadline", None)
@@ -663,23 +674,62 @@ class AgentRunner:
         if metrics["after_chars"] < metrics["before_chars"]:
             self.client.trace_event(call_context, "context_compacted", **metrics)
         remaining = role.spec.max_llm_calls - turn
+        handoff_turn = role.spec.max_llm_calls - (role.spec.name in {"Analyst", "Tester"})
+        tool_turns_left = max(0, handoff_turn - turn)
+        if 0 < tool_turns_left <= 2:
+            prepared[0]["content"] += (
+                f"\nPrepare to hand off: {tool_turns_left} tool-enabled model call(s) remain including this call. "
+                f"Tools will be unavailable starting at call {handoff_turn}. "
+                "Stop broad exploration. Use remaining tools only for essential missing evidence, "
+                "then return the required handoff from observed results. Report uncertainties and "
+                "unfinished checks as blockers; do not invent results. Do not emit DSML to bypass unavailable tools."
+            )
+        if role.spec.name == "Tester" and tool_turns_left > 0:
+            if self.tools.workspace.test_spec is None:
+                prepared[0]["content"] += (
+                    "\nNo test suite has been selected. Prioritize identifying the repository's native test command "
+                    "and calling run_tests(command=[...], cwd='.', env={}) while tools are available. "
+                    "run_command/run_commands probes and Coder evidence do not select your test suite. "
+                    "Choose a focused suite covering the acceptance criteria before optional exploration; "
+                    "do not guess a framework or weaken assertions to obtain a pass."
+                )
+            elif tool_turns_left <= 2:
+                prepared[0]["content"] += (
+                    "\nA test suite is selected. Prioritize running it on any updated tests via run_tests, "
+                    "then hand off observed failures, coverage gaps and blockers. Avoid unrelated probes."
+                )
+        if role.spec.name == "Coder":
+            seconds = None if state["deadline_at"] is None else max(0, int(state["deadline_at"] - time.time()))
+            progress = {
+                "calls_left_including_this": remaining + 1,
+                "seconds_left": seconds,
+                "evidence": self.tools.coder_progress(context),
+                "code_edit_count": self.tools.workspace.code_edit_count,
+            }
+            prepared[0]["content"] += "\nRuntime progress: " + json.dumps(progress)
+            prepared[0]["content"] += (
+                " Hand off after adequate successful smoke checks. Expand checks or reverse an edit only for new failure, feedback or concrete risk."
+            )
+            if seconds is not None and seconds <= 60:
+                prepared[0]["content"] += " Deadline is near: prioritize a truthful handoff and state unfinished checks."
         if remaining <= 1:
             prepared[0]["content"] += (
                 f"\nYou have {remaining + 1} model call(s) left including this call. "
                 "Prioritize a truthful structured handoff. Report unfinished work and blockers."
             )
-        final_call = remaining == 0
+        final_call = remaining == 0 or (role.spec.name in {"Analyst", "Tester"} and remaining == 1)
         if final_call:
             prepared[0]["content"] += (
-                " This final call has no tools. Return the required output now: "
+                f" This {'final' if remaining == 0 else 'handoff'} call has no tools. Return the required output now: "
                 + (
                     "unified diff only (empty text for no changes)."
                     if role.spec.name == "Coder"
-                    else "one JSON object using observed results; do not claim unexecuted tests passed."
+                    else "one concise complete JSON object using observed results; avoid repeated explanations and do not claim unexecuted tests passed."
                 )
             )
             self.client.trace_event(
-                call_context, "agent_final_call", max_llm_calls=role.spec.max_llm_calls
+                call_context, "agent_final_call", max_llm_calls=role.spec.max_llm_calls,
+                repair_call_reserved=remaining > 0,
             )
         declarations = raw_declarations
         if self.context_policy.enabled:
@@ -693,25 +743,41 @@ class AgentRunner:
         }
         state["inflight"] = {"kind": "llm", "turn": turn}
         self._save(state)
-        completion = await self.client.complete(
-            prepared,
-            context=call_context,
-            tools=[] if final_call else declarations,
-            allow_empty=role.spec.name == "Coder",
-            model_ref=role.spec.model.ref,
-        )
-        call_context["llm_call_id"] = completion.call_id
-        state.update(message=completion.message, inflight=None, phase="decide")
+        try:
+            completion = await self.client.complete(
+                prepared,
+                context=call_context,
+                tools=[] if final_call else declarations,
+                allow_empty=role.spec.name == "Coder",
+                model_ref=role.spec.model.ref,
+            )
+        except CompletionFormatError as exc:
+            call_context["llm_call_id"] = exc.call_id
+            state.update(message={"role": "assistant", "content": exc.content}, completion_error=exc.code)
+        else:
+            call_context["llm_call_id"] = completion.call_id
+            state.update(message=completion.message, completion_error=None)
+        state.update(inflight=None, phase="decide")
         self._save(state)
         self._guard(state)
 
     async def _decide(self, state):
         message, context = state["message"], state["call_context"]
+        completion_error = state.pop("completion_error", None)
+        if completion_error:
+            self._recover_output(state, completion_error,
+                                 ("Tools are unavailable. Return the required handoff JSON, no DSML. "
+                                  if state["turn"] >= self.registry.get(context["role"]).spec.max_llm_calls - (context["role"] in {"Analyst", "Tester"})
+                                  else "Use native tool_calls while tools are available; otherwise return the required handoff. ") +
+                                 "The prior completion had an invalid format or was empty/cut off. Return a complete replacement. "
+                                 "Preserve all required fields and acceptance criteria; avoid repeated explanations.")
+            return
         if message.get("content"):
             self._remember(context, "assistant", content=message["content"])
         calls = message.get("tool_calls") or []
         if calls:
-            if state["turn"] == self.registry.get(context["role"]).spec.max_llm_calls:
+            maximum = self.registry.get(context["role"]).spec.max_llm_calls
+            if state["turn"] == maximum or (context["role"] in {"Analyst", "Tester"} and state["turn"] == maximum - 1):
                 raise AgentExecutionError("agent_call_limit")
             if not isinstance(calls, list) or len(calls) > 4:
                 raise AgentExecutionError("too_many_tool_calls")
@@ -724,7 +790,40 @@ class AgentRunner:
             )
             state.update(calls=calls, tool_index=0, phase="act")
         else:
+            content = message.get("content") or ""
+            role = context["role"]
+            try:
+                parse_role_output(role, content)
+            except OutputFormatError as exc:
+                if has_dsml_tool_call(content):
+                    maximum = self.registry.get(role).spec.max_llm_calls
+                    handoff = state["turn"] >= maximum - (role in {"Analyst", "Tester"})
+                    detail = ("Tools are unavailable. Return the required handoff JSON using observed results; no tool calls or DSML."
+                              if handoff else "Use native tool_calls while tools are available, never DSML text. Otherwise return the required handoff.")
+                    self._recover_output(state, "invalid_tool_call_format", detail)
+                elif role == "Coder" and self.tools.workspace.code_edit_count != state["code_edits_before"]:
+                    state["phase"] = "finalize"
+                else:
+                    self._recover_output(state, "invalid_output", str(exc))
+                return
             state["phase"] = "finalize"
+
+    def _recover_output(self, state, code, detail):
+        self._guard(state)
+        context = state["call_context"]
+        detail = self.client.trace.redact(detail)[:1200]
+        self.client.trace_event(context, "output_invalid", code=code, detail=detail)
+        if state.get("output_recoveries", 0) or state["turn"] >= self.registry.get(context["role"]).spec.max_llm_calls:
+            self.client.trace_event(context, "output_recovery_failed", code=code)
+            raise AgentExecutionError(code)
+        state["output_recoveries"] = 1
+        if state["message"].get("content"):
+            state["messages"].append({"role": "assistant", "content": state["message"]["content"]})
+        state["messages"].append(
+            {"role": "user", "content": "Correct the response format once using the required output_schema. "
+             "Use only observed evidence; do not repeat completed operations. " + detail})
+        state["phase"] = "reason"
+        self.client.trace_event(context, "output_recovery_started", code=code)
 
     async def _execute_tool(self, role, name, arguments, *, context, **kwargs):
         state = self._active_states[context["agent_call_id"]]
@@ -732,7 +831,7 @@ class AgentRunner:
         operation_id = (
             f"turn:{context['turn']}:{state['tool_index']}:{identifier}"
             if identifier
-            else "finalize:" + kwargs.get("origin", "adapter") + ":" + name
+            else f"finalize:{state['turn']}:" + kwargs.get("origin", "adapter") + ":" + name
         )
         operation = {
             "id": operation_id,
@@ -788,8 +887,9 @@ class AgentRunner:
         function, context = call["function"], state["call_context"]
         try:
             arguments = json.loads(function["arguments"])
-        except (ValueError, KeyError, TypeError):
-            observation = {"ok": False, "error": "Tool arguments must be a JSON object"}
+        except (ValueError, KeyError, TypeError) as exc:
+            detail = f"Invalid JSON at line {exc.lineno}, column {exc.colno}: {exc.msg}" if isinstance(exc, json.JSONDecodeError) else "Tool arguments must be a JSON object"
+            observation = {"ok": False, "error": detail}
             self._remember(
                 context,
                 "tool",
@@ -831,6 +931,8 @@ class AgentRunner:
 
     async def _finalize(self, state):
         output = await self._finalize_output(state)
+        if output is None:
+            return
         handoff = isinstance(output, RoleHandoff)
         state["result"] = {
             "handoff": handoff,
@@ -839,6 +941,17 @@ class AgentRunner:
         }
         self._transition(state, "COMPLETED")
         state["phase"] = "done"
+
+    def _continue_testing(self, state, code, detail):
+        self._guard(state)
+        if state["turn"] >= self.registry.get("Tester").spec.max_llm_calls:
+            raise AgentExecutionError(code)
+        state["messages"].extend([
+            {"role": "assistant", "content": state["message"].get("content") or ""},
+            {"role": "user", "content": detail},
+        ])
+        state["phase"] = "reason"
+        self.client.trace_event(state["call_context"], "tester_handoff_incomplete", code=code)
 
     async def _finalize_output(self, state):
         context = state["context"]
@@ -948,6 +1061,11 @@ class AgentRunner:
                 },
             )
         if name == "Tester":
+            if self.tools.workspace.test_spec is None:
+                self._continue_testing(state, "missing_test_command",
+                    "Inspect the project's test framework and call run_tests(command=[...], cwd='.', env=...). "
+                    "No suite has been selected. Do not guess a framework or report unobserved results.")
+                return None
             checked = await self._execute_tool(
                 role, "run_tests", {}, context=call_context, origin="adapter_validation"
             )
@@ -962,6 +1080,15 @@ class AgentRunner:
                     "summary": checked["error"],
                 }
             )
+            catalog = request.get("artifacts", {}).get("ac_catalog", {})
+            if observed["status"] == "passed" and catalog and set(output["covered_ac_ids"]) != set(catalog):
+                self._continue_testing(state, "incomplete_test_coverage",
+                    "The selected suite passed, but AC coverage is incomplete. Missing IDs: "
+                    + ", ".join(sorted(set(catalog) - set(output["covered_ac_ids"])))
+                    + ". Add independent development tests and run_tests for these criteria before handing off. "
+                    "Do not invent coverage or weaken criteria. If implementation fails, report the observed failure. "
+                    "blocking_issues contains actionable unresolved problems only, never passing test counts.")
+                return None
             # Per-test results come from the runner, never the model. Runners
             # with aggregate reports get one explicitly labelled suite result.
             results = observed.get("results") or [

@@ -23,7 +23,7 @@ from .dataset import Task
 
 
 async def run_chain(task: Task, *, run_id: str, workspace, registry, llm_config,
-                    harness: dict, level_config: dict, output_dir: Path, trace=None, harness_path=None) -> dict:
+                    harness: dict, level_config: dict, output_dir: Path, trace=None, harness_path=None, llm_path=None) -> dict:
     root = Path(__file__).resolve().parents[3]
     decision = coordinate_chain(level_config)
     limits = ChainLimits(max_rounds=decision.max_rounds, hard_max_rounds=level_config["hard_max_rounds"],
@@ -32,7 +32,7 @@ async def run_chain(task: Task, *, run_id: str, workspace, registry, llm_config,
     effective = {"llm": llm_config.model_dump(mode="json"), "harness": harness,
                  "level": level_config, "token_limit": harness["token_limit"],
                  "execution_mode": "docker", "role_models": {name: value.model_dump() for name, value in role_models.items()}}
-    provenance = collect_provenance(root, registry, [root / "configs/llm.yaml", Path(harness_path) if harness_path else root / "configs/harness.yaml",
+    provenance = collect_provenance(root, registry, [Path(llm_path) if llm_path else root / "configs/llm.yaml", Path(harness_path) if harness_path else root / "configs/harness.yaml",
         root / "configs/levels/l3_collaboration.yaml"], effective)
     provenance["task_snapshot"] = workspace.baseline_ref
     provenance["candidate_contract"] = "implementation-only-v1"
@@ -67,8 +67,11 @@ async def run_chain(task: Task, *, run_id: str, workspace, registry, llm_config,
         record.update(status="interrupted", stop_reason="cancelled")
         raise
     finally:
+        if record["status"] in {"aborted", "error", "interrupted", "timeout"} and client.upstream_errors.get(run_id):
+            record["upstream_error"] = client.upstream_errors[run_id]
         record["usage"] = client.usage.snapshot(run_id=run_id)
         client.trace.emit(context, event="run_completed", status=record["status"],
-                          stop_reason=record.get("stop_reason"), usage=record["usage"])
+                          stop_reason=record.get("stop_reason"), usage=record["usage"],
+                          upstream_error=record.get("upstream_error"))
         atomic_json(output_dir / "agent-result.json", client.trace.redact(record))
         await client.aclose()

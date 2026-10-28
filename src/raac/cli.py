@@ -29,6 +29,9 @@ def main(argv=None):
     many.add_argument("--resume", action="store_true")
     many.add_argument("--retry-errors", action="store_true")
     many.add_argument("--config")
+    for command in (one, many):
+        command.add_argument("--observe", choices=["web", "terminal", "none"], default="web",
+                             help="Observe benchmark logs (default: web; none for scripts/CI)")
     sandbox = sub.add_parser("sandbox")
     commands = sandbox.add_subparsers(dest="command", required=True)
     for name in ("check", "prepare", "run"):

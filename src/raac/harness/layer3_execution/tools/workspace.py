@@ -37,6 +37,7 @@ class WorkspaceTools:
 
     def invalidate_runtime_snapshot(self):
         self._checkpoint_fingerprint = None
+        self._verified_command_snapshot = None
 
     def snapshot_runtime(self, *, refresh=True):
         """Explicit JSON state for same-workspace resume; never executor objects."""
@@ -45,7 +46,9 @@ class WorkspaceTools:
                     "container": getattr(container, "id", None), "requirement": self.requirement}
         fingerprint = getattr(self, "_checkpoint_fingerprint", None)
         if refresh or identity["mode"] != "docker" or fingerprint is None:
-            current = self._snapshot()
+            current = None if refresh else getattr(self, "_verified_command_snapshot", None)
+            if current is None:
+                current = self._snapshot()
             current_modes = getattr(self, "current_modes", {})
             fingerprint = hashlib.sha256(json.dumps([
                 (name, hashlib.sha256(data).hexdigest(), current_modes.get(name))
@@ -297,6 +300,9 @@ class WorkspaceTools:
     # Sinh diff tổng hợp từ đầu run tới hiện tại, chỉ cho các đường dẫn Coder chạm vào.
     def current_patch(self) -> str:
         current = self._snapshot()
+        return self._patch_from_snapshot(current)
+
+    def _patch_from_snapshot(self, current):
         # Thu từng mảnh diff rồi nối thành một patch nhiều file.
         chunks = []
         for name in sorted(self.coder_paths):
@@ -595,33 +601,27 @@ class WorkspaceTools:
     # report_path là báo cáo test mà runner đọc. require_generated là tham số cũ,
     # còn giữ cho tương thích nhưng hiện không được dùng trong thân hàm.
     async def run_tests(self, *, command=None, cwd=None, env=None, report_path=None, require_generated=True, unlimited=False):
-        # Lấy cả source và test hiện tại, kể cả test có sẵn trong repo.
-        files = self._snapshot()
-        if command is not None:
-            # Có command mới thì thay toàn bộ lựa chọn; thiếu cwd/env dùng '.' và {}.
-            # Chỉ truyền cwd/env/report_path mà không truyền command sẽ không cập nhật spec.
-            self.test_spec = {"command": command, "cwd": cwd or ".", "env": env or {}, "report_path": report_path}
-        if self.test_spec is None:
-            # Fallback chỉ khi thấy đường dẫn test Python theo quy ước tên.
-            # Đây là dấu hiệu để thử unittest, không chứng minh framework thật là unittest.
-            if any(test_path(name) and name.endswith(".py") for name in files):
-                # Ưu tiên tìm test ở tests/, rồi test/, nếu không có thì ở gốc repo.
-                start = "tests" if (self.root / "tests").is_dir() else "test" if (self.root / "test").is_dir() else "."
-                # Lưu fallback để lần gọi không tham số tiếp theo lặp lại cùng lệnh.
-                self.test_spec = {"command": ["python", "-m", "unittest", "discover", "-s", start], "cwd": ".", "env": {}}
-            else:
-                # Chưa biết cách test thì trả lỗi quan sát, yêu cầu agent tự chọn command.
-                # Nhánh này chưa chạy tiến trình và không báo PASS khi chưa chạy test.
-                return {"status": "error", "tests_run": 0, "failed": 0, "test_cases": [],
-                        "summary": "Inspect repo and select run_tests(command=[...], cwd=...). No test command was selected."}
-        # Lấy lệnh đã chọn ở lần này hoặc lần gọi trước trong cùng run.
-        spec = self.test_spec
-        # Kiểm tra cwd thuộc repo, cho phép '.' biểu thị gốc.
+        from ..local_test_runner import normalize_pytest_report
+
+        command, report_path = normalize_pytest_report(command, report_path)
+        spec = ({"command": command, "cwd": cwd or ".", "env": env or {}, "report_path": report_path}
+                if command is not None else self.test_spec)
+        if spec is None:
+            return {"status": "error", "tests_run": 0, "failed": 0, "test_cases": [],
+                    "summary": "Inspect repo and select run_tests(command=[...], cwd=...). No test command was selected."}
         directory = self._path(spec["cwd"], allow_root=True)
         if not directory.is_dir():
             raise ValueError("Test cwd is not a repository directory")
-        # **spec bung dict thành keyword arguments; executor chạy test trực tiếp
-        # trên repo thật và trả report, không đưa code qua container.
+        if spec.get("report_path") is not None:
+            repo_path(spec["report_path"])
+        argv = spec["command"]
+        if not isinstance(argv, list) or not argv or not argv[0] or any(
+                not isinstance(arg, str) or "\0" in arg for arg in argv):
+            raise ValueError("Test command must be a nonempty argv list")
+        if any(not isinstance(k, str) or not k or "=" in k or "\0" in k
+               or not isinstance(v, str) or "\0" in v for k, v in spec["env"].items()):
+            raise ValueError("Invalid test environment")
+        self.test_spec = spec
         return await self.executor.run_tests(self.root, **spec, **({"unlimited": True} if unlimited else {}))
     
 

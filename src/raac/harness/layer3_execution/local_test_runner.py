@@ -4,12 +4,43 @@ import contextlib
 import io
 import json
 import os
-from pathlib import Path
 import re
+import site
 import subprocess
 import sys
 import unittest
 import xml.etree.ElementTree as ET
+from pathlib import Path
+
+
+def is_pytest(command):
+    if not isinstance(command, list) or not command or not all(isinstance(arg, str) for arg in command):
+        return False
+    executable = command[0].replace("\\", "/").rsplit("/", 1)[-1]
+    return executable.lower() in {"pytest", "pytest.exe"} or (
+        re.fullmatch(r"python(?:3(?:\.\d+)?)?(?:\.exe)?", executable, re.IGNORECASE) is not None
+        and command[1:3] == ["-m", "pytest"])
+
+
+def normalize_pytest_report(command, report_path):
+    """The harness owns pytest reports; never let a model overwrite repository files."""
+    if not is_pytest(command):
+        return command, report_path
+    selected, index = [], 0
+    while index < len(command):
+        argument = command[index]
+        if argument == "--":
+            selected.extend(command[index:])
+            break
+        if argument in {"--junitxml", "--junit-xml"}:
+            if index + 1 >= len(command):
+                raise ValueError("JUnit option requires a path")
+            index += 2
+            continue
+        if not argument.startswith(("--junitxml=", "--junit-xml=")):
+            selected.append(argument)
+        index += 1
+    return selected, None
 
 
 def is_within(path, root):
@@ -82,6 +113,11 @@ def main():
     cwd = (root / config.get("cwd", ".")).resolve()
     if not is_within(cwd, root):
         raise ValueError("Invalid test directory")
+    # -I protects bootstrap imports, but installed user dependencies must remain available.
+    if sys.prefix == sys.base_prefix:
+        user_site = Path(site.getusersitepackages()).resolve()
+        if user_site.is_dir() and not is_within(user_site, root):
+            site.addsitedir(str(user_site))
     os.chdir(cwd)
     os.environ.update(config.get("env", {}))
     sys.path[:0] = [str(cwd), str(root)]
@@ -119,16 +155,18 @@ def main():
         exit_code = 0 if result.wasSuccessful() else 1
         text = output.getvalue()
     else:
-        pytest = Path(command[0]).name.lower() in {"pytest", "pytest.exe"} or (is_python and command[1:3] == ["-m", "pytest"])
+        pytest = is_pytest(command)
         report = Path(config["default_report_path"]) if pytest else None
-        if config.get("report_path"):
+        if config.get("report_path") and not pytest:
             report = (cwd / config["report_path"]).resolve()
             if not is_within(report, root):
                 raise ValueError("Invalid report path")
         if report and report.exists():
             report.unlink()
         if pytest:
-            command = [*command, "--junitxml=" + str(report)]
+            command, _ = normalize_pytest_report(command, None)
+            position = command.index("--") if "--" in command else len(command)
+            command.insert(position, "--junitxml=" + str(report))
         completed = subprocess.run(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                    text=True, errors="replace", env=os.environ.copy())
         exit_code, text = completed.returncode, completed.stdout
@@ -154,6 +192,8 @@ def main():
         report = {**stats, "status": "passed" if passed else "failed", "summary": text[-16000:]}
     report["command"] = command
     report["exit_code"] = exit_code
+    if is_pytest(config["command"]):
+        report["report_note"] = "Pytest JUnit output is managed in a temporary directory outside the repository."
     emit_report(report, config)
     return 0 if report["status"] == "passed" else 1
 

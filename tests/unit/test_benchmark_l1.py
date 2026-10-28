@@ -16,7 +16,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cancel", [False, True])
-async def test_l1_adapter_preserves_usage_and_writes_partial_on_cancel(tmp_path, monkeypatch, cancel):
+@pytest.mark.parametrize("level_name", ["L1", "L2"])
+async def test_l1_adapter_preserves_usage_and_writes_partial_on_cancel(tmp_path, monkeypatch, cancel, level_name):
     import raac.benchmark.engine_runner as module
 
     registry = load_registry(ROOT / "registry")
@@ -36,9 +37,16 @@ async def test_l1_adapter_preserves_usage_and_writes_partial_on_cancel(tmp_path,
     class FakeEngine:
         events = ({"event": "agent_started", "agent_id": "analyst"},)
 
+        def __init__(self, logger):
+            self.logger = logger
+
         async def run(self, *, run_id, task, level, config):
-            assert level.name == "L1" and config["version"] == "l1-fixed-v1"
+            assert level.name == level_name
+            assert workspace.test_spec is None  # Tester chooses the repository's actual framework.
             assert task["requirement"] == "Fix value"
+            if level_name == "L2":
+                self.logger({"event": "routing_decided", "selected_roles": ["Coder", "Tester"], "skipped": []})
+                self.logger({"event": "agent_skipped", "agent_id": "Planner", "reason": "Localized fix"})
             if cancel:
                 client.usage.record_attempt({"run_id": run_id, "agent_id": "coder", "level": "L1"})
                 client.usage.add({"run_id": run_id, "agent_id": "coder", "level": "L1"}, None, count_call=False)
@@ -47,25 +55,30 @@ async def test_l1_adapter_preserves_usage_and_writes_partial_on_cancel(tmp_path,
                 "status": "rejected", "verdict": "REJECT", "stop_reason": "reviewer_rejected", "rounds_completed": 1}})
 
     monkeypatch.setattr(module, "LLMClient", make_client)
-    monkeypatch.setattr(module.Engine, "from_runtime", classmethod(lambda cls, **kwargs: FakeEngine()))
+    monkeypatch.setattr(module.Engine, "from_runtime", classmethod(lambda cls, **kwargs: FakeEngine(kwargs["logger"])))
     kwargs = {"run_id": "benchmark-fixture", "workspace": workspace, "registry": registry, "llm_config": config,
               "harness": yaml.safe_load((ROOT / "configs/harness.yaml").read_text()),
-              "level_config": yaml.safe_load((ROOT / "configs/levels/l1_fixed.yaml").read_text()),
+              "level_config": yaml.safe_load((ROOT / ("configs/levels/l1_fixed.yaml" if level_name == "L1" else "configs/levels/l2_routing.yaml")).read_text()),
               "output_dir": tmp_path}
     task = Task("fixture__repo-1", "fixture/repo", "https://github.com/fixture/repo", "Fix value", "Fix value", "a" * 40)
+    run = run_l1 if level_name == "L1" else run_l2
     if cancel:
         with pytest.raises(asyncio.CancelledError):
-            await run_l1(task, **kwargs)
+            await run(task, **kwargs)
         result = json.loads((tmp_path / "agent-result.json").read_text())
         assert result["status"] == "interrupted" and not result["usage"]["usage_complete"]
         assert result["usage"]["calls"] == 1
     else:
-        result = await run_l1(task, **kwargs)
+        result = await run(task, **kwargs)
         assert result["status"] == "rejected" and result["rounds_completed"] == 1
         assert result["provenance"]["registry_version"] == registry.version
-        assert "configs/levels/l1_fixed.yaml" in result["provenance"]["configs"]
+        assert ("configs/levels/l1_fixed.yaml" if level_name == "L1" else "configs/levels/l2_routing.yaml") in result["provenance"]["configs"]
         assert result["events"] == list(FakeEngine.events)
-    assert workspace.test_spec["command"] == ["/usr/local/bin/python", "-m", "pytest"]
+    assert workspace.test_spec is None
+    if level_name == "L2":
+        trace = [json.loads(line) for line in (tmp_path / "llm.jsonl").read_text().splitlines()]
+        assert any(event["event"] == "routing_decided" for event in trace)
+        assert any(event["event"] == "agent_skipped" and event["agent_id"] == "Planner" for event in trace)
 
 
 @pytest.mark.asyncio

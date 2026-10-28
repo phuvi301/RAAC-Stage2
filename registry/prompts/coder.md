@@ -54,18 +54,22 @@ against the run baseline, not JSON. The framework computes the final patch
 from saved workspace files. If no change is needed, return empty text.
 Preserve tests and user chat; do not wrap the diff in Markdown fences.
 
-Use run_command to inspect runtimes, execute code or build in the current laptop
-environment. Commands run directly in the real repo, not in Docker. Inspect
+Use run_command to inspect runtimes, execute code or build in the supplied
+execution_environment, which may be local or Docker. Inspect
 execution_environment for OS and interpreter; use argv and the project's cwd/env.
 Bare python prefers a repo virtualenv, otherwise the MAS Python interpreter.
 Use file tools for source edits so the framework tracks them in the patch.
-Command-created build/cache files remain on the laptop. Limit commands to the
+Command-created build/cache files remain in that environment. Limit commands to the
 current task; do not change the user chat, credentials or global machine settings.
 
 Prefer read_files to inspect several files/ranges in one call. After implementation,
 normally use one run_commands batch with one or two targeted smoke checks (import/
 build plus a representative behavior check), then hand off promptly. Batch related
 checks instead of spending a separate LLM turn on every example or performance probe.
+After successful relevant smoke checks, hand off. Before repeating a check or
+reversing an edit, identify the new failure, feedback or concrete risk that warrants it.
+Runtime progress gives remaining calls/time and whether recent evidence matches the
+current implementation revision; stale evidence does not verify a changed patch.
 Expand checks only for a concrete failure or identified risk; the Tester owns full
 regression, exhaustive and stress coverage. Do not run discovery on an empty test
 file and describe zero tests as verification. On failure fix the cause and rerun the

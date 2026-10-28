@@ -4,8 +4,8 @@ import hashlib
 import json
 import re
 import sqlite3
+import time
 from contextlib import ExitStack, contextmanager
-from copy import deepcopy
 from pathlib import Path
 from typing import Any, Literal
 
@@ -36,6 +36,8 @@ class InvocationState(BaseModel):
     ]
     phase: Literal["reason", "decide", "act", "observe", "finalize", "done"]
     turn: int = Field(ge=0)
+    output_recoveries: int = Field(default=0, ge=0, le=1)
+    completion_error: Literal["empty_completion", "truncated_completion"] | None = None
     messages: list[dict[str, Any]]
     code_edits_before: int = Field(ge=0)
     environment_revision: int = Field(ge=0)
@@ -145,14 +147,17 @@ class CheckpointStore:
                 raise LifecycleError("lifecycle_busy") from None
             yield
 
-    def save(self, state: dict) -> None:
+    def save(self, state: dict) -> dict:
+        started = time.perf_counter()
         self._id(state["invocation_id"])
-        updated = deepcopy(state)
+        updated = dict(state)
         updated["schema_version"] = 1
         updated["revision"] = state["revision"] + 1
         payload = json.dumps(updated, ensure_ascii=False, allow_nan=False)
-        if len(payload.encode()) > MAX_CHECKPOINT_BYTES:
+        payload_bytes = len(payload.encode())
+        if payload_bytes > MAX_CHECKPOINT_BYTES:
             raise LifecycleError("checkpoint_too_large")
+        serialized = time.perf_counter()
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
@@ -165,6 +170,8 @@ class CheckpointStore:
                 (state["invocation_id"], updated["revision"], payload),
             )
         state["revision"] = updated["revision"]
+        return {"payload_bytes": payload_bytes, "serialize_ms": round((serialized - started) * 1000, 3),
+                "sqlite_ms": round((time.perf_counter() - serialized) * 1000, 3)}
 
     def load(self, invocation_id: str) -> dict:
         self._id(invocation_id)

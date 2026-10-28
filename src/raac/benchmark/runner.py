@@ -132,7 +132,8 @@ def evaluate_candidate(task, *, config_path, patch_path, remaining, cancel=None)
             sandbox.client.close()
 
 
-async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path, config_path: Path, attempt: int = 1) -> RunRecord:
+async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path, config_path: Path, attempt: int = 1,
+                   on_trace_ready=None) -> RunRecord:
     if level not in LEVELS or type(repetition) is not int or repetition < 1:
         raise ValueError("Benchmark currently supports only L1/L2/L3 and positive repetitions")
     config_path = Path(config_path).resolve()
@@ -141,7 +142,8 @@ async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path,
     level_path = FRAMEWORK_ROOT / LEVELS[level]
     level_config = yaml.safe_load(level_path.read_text(encoding="utf-8-sig"))
     load_dotenv(FRAMEWORK_ROOT / ".env")
-    llm_config = load_llm_config(FRAMEWORK_ROOT / "configs/llm.yaml")
+    llm_path = resolve_path(FRAMEWORK_ROOT, config.get("llm_config", "configs/llm.yaml"))
+    llm_config = load_llm_config(llm_path)
     registry = load_registry(FRAMEWORK_ROOT / "registry")
     models = llm_config.resolve_role_models({role.id: role.model.ref for role in registry.roles.values()})
     policy = DockerExecutionPolicy(timeout_seconds=harness["execution"]["timeout_seconds"],
@@ -155,7 +157,7 @@ async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path,
     trace = JSONLTrace(output_dir / "llm.jsonl", secrets=(llm_config.api_key.get_secret_value(),))
     context = {"run_id": record.run_id, "task_id": task.id, "level": level}
     record.provenance = {**collect_provenance(FRAMEWORK_ROOT, registry,
-        [FRAMEWORK_ROOT / "configs/llm.yaml", harness_path, level_path],
+        [llm_path, harness_path, level_path],
         {"llm": llm_config.model_dump(mode="json"), "harness": harness, "level": level_config,
          "execution": policy.model_dump(), "role_models": {name: value.model_dump() for name, value in models.items()}}),
         "benchmark_config": {"sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(), "snapshot": config},
@@ -178,6 +180,8 @@ async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path,
         record.status = "running"
         async with asyncio.timeout(policy.run_timeout_seconds):
             phase("setup")
+            if on_trace_ready is not None:
+                on_trace_ready(trace.path)
             before = time.monotonic()
             prepare_task = asyncio.create_task(asyncio.to_thread(prepare_workspace, task, config_path,
                 output_dir, policy, cancel, deadline))
@@ -189,7 +193,7 @@ async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path,
             before = time.monotonic()
             try:
                 agent = await level_agent(level)(task, run_id=record.run_id, workspace=workspace, registry=registry,
-                    llm_config=llm_config, harness=harness, harness_path=harness_path, level_config=level_config, output_dir=output_dir, trace=trace)
+                    llm_config=llm_config, llm_path=llm_path, harness=harness, harness_path=harness_path, level_config=level_config, output_dir=output_dir, trace=trace)
             finally:
                 record.timing.agent_seconds = time.monotonic() - before
                 partial = output_dir / "agent-result.json"
@@ -200,6 +204,9 @@ async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path,
             record.agent_status = agent["status"]
             record.verdict, record.stop_reason = agent.get("verdict"), agent.get("stop_reason")
             record.usage = RunUsage.model_validate(agent["usage"])
+            if agent.get("upstream_error"):
+                record.errors.append({"phase": "agent", "kind": "LLMProtocolError" if agent["upstream_error"].get("error") == "InvalidResponse" else "LLMUpstreamError", "retryable": "false",
+                                      **{key: str(value) for key, value in agent["upstream_error"].items()}})
             record.provenance.update(agent.get("provenance", {}))
             if agent.get("routing") is not None:
                 record.provenance["routing"] = agent["routing"]
@@ -272,6 +279,18 @@ async def run_task(task: Task, *, level: str, repetition: int, output_dir: Path,
 
 
 async def execute(args):
+    from .observe import BenchmarkObserver
+
+    observer = BenchmarkObserver(getattr(args, "observe", "web"))
+    try:
+        code = await _execute(args, observer.ready)
+        await observer.finish()
+        return code
+    finally:
+        observer.close()
+
+
+async def _execute(args, on_trace_ready):
     config_path = resolve_path(FRAMEWORK_ROOT, args.config or "configs/benchmark.yaml")
     config = yaml.safe_load(config_path.read_text(encoding="utf-8-sig"))
     load_harness(FRAMEWORK_ROOT, config)
@@ -279,17 +298,17 @@ async def execute(args):
     if args.command == "batch":
         summary = await run_benchmark_batch(config_path=config_path, task_ids=args.task_id,
             levels=[args.level], repetitions=args.repetitions, batch_id=args.batch_id,
-            resume=args.resume, retry_errors=args.retry_errors)
-        print(json.dumps(summary))
+            resume=args.resume, retry_errors=args.retry_errors, on_trace_ready=on_trace_ready)
+        print(json.dumps(summary), flush=True)
         return 0 if summary["completed"] == summary["total"] else 1
     if args.task_id not in tasks:
         raise ValueError("Unknown task selection")
     output = resolve_path(FRAMEWORK_ROOT, config["results"]) / ("benchmark-" + uuid4().hex)
     record = await run_task(tasks[args.task_id], level=args.level, repetition=args.repetition,
-                             output_dir=output, config_path=config_path)
+                             output_dir=output, config_path=config_path, on_trace_ready=on_trace_ready)
     print(json.dumps({"run_id": record.run_id, "status": record.status,
                       "agent_status": record.agent_status, "evaluation_status": record.evaluation_status,
-                      "record": str(output / "record.json")}))
+                      "record": str(output / "record.json")}), flush=True)
     return 0 if record.evaluation_status == "resolved" and record.status == "completed" else 1
 
 
@@ -304,7 +323,9 @@ def benchmark_fingerprint(config_path, config, selection):
     paths.update(p for p in (FRAMEWORK_ROOT / "registry").rglob("*") if p.is_file())
     paths.update((FRAMEWORK_ROOT / "configs").rglob("*.yaml"))
     load_dotenv(FRAMEWORK_ROOT / ".env")
-    effective = load_llm_config(FRAMEWORK_ROOT / "configs/llm.yaml").model_dump(mode="json")
+    llm_path = resolve_path(FRAMEWORK_ROOT, config.get("llm_config", "configs/llm.yaml"))
+    paths.add(llm_path)
+    effective = load_llm_config(llm_path).model_dump(mode="json")
     contents = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted(paths)}
     contents["framework_commit"] = collect_provenance(FRAMEWORK_ROOT, load_registry(FRAMEWORK_ROOT / "registry"), [], {})["framework_commit"]
     return hashlib.sha256(json.dumps({"files": contents, "selection": selection, "effective_llm": effective},
@@ -312,7 +333,8 @@ def benchmark_fingerprint(config_path, config, selection):
 
 
 async def run_benchmark_batch(*, config_path: Path, task_ids: list[str], levels: list[str], repetitions: int,
-                              batch_id: str, resume: bool = False, retry_errors: bool = False) -> dict:
+                              batch_id: str, resume: bool = False, retry_errors: bool = False,
+                              on_trace_ready=None) -> dict:
     if retry_errors and not resume:
         raise ValueError("retry-errors requires resume")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}", batch_id):
@@ -386,13 +408,17 @@ async def run_benchmark_batch(*, config_path: Path, task_ids: list[str], levels:
                                         entry["repetition"], len(entry["attempts"]))
                 retryable = any(error.get("retryable") == "true" for error in previous.errors)
                 if previous.status != "interrupted" and not (retry_errors and retryable and previous.status in {"error", "timeout"}):
+                    previous_trace = results / previous.run_id / "llm.jsonl"
+                    if on_trace_ready is not None and previous_trace.is_file():
+                        on_trace_ready(previous_trace)
                     continue
             run_id = "benchmark-" + uuid4().hex
             manifest["active"] = {"index": index, "run_id": run_id}
             atomic_json(manifest_path, manifest)
             try:
                 await run_task(tasks[entry["task_id"]], level=entry["level"], repetition=entry["repetition"],
-                    attempt=len(entry["attempts"]) + 1, output_dir=results / run_id, config_path=config_path)
+                    attempt=len(entry["attempts"]) + 1, output_dir=results / run_id, config_path=config_path,
+                    **({"on_trace_ready": on_trace_ready} if on_trace_ready is not None else {}))
             except BaseException:
                 manifest["status"] = "interrupted"
                 atomic_json(manifest_path, manifest)

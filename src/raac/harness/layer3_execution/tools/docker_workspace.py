@@ -8,6 +8,8 @@ from pathlib import PurePosixPath
 from types import SimpleNamespace
 from uuid import uuid4
 
+from raac.common.errors import WorkspaceIntegrityError
+
 from ..environment import EnvironmentManager
 from .paths import EXCLUDED_DIRS, SECRET_FILES, repo_path, test_path
 from .workspace import WorkspaceTools
@@ -209,33 +211,46 @@ class DockerWorkspaceTools(WorkspaceTools):
         return super()._can_write(role, name)
 
     async def _mutating_command(self, role, call):
+        started = time.perf_counter()
         self.invalidate_runtime_snapshot()
         before = self._snapshot()
         before_modes = dict(self.current_modes)
+        before_seconds = time.perf_counter() - started
+        execution_started = time.perf_counter()
         try:
             result = await call()
+        except ValueError:
+            # Validation can fail before spawn; verify instead of poisoning a clean workspace.
+            prior_error = getattr(self, "integrity_error", None)
+            self.integrity_error = "Command failed before mutation verification"
+            after = self._snapshot()
+            if before == after and before_modes == self.current_modes:
+                self.integrity_error = prior_error
+            raise
         except BaseException:
             self.integrity_error = "Command failed before mutation verification"
             raise
+        execution_seconds = time.perf_counter() - execution_started
+        after_started = time.perf_counter()
         after = self._snapshot()
         changed = {name for name in before.keys() | after.keys() if before.get(name) != after.get(name)
                    or before_modes.get(name) != self.current_modes.get(name)}
         for name in changed:
             if role == "Coder" and test_path(name):
                 self.integrity_error = "Coder modified tests under implementation-only contract"
-                raise PermissionError("Coder shell modified test files")
+                raise WorkspaceIntegrityError("Coder shell modified test files", name)
             if role == "Tester" and name in self.baseline_files:
                 self.integrity_error = "Tester modified baseline tests"
-                raise PermissionError("Tester shell modified baseline tests; create separate development tests")
+                raise WorkspaceIntegrityError("Tester shell modified baseline tests; create separate development tests", name)
             if role == "Tester" and (name in self.coder_paths or not test_path(name)):
                 self.integrity_error = "Tester modified implementation or Coder source"
-                raise PermissionError("Tester shell modified implementation or Coder files")
+                raise WorkspaceIntegrityError("Tester shell modified implementation or Coder files", name)
             if role not in {"Coder", "Tester", "Environment"}:
                 self.integrity_error = "Read-only role modified source"
-                raise PermissionError("Read-only role modified source")
+                raise WorkspaceIntegrityError("Read-only role modified source", name)
             if role == "Environment":
                 self.integrity_error = "Environment modified source"
-                raise PermissionError("Environment modified tracked source; rebuild its profile")
+                raise WorkspaceIntegrityError("Environment modified tracked source; rebuild its profile", name)
         if role == "Coder":
             self.coder_paths.update(changed)
             self.code_edit_count += len(changed)
@@ -243,6 +258,13 @@ class DockerWorkspaceTools(WorkspaceTools):
             self.tester_paths.update(changed)
         if changed and self.executor.trace:
             self.executor.trace("workspace_changed", {"role": role, "paths": sorted(changed)})
+        self._verified_command_snapshot = after
+        if self.executor.trace:
+            self.executor.trace("command_timing", {
+                "before_snapshot_ms": round(before_seconds * 1000, 3),
+                "execution_ms": round(execution_seconds * 1000, 3),
+                "after_snapshot_ms": round((time.perf_counter() - after_started) * 1000, 3),
+            })
         return result
 
     async def run_command(self, *, command, cwd=".", env=None, timeout_seconds=None, unlimited=False):

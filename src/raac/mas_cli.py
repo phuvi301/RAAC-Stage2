@@ -37,9 +37,13 @@ async def execute(args) -> int:
     llm_config = load_llm_config(llm_path, model=args.model, base_url=args.base_url)
     
     # Nếu lệnh là models Nó chỉ lấy danh sách model rồi kết thúc.
-    if args.command == "models":
+    if args.command in {"models", "probe-tools"}:
         client = LLMClient(llm_config, log_path=project / "results/model-check.jsonl")
         try:
+            if args.command == "probe-tools":
+                result = await client.probe_tools()
+                print(json.dumps(result, ensure_ascii=False))
+                return 0 if result["status"] == "passed" else 1
             print("\n".join(await client.list_models()))
         finally:
             await client.aclose()
@@ -182,7 +186,7 @@ def main(argv=None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="RAAC repository Chain demo via 9router")
-    parser.add_argument("command", choices=["models", "run-chain", "show-log"])
+    parser.add_argument("command", choices=["models", "probe-tools", "run-chain", "show-log"])
     parser.add_argument("--run-id", help="show-log: ID run cần đọc")
     parser.add_argument("--log", help="show-log: đường dẫn llm.jsonl hoặc file JSONL được dán")
     parser.add_argument("--details", action="store_true", help="show-log: mở nội dung trao đổi/tool")

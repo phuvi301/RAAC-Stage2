@@ -4,6 +4,7 @@ import asyncio
 import io
 import json
 import math
+import re
 import tarfile
 import time
 from pathlib import Path, PurePosixPath
@@ -208,6 +209,10 @@ class DockerExecutor:
     async def run_tests(self, root, *, command, cwd=".", env=None, report_path=None, unlimited=False):
         from uuid import uuid4
 
+        from .local_test_runner import normalize_pytest_report
+
+        command, report_path = normalize_pytest_report(command, report_path)
+
         identifier = uuid4().hex
         helper = "/tmp/raac-test-" + identifier + ".py"
         report = "/tmp/raac-report-" + identifier + ".json"
@@ -215,6 +220,8 @@ class DockerExecutor:
         python = (self.environment or {}).get("python_executable", "python")
         if selected[0] in {"python", "python3"}:
             selected[0] = python
+        if re.fullmatch(r"python(?:3(?:\.\d+)?)?(?:\.exe)?", PurePosixPath(selected[0]).name, re.IGNORECASE):
+            python = selected[0]
         specification = {"observed_report_path": report, "workspace_root": "/workspace",
                          "command": selected, "cwd": cwd, "env": env or {},
                          "report_path": report_path, "default_report_path": "/tmp/raac-junit-" + identifier + ".xml"}

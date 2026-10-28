@@ -21,6 +21,24 @@ def test_decode_remote_snapshot_retains_source_bytes():
     assert modes == {"value.py": 420}
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prior", [None, "previous violation"])
+@pytest.mark.parametrize("changed", [False, True])
+async def test_validation_failure_only_preserves_integrity_for_verified_clean_workspace(prior, changed):
+    tools = object.__new__(DockerWorkspaceTools)
+    snapshots = iter([{"value.py": b"1"}, {"value.py": b"2" if changed else b"1"}])
+    tools._snapshot = lambda: next(snapshots)
+    tools.current_modes = {"value.py": 420}
+    tools.integrity_error = prior
+
+    async def invalid():
+        raise ValueError("Invalid cwd")
+
+    with pytest.raises(ValueError, match="Invalid cwd"):
+        await tools._mutating_command("Coder", invalid)
+    assert tools.integrity_error == ("Command failed before mutation verification" if changed else prior)
+
+
 @pytest.mark.parametrize("entries", [[entry("../host")], [entry("/etc/passwd")],
     [entry(".env")], [entry(), entry()], [entry(content=b"a" * 21)],
     [entry(content=b"a" * 11), entry("other.py", b"b" * 11)]])

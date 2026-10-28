@@ -158,6 +158,9 @@ class LocalExecutor:
         return result
 
     async def run_tests(self, root: Path, *, command, cwd=".", env=None, report_path=None, unlimited=False):
+        from .local_test_runner import normalize_pytest_report
+
+        command, report_path = normalize_pytest_report(command, report_path)
         # Run the trusted report helper in a separate local process so imports,
         # sys.path and test code cannot corrupt the MAS Python process itself.
         environment = {**os.environ, **(env or {})}

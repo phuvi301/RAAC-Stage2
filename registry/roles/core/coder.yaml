@@ -2,7 +2,7 @@ id: coder
 role: Coder
 group: core
 prompt: prompts/coder.md
-prompt_version: chain-v5
+prompt_version: chain-v6
 tools:
   - update_memory
   - read_tool_result

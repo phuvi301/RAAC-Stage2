@@ -2,7 +2,7 @@ id: tester
 role: Tester
 group: core
 prompt: prompts/tester.md
-prompt_version: chain-v4
+prompt_version: chain-v7
 tools:
   - read_tool_result
   - list_files
