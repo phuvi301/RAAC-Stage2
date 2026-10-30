@@ -10,7 +10,7 @@ MAS/L3 dùng Registry chung: role ở `registry/roles/core/`, prompt ở
 `raac.registry.loader`. Cấu hình dùng `configs/llm.yaml`,
 `configs/harness.yaml`, `configs/levels/l3_collaboration.yaml`.
 Lệnh `raac-mas` tương đương `python -m raac.mas_cli` sau khi cài editable.
-Registry VERSION hiện 0.18.6, Coder và Environment dùng prompt chain-v5; các role còn lại chain-v4. Bộ dữ liệu/model/loader
+Registry VERSION hiện 0.18.8, Coder và Environment dùng prompt chain-v6; Analyst, Planner, Tester, Reviewer chain-v5; Hub star-v1. Bộ dữ liệu/model/loader
 MAS trùng và prompt v1 cũ đã được gỡ. CLI sandbox hiện có giữ nguyên.
 Tự cấu hình model/key ở `.env`; `--project-dir` chỉ định workspace.
 
@@ -123,9 +123,11 @@ framework vẫn theo yêu cầu `>=3.11`. Đường dẫn `python_executable` t�
 JUnit phân biệt `<skipped type="pytest.xfail">` với skip thông thường; unittest
 ghi nhận `expectedFailure` riêng và `unexpectedSuccess` là lỗi. `skipped` giữ
 tổng số case bỏ qua/xfail, `expected_failures` là tập con có bằng chứng từ runner.
-Suite chỉ passed khi exit code 0, không lỗi, không skip thông thường và có ít
-nhất một case passed thật. Suite toàn xfail/zero test hoặc strict XPASS vẫn bị
-chặn. Các case xfail giữ status skipped và lý do, không đổi thành case passed.
+Suite passed khi exit code 0, không lỗi và có ít nhất một case passed thật; skip
+thông thường (thiếu thư viện tùy chọn...) không làm fail vì `allow_skipped_tests`
+(`configs/harness.yaml`, mục `execution`) mặc định bật, số skipped vẫn nằm trong
+báo cáo. Đặt `allow_skipped_tests: false` để quay về quy tắc cũ (mọi skip không phải
+xfail làm fail). Suite toàn xfail/skip, zero test hoặc strict XPASS vẫn bị chặn. Các case xfail giữ status skipped và lý do, không đổi thành case passed.
 Counter expected failure đi qua Environment, Tester runtime và result; AC và
 Reviewer vẫn phải đạt đủ điều kiện Chain PASS.
 
@@ -268,7 +270,7 @@ max_llm_calls: 6
 
 `prompt` vẫn trỏ trực tiếp đến file đang có. Nội dung hướng dẫn tool đã được
 đồng bộ với quyền YAML, giữ nhiệm vụ và hợp đồng bàn giao của từng role.
-Coder/Environment dùng prompt_version=chain-v5; các role còn lại dùng chain-v4; output theo commit 39d39e7 và mở rộng L3.
+Coder/Environment dùng prompt_version=chain-v6; Analyst/Planner/Tester/Reviewer dùng chain-v5; Hub star-v1; output theo commit 39d39e7 và mở rộng L3.
 `group` là cách viết thống nhất; schema cũng
 nhận `Group` như mẫu người dùng. `model.ref` chọn model theo cấu hình bên dưới.
 `cost_weight` là metadata chờ hiệu chỉnh pilot, chưa thay đổi tính giá/ngân sách.
@@ -726,7 +728,7 @@ xạ ID → mô tả AC; RoleHandoff tách output của model khỏi metadata ru
 revision và evidence của framework. CodeOutput/TestReport/ReviewReport là
 artifact điều phối, không phải wire schema để model tự khai thực thi.
 Flow Coder–Tester và điều kiện PASS giữ nguyên. Registry chung 0.18.6,
-Coder prompt chain-v5, các role khác chain-v4; chưa nghiệm thu resume checkpoint thuộc contract cũ.
+Coder prompt chain-v6, Analyst/Planner/Tester/Reviewer chain-v5, Hub star-v1; chưa nghiệm thu resume checkpoint thuộc contract cũ.
 
 Xem [cấu trúc request, output, metadata và từng chặng bàn giao](../src/raac/collaboration/levels/l3_collaboration/l3_topologies.md#cấu-trúc-hợp-đồng-chuyển-giao-giữa-các-role).
 

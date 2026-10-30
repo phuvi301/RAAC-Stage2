@@ -206,3 +206,25 @@ class StarGraphTests(unittest.TestCase):
         for x, y in spokes:
             self.assertGreater(((x - at["hub"][0]) ** 2 + (y - at["hub"][1]) ** 2) ** 0.5, 130)
             self.assertGreater(((x - at["environment"][0]) ** 2 + (y - at["environment"][1]) ** 2) ** 0.5, 125)
+
+
+class AssumptionViewTests(unittest.TestCase):
+    def test_analyst_assumptions_and_reviewer_checks_reach_the_viewer(self):
+        analyst = present_event({"event": "agent_completed", "agent_id": "analyst", "output": {
+            "summary": "s", "assumptions": [{"question": "How is m/s.kg grouped?", "assumption": "Keep m/(s*kg)."},
+                                            {"question": "Docs?", "assumption": "Unchanged", "affects_behavior": False}]}}, 1)
+        self.assertEqual(analyst["assumptions"][0], {"question": "How is m/s.kg grouped?", "assumption": "Keep m/(s*kg).",
+                                                     "affects_behavior": True})
+        self.assertFalse(analyst["assumptions"][1]["affects_behavior"])
+        reviewer = present_event({"event": "agent_completed", "agent_id": "reviewer", "output": {
+            "decision": "approve", "summary": "ok", "comments": [
+                {"severity": "minor", "message": "ASSUMPTION: keep m/(s*kg); the patch follows it"},
+                {"severity": "nit", "message": "style"}]}}, 2)
+        self.assertEqual(reviewer["assumption_checks"], ["ASSUMPTION: keep m/(s*kg); the patch follows it"])
+        plain = present_event({"event": "agent_completed", "agent_id": "analyst", "output": {"summary": "s"}}, 3)
+        self.assertNotIn("assumptions", plain)
+
+    def test_page_has_the_assumption_section(self):
+        page = (ASSETS / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="assumption-list"', page)
+        self.assertIn("renderAssumptions", (ASSETS / "viewer.js").read_text(encoding="utf-8"))

@@ -91,13 +91,13 @@ Role/prompt được nạp từ registry/roles/core và registry/prompts qua mod
 Hợp đồng lấy output format của prompt tại commit
 `39d39e7eb49917b6f381876cdebb6564b596ebc3` làm nền. Định nghĩa thực thi nằm
 trong [chain_state.py](chain_state.py), kiểm tra/bàn giao nằm trong
-[chain_nodes.py](chain_nodes.py). Registry chung hiện là 0.18.4; Coder prompt chain-v5, các role còn lại chain-v4.
+[chain_nodes.py](chain_nodes.py). Registry chung hiện là 0.18.8; Coder/Environment prompt chain-v6, Analyst/Planner/Tester/Reviewer chain-v5, Hub star-v1.
 
 ### Output của role và metadata của framework
 
 | Role | Output model phải trả | Dữ liệu do framework bổ sung |
 | --- | --- | --- |
-| Analyst | JSON: summary, requirements, constraints, acceptance_criteria, open_questions | ac_catalog: ID ổn định cho từng AC. |
+| Analyst | JSON: summary, requirements, constraints, acceptance_criteria, open_questions, assumptions | ac_catalog: ID ổn định cho từng AC; assumptions đi vào kết quả và record. |
 | Planner | JSON: steps gồm id, description, files, depends_on | Node kiểm tra coverage và giữ Plan đầy đủ trong state. |
 | Environment | JSON: status ready/blocked, summary, blocking_issues | configure_environment xác minh Python/import/collection; configuration/verification trong environment_report. |
 | Coder | Chỉ unified diff; không JSON hay lời giải thích | Patch thực từ workspace, patch_hash, coder_summary và coder_evidence. |
@@ -301,11 +301,15 @@ hoặc `--topology chain_review_loop` của `raac-mas run-chain`); Chain thườ
 mọi role (Analyst, Planner, Coder, Tester, Reviewer) chỉ nhận việc từ Hub và báo kết quả về Hub. `check`/`limit` của
 Chain được gộp vào luật điều phối của Hub (`hub_policy.py`).
 
-- **Tập role được phép** do code tính từ những gì state đã có: chưa có spec thì chỉ Analyst; chưa có plan thì chỉ Planner;
-  chưa có patch hoặc plan vừa đổi thì chỉ Coder; chưa có test report thì chỉ Tester; test đạt mà chưa review thì chỉ Reviewer.
-  Chỉ khi test fail còn vòng thì chọn được `coder`/`planner`; khi Reviewer từ chối còn vòng (`max_rounds`) và còn
-  `max_review_rounds` thì chọn được `coder`/`planner`/`finish`. Hết vòng mà test chưa đạt: một lượt Reviewer cuối rồi dừng.
-- **Luật mặc định:** test fail → Coder; Reviewer từ chối và còn AC chưa được phủ → Planner (rồi Coder), ngược lại → Coder.
+- **Tập role được phép** do code tính; Hub chọn **bất kỳ role nào đã đủ đầu vào**, theo thứ tự tùy ý và lặp lại được:
+  Analyst chỉ cần yêu cầu (gọi lại được lúc nào cũng được, khi test hoặc review cho thấy hiểu sai spec); Planner cần spec;
+  Coder cần plan và còn lượt `max_rounds`; Tester cần patch; Reviewer cần test report của patch hiện tại. `finish` chỉ mở sau
+  khi patch hiện tại đã được review (hoặc Coder hết lượt); run đã PASS chỉ còn `finish`. Spec mới làm plan cũ lỗi thời nên
+  mặc định là Planner; plan mới thì mặc định là Coder dựng lại patch, nhưng Hub có thể chọn Tester để kiểm lại patch cũ theo
+  hợp đồng mới. Hết lượt Coder: chỉ còn một lượt Reviewer cuối rồi dừng. Tổng số lần gọi bị chặn bởi `max_rounds`,
+  `max_review_rounds` và `max_dispatches`.
+- **Luật mặc định:** chưa có plan → Planner; chưa có patch → Coder; chưa có test → Tester; test fail → Coder; test đạt chưa
+  review → Reviewer; Reviewer từ chối và còn AC chưa được phủ → Planner, ngược lại → Coder.
 - **Hub LLM** (`hub.mode: llm`) chỉ được gọi khi tập được phép có từ 2 lựa chọn; trả `{next, reason, note}` đã validate.
   Chọn ngoài tập được phép, JSON sai hoặc lỗi gọi → quay về luật mặc định (`source: fallback`). Timeout, vượt ngân sách
   vẫn dừng run như các role khác. Hub không nhận yêu cầu gốc, chỉ nhận bản tóm tắt do framework dựng (vòng, test, review).

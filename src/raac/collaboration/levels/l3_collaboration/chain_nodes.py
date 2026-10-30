@@ -54,9 +54,13 @@ class ChainNodes:
     def __init__(
         self, runner: AgentRunner,
         *, budget_guard: Callable[[ChainState], bool] | None = None,
+        hub_shows_default: bool = False,
     ):
         self.runner = runner
         self.budget_guard = budget_guard
+        # The LLM Hub decides without seeing the rule's pick, so it cannot simply copy it; the rule
+        # default stays internal as the fallback. Tests with scripted Hubs may opt back in.
+        self.hub_shows_default = hub_shows_default
 
     def _event(self, state, node, event, **details):
         work = state["work"]
@@ -155,9 +159,13 @@ class ChainNodes:
         return output, None, events
 
     async def analyst(self, state: ChainState) -> dict:
+        rework = state.get("spec") is not None
         output, failure, events = await self._call(
             state, "analyst", "Analyst",
-            {"from": "caller", "requirement": state["work"]["requirement"]}, {},
+            {"from": "Hub" if rework else "caller", "requirement": state["work"]["requirement"]},
+            ({"previous_spec": state["spec"], "test_report": state["test_report"],
+              "review_report": state.get("review_feedback"),
+              **({"hub_note": state["hub_note"]} if state.get("hub_note") else {})} if rework else {}),
         )
         if failure:
             return failure
@@ -176,7 +184,12 @@ class ChainNodes:
                     index += 1
                 catalog[f"AC{index}"] = description
                 index += 1
-        return {"spec": output, "ac_catalog": catalog, "next_node": self._next(state, "planner"), "events": events}
+        update = {"spec": output, "ac_catalog": catalog, "next_node": self._next(state, "planner"), "events": events}
+        if rework:
+            # A new spec makes the plan, patch verdicts and tests stale; the Hub must re-plan before anything else.
+            update.update(spec_changed=True, test_report=None, review_report=None, tests_passed=False,
+                          verdict=None, stop_reason=None)
+        return update
 
     async def planner(self, state: ChainState) -> dict:
         rework = state.get("patch") is not None
@@ -194,7 +207,7 @@ class ChainNodes:
         if (set(output["covered_ac_ids"]) != _ac_ids(state)
                 or step_criteria != _ac_ids(state)):
             return self._abort(state, "planner", "incomplete_plan", events=events)
-        update = {"plan": output, "next_node": self._next(state, "coder"), "events": events}
+        update = {"plan": output, "next_node": self._next(state, "coder"), "events": events, "spec_changed": False}
         if rework:
             # A new plan makes the earlier tests/review stale; the patch stays as the Coder's baseline.
             update.update(plan_changed=True, test_report=None, review_report=None, tests_passed=False,
@@ -232,10 +245,12 @@ class ChainNodes:
              "content": review or feedback or state["plan"]},
             {"spec": state["spec"], "plan": state["plan"],
              "previous_patch": state["patch"], "test_report": feedback, "review_report": review,
+             "previous_coder_report": state.get("coder_report"),
              **({"hub_note": state["hub_note"]} if state.get("hub_note") else {})},
         )
         if failure:
             return failure
+        step_report = output.runtime.get("step_report")
         try:
             output = CodeOutput(patch=output.output,
                                 summary=output.runtime.get("summary", "Coder supplied a cumulative patch"),
@@ -251,6 +266,7 @@ class ChainNodes:
             "coder_evidence": output["execution_evidence"],
             "repository_changes": output["repository_changes"],
             "coder_summary": output["summary"],
+            "coder_report": step_report,
             "round_number": state["round_number"] + 1,
             "test_report": None, "review_report": None, "review_feedback": None, "tests_passed": False,
             "plan_changed": False, "hub_note": "",
@@ -261,8 +277,12 @@ class ChainNodes:
     async def tester(self, state: ChainState) -> dict:
         output, failure, events = await self._call(
             state, "tester", "Tester",
-            {"from": "Coder", "patch_hash": state["patch_hash"], "patch": state["patch"]},
-            {key: state[key] for key in ("spec", "plan", "patch", "patch_hash", "coder_evidence", "coder_summary")},
+            {"from": "Hub" if state.get("review_report") is not None else "Coder",
+             "patch_hash": state["patch_hash"], "patch": state["patch"]},
+            {**{key: state[key] for key in ("spec", "plan", "patch", "patch_hash", "coder_evidence", "coder_summary")},
+             # A re-test after a review (star): show what the Reviewer asked for and the Hub's instruction.
+             **({"review_report": state["review_report"]} if state.get("review_report") is not None else {}),
+             **({"hub_note": state["hub_note"]} if state.get("hub_note") else {})},
         )
         if failure:
             return failure
@@ -277,10 +297,15 @@ class ChainNodes:
                 **self._abort(state, "tester", "test_execution_error", events=events),
                 "test_report": output, "rounds_completed": state["round_number"],
             }
-        return {
+        update = {
             "test_report": output, "rounds_completed": state["round_number"],
-            "next_node": self._next(state, "check"), "events": events,
+            "next_node": self._next(state, "check"), "events": events, "hub_note": "",
         }
+        if state.get("review_report") is not None:
+            # The earlier review judged the earlier test report. Keep it as feedback, but the new
+            # results need a fresh verdict, so the run is not finished on (or stuck behind) the old one.
+            update.update(review_report=None, review_feedback=state["review_report"], verdict=None, stop_reason=None)
+        return update
 
     async def hub(self, state: ChainState) -> dict:
         """Star routing: rules always bound the choice; an LLM Hub may pick among the allowed roles."""
@@ -295,7 +320,8 @@ class ChainNodes:
             output, failure, events = await self._call(
                 state, "hub", "Hub",
                 {"from": "Framework", "content": "Choose the next role"},
-                {"allowed": options, "default": default, "summary": hub_summary(state, passed)},
+                {"allowed": options, "summary": hub_summary(state, passed),
+                 **({"default": default} if self.hub_shows_default else {})},
             )
             if failure and failure["stop_reason"] not in {"invalid_output", "agent_error"}:
                 return failure
@@ -315,9 +341,10 @@ class ChainNodes:
                 stop = "max_dispatches_reached"
             return {"next_node": "result", "stop_reason": stop, "events": decided}
         update = {"next_node": choice, "hub_dispatches": used + 1, "hub_note": note, "events": decided}
-        if choice == "reviewer" and not passed and state["stop_reason"] is None:
+        if (choice == "reviewer" and not passed and state["stop_reason"] is None
+                and state.get("round_number", 0) >= limits["max_rounds"]):
             update["stop_reason"] = "max_rounds_reached"
-        if state.get("review_report") is not None and passed and state.get("verdict") != "PASS" and choice in {"coder", "planner"}:
+        if state.get("review_report") is not None and passed and state.get("verdict") != "PASS" and choice in {"coder", "planner", "analyst", "tester"}:
             update.update(review_feedback=state["review_report"], review_rounds=state.get("review_rounds", 0) + 1)
         return update
 
@@ -394,11 +421,13 @@ class ChainNodes:
             **{key: state["work"][key] for key in ("run_id", "task_id", "work_id", "scope")},
             "topology": get_topology(state.get("topology_id", "chain")).topology_id,
             "topology_version": get_topology(state.get("topology_id", "chain")).version,
+            # Readings chosen for undecided behaviour, kept visible next to the verdict.
+            "assumptions": deepcopy((state["spec"] or {}).get("assumptions", [])),
             "status": "aborted" if state["error"] else (
                 "completed" if state["verdict"] == "PASS" else "rejected"
             ),
             **{key: deepcopy(state[key]) for key in (
-                "environment_report", "spec", "ac_catalog", "plan", "patch", "patch_hash", "coder_evidence", "coder_summary", "repository_changes", "test_report", "review_report",
+                "environment_report", "spec", "ac_catalog", "plan", "patch", "patch_hash", "coder_evidence", "coder_summary", "coder_report", "repository_changes", "test_report", "review_report",
                 "verdict", "stop_reason", "error", "round_number", "rounds_completed",
             )},
         }

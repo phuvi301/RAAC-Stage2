@@ -91,7 +91,7 @@ async def test_tool_observation_then_final_output_uses_lifecycle(tmp_path):
         tmp_path, [{"tool_calls": [tool()]}, {"content": json.dumps(FINAL)}]
     )
     try:
-        assert await runner("Analyst", request()) == FINAL | {"interface_contracts": {}}
+        assert await runner("Analyst", request()) == FINAL | {"interface_contracts": {}, "assumptions": []}
         assert "VALUE = 1" in json.dumps(seen[1]["messages"])
         rows = [json.loads(line) for line in client.log_path.read_text().splitlines()]
         states = [

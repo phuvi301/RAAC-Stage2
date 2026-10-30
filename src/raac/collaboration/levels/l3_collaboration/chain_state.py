@@ -151,6 +151,7 @@ class ChainState(TypedDict):
     coder_evidence: list[dict[str, Any]]
     repository_changes: list[dict[str, Any]]
     coder_summary: str | None
+    coder_report: dict[str, Any] | None
     test_report: dict[str, Any] | None
     review_report: dict[str, Any] | None
     review_feedback: dict[str, Any] | None
@@ -159,6 +160,7 @@ class ChainState(TypedDict):
     hub_dispatches: int
     hub_note: str
     plan_changed: bool
+    spec_changed: bool
     topology_id: str
     tests_passed: bool
     verdict: str | None
@@ -177,9 +179,9 @@ def initial_chain_state(work: WorkItem, limits: ChainLimits, topology_id: str = 
         "deadline_at": time.time() + limits.timeout_seconds,
         "round_number": 0, "rounds_completed": 0, "ac_catalog": {},
         "spec": None, "plan": None, "patch": None, "patch_hash": None,
-        "coder_evidence": [], "coder_summary": None, "repository_changes": [],
+        "coder_evidence": [], "coder_summary": None, "coder_report": None, "repository_changes": [],
         "test_report": None, "review_report": None, "review_feedback": None, "review_rounds": 0,
-        "hub_mode": hub_mode, "hub_dispatches": 0, "hub_note": "", "plan_changed": False,
+        "hub_mode": hub_mode, "hub_dispatches": 0, "hub_note": "", "plan_changed": False, "spec_changed": False,
         "topology_id": topology_id, "tests_passed": False,
         "verdict": None, "stop_reason": None, "error": None,
         "environment_report": None,

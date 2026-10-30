@@ -499,3 +499,34 @@ class ChainInputTests(unittest.TestCase):
                         max_rounds=rounds, hard_max_rounds=4,
                         timeout_seconds=10.0, agent_timeout_seconds=2.0,
                     )
+
+
+class CoderReportHandoffTests(unittest.IsolatedAsyncioTestCase):
+    REPORT = {"steps": [{"step": 1, "status": "done", "note": "guard added", "reason_missing": False},
+                        {"step": 2, "status": "blocked", "note": "no API for it", "reason_missing": False}],
+              "issues": [], "notes": "", "structured": True}
+
+    class ReportingAgents(FakeAgents):
+        async def __call__(self, role, request):
+            result = await super().__call__(role, request)
+            if role == "Coder":
+                number = request["round"]
+                return RoleHandoff(result.output, {**result.runtime,
+                    "summary": f"Step 1 done: guard added (round {number})\nStep 2 blocked: no API for it",
+                    "step_report": CoderReportHandoffTests.REPORT})
+            return result
+
+    async def test_report_goes_to_tester_and_reviewer_and_back_to_the_coder_on_retry(self):
+        agents = self.ReportingAgents(pass_on_round=2)
+        state = make_state()
+        graph = build_chain_graph(ChainNodes(agents))
+        output = await graph.ainvoke(state, {"recursion_limit": 40})
+        coders = [request for role, request in agents.calls if role == "Coder"]
+        self.assertIsNone(coders[0]["artifacts"]["previous_coder_report"])
+        self.assertEqual(coders[1]["artifacts"]["previous_coder_report"], self.REPORT)
+        testers = [request for role, request in agents.calls if role == "Tester"]
+        self.assertIn("Step 2 blocked: no API for it", testers[0]["artifacts"]["coder_summary"])
+        reviewer = [request for role, request in agents.calls if role == "Reviewer"][0]
+        self.assertIn("round 2", reviewer["artifacts"]["coder_summary"])
+        self.assertEqual(output["coder_report"], self.REPORT)
+        self.assertEqual(output["result"]["coder_report"], self.REPORT)

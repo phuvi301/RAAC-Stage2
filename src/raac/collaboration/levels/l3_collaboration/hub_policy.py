@@ -10,33 +10,59 @@ from typing import Any
 SPOKES = ("analyst", "planner", "coder", "tester", "reviewer")
 
 
+ORDER = ("analyst", "planner", "coder", "tester", "reviewer", "finish")
+
+
 def hub_options(state: dict[str, Any], tests_passed: bool) -> tuple[list[str], str]:
-    """(allowed next nodes, rule-based default); ``finish`` ends the run."""
+    """(allowed next nodes, rule-based default); ``finish`` ends the run.
+
+    The Hub may pick any role whose inputs exist, in any order and as often as the budget allows:
+    - analyst needs only the requirement, so it can be consulted again at any point;
+    - planner needs a spec, coder a plan, tester a patch, reviewer a test report for the current patch;
+    - coder is withdrawn once its rounds are used up; nothing can change the code after that, so only a
+      final review (if none yet) or ``finish`` remains;
+    - ``finish`` needs a review of the current patch (or no coder rounds left); an accepted run (PASS) can
+      only finish.
+    Totals stay bounded by max_rounds, max_review_rounds and max_dispatches.
+    """
     limits = state["limits"]
-    rounds_left = state["rounds_completed"] < limits["max_rounds"]
+    coder_left = state.get("round_number", 0) < limits["max_rounds"]
     review_left = state.get("review_rounds", 0) < limits.get("max_review_rounds", 0)
-    if state.get("spec") is None:
+    spec, plan, patch = state.get("spec"), state.get("plan"), state.get("patch")
+    report, review = state.get("test_report"), state.get("review_report")
+    if spec is None:
         return ["analyst"], "analyst"
-    if state.get("plan") is None:
-        return ["planner"], "planner"
-    if state.get("patch") is None or state.get("plan_changed"):
-        return ["coder"], "coder"
-    if state.get("test_report") is None:
-        return ["tester"], "tester"
-    review = state.get("review_report")
-    if not tests_passed:
-        if review is None:
-            # No rounds left still gets a final review, as the Chain does; the run then ends rejected.
-            return (["coder", "planner"], "coder") if rounds_left else (["reviewer"], "reviewer")
+    available = {"analyst", "planner"}
+    if plan is not None and coder_left:
+        available.add("coder")
+    if patch is not None:
+        available.add("tester")
+    if report is not None:
+        available.add("reviewer")
+    if plan is None or state.get("spec_changed"):
+        default = "planner"  # a new spec makes the old plan stale
+    elif patch is None:
+        default = "coder"
+    elif report is None:
+        # After a re-plan the patch is rebuilt by default; re-testing it is a choice the Hub may make.
+        default = "coder" if state.get("plan_changed") and "coder" in available else "tester"
+    elif not tests_passed:
+        if not coder_left:
+            return (["reviewer"], "reviewer") if review is None else (["finish"], "finish")
+        default = "coder"
+        if review is not None:
+            available.add("finish")
+    elif review is None:
+        default = "reviewer"
+    elif state.get("verdict") == "PASS":
         return ["finish"], "finish"
-    if review is None:
-        return ["reviewer"], "reviewer"
-    if state.get("verdict") == "PASS":
-        return ["finish"], "finish"
-    if rounds_left and review_left:
+    elif coder_left and review_left:
         uncovered = set(state["ac_catalog"]) - set(review.get("covered_ac_ids", []))
-        return ["coder", "planner", "finish"], "planner" if uncovered else "coder"
-    return ["finish"], "finish"
+        default = "planner" if uncovered else "coder"
+        available.add("finish")
+    else:
+        return ["finish"], "finish"
+    return [name for name in ORDER if name in available], default
 
 
 def hub_summary(state: dict[str, Any], tests_passed: bool) -> dict[str, Any]:
@@ -48,6 +74,7 @@ def hub_summary(state: dict[str, Any], tests_passed: bool) -> dict[str, Any]:
         "review_rounds": {"used": state.get("review_rounds", 0), "max": limits.get("max_review_rounds", 0)},
         "dispatches": {"used": state.get("hub_dispatches", 0), "max": limits.get("max_dispatches", 0)},
         "plan_changed_since_patch": bool(state.get("plan_changed")),
+        "spec_changed_since_plan": bool(state.get("spec_changed")),
         "tests": None if report is None else {
             "passed": tests_passed, "status": report.get("status"), "tests_run": report.get("tests_run"),
             "failed": report.get("failed"), "blocking_issues": list(report.get("blocking_issues", []))[:5],
