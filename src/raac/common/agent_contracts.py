@@ -35,12 +35,20 @@ class Requirement(StructuredOutput):
     priority: Literal["high", "medium", "low"] = "medium"
 
 
+class Assumption(StructuredOutput):
+    """A reading the Analyst chose because the request leaves a behaviour undecided; nobody is asked during a run."""
+    question: Text
+    assumption: Text
+    affects_behavior: bool = True
+
+
 class AnalystOutput(StructuredOutput):
     summary: Text
     requirements: list[Requirement] = Field(min_length=1)
     constraints: list[Text] = Field(default_factory=list)
     acceptance_criteria: list[Text] = Field(min_length=1)
     open_questions: list[Text] = Field(default_factory=list)
+    assumptions: list[Assumption] = Field(default_factory=list)
     interface_contracts: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")

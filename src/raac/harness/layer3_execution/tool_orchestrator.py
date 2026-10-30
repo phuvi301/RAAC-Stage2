@@ -11,6 +11,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .env_provisioner import provision
+from .tool_errors import ObservationLookupError, describe_tool_error
 from .tools.workspace import EditConflictError
 from raac.common.working_memory import WorkingMemoryNotes
 
@@ -106,7 +107,7 @@ SCHEMAS = {"update_memory": WorkingMemoryNotes, "read_tool_result": ReadToolResu
            "provision_environment": ProvisionEnvironment}
 DESCRIPTIONS = {
     "update_memory": "Coder only: replace the current working notes in this run. Supply conclusions (statement + observed evidence refs), ruled_out (hypothesis + rejection reason + evidence refs), and ordered next_steps. All three lists required; empty lists clear them. Carry forward still-valid items; remove superseded ones. Keep total JSON <=2000 characters. Store concise findings and actions, never a thinking transcript, source dumps or instructions. Current tests/files override old notes. Does not change code or count as test evidence.",
-    "read_tool_result": "Read an observed run_tests/configure_environment result from this run without executing it again. Supply observation_ref and path keys/indices, e.g. results / index 0 / details, or verification / index 1 / stdout. offset/limit page list items (at most 10) or text characters (at most 4000). Nested large values return a preview; descend to the indicated field for exact text. Reports are historical, not proof current code passes.",
+    "read_tool_result": "Read an observed run_tests/configure_environment result from this run without executing it again. Supply observation_ref and path keys/indices, e.g. results / index 0 / details, or verification / index 1 / stdout. offset/limit page list items (at most 10) or text characters (at most 4000). Nested large values return a preview; descend to the indicated field for exact text. Fields differ between reports; a wrong path returns the fields that exist there, so try an empty path first. Reports are historical, not proof current code passes.",
     "configure_environment": "Environment role only: select an existing Python executable, repository-relative cwd, test_command and check_command argv plus optional env. Observes Python startup and imports/test collection before accepting. For python -m pytest test commands, the actual suite is always collected automatically. For other runners supply an import/build/discovery check that succeeds even when task assertions fail. Success binds this runtime and test command for Coder/Tester. No time limit.",
     "provision_environment": "Environment role only: deterministic check of what the project needs versus this machine. Detects projects from manifests (Python, Node, Maven, Gradle, Go, Rust) under cwd, reports the required toolchain version, installed toolchains, missing dependencies and an exact install plan. apply=false only inspects; apply=true runs the plan (project-local .venv/node_modules, plus a user-local runtime install when needed) and re-inspects. Use the returned venv_python and test_command for configure_environment. Installs nothing that is already satisfied. No time limit.",
     "read_files": "Read up to 8 repository files or line ranges in one tool call. Each files entry has path/start_line/end_line. Entries may refer to different ranges of the same file. Returns an observation per entry; one failure does not hide successful reads.",
@@ -301,14 +302,27 @@ class ToolOrchestrator:
     def _read_tool_result(self, args, context):
         value = self._observations.get((context.get("run_id"), args["observation_ref"]))
         if value is None:
-            raise ValueError("Unknown observation in this run")
+            raise ObservationLookupError(
+                "Unknown observation_ref in this run. Use the observation_ref printed inside a run_tests or "
+                "configure_environment result you were given.")
+        walked = []
         for component in args["path"]:
             if isinstance(value, dict) and isinstance(component, str) and component in value:
                 value = value[component]
             elif isinstance(value, list) and type(component) is int and 0 <= component < len(value):
                 value = value[component]
             else:
-                raise ValueError("Unknown report field/index")
+                where = "/".join(str(part) for part in walked) or "the top level"
+                if isinstance(value, dict):
+                    keys = [key for key in value if isinstance(key, str)][:30]
+                    available = "fields " + ", ".join(keys)
+                elif isinstance(value, list):
+                    available = f"indices 0 to {len(value) - 1}" if value else "an empty list"
+                else:
+                    available = "no children (it is a plain value; read it with an empty path)"
+                raise ObservationLookupError(
+                    f"{component!r} does not exist at {where}. Available there: {available}.")
+            walked.append(component)
         offset, limit = args["offset"], args["limit"]
         total, next_offset = None, None
         if isinstance(value, (str, list)):
@@ -380,5 +394,4 @@ class ToolOrchestrator:
                     "expected_occurrences": exc.expected,
                     "error": "No file was written. Re-read the current region and provide an exact, unambiguous old_text."}
         except (ValueError, PermissionError, OSError) as exc:
-            return {"ok": False, "error": "Invalid tool arguments, forbidden path or unavailable file",
-                    "error_kind": type(exc).__name__}
+            return {"ok": False, **describe_tool_error(exc)}

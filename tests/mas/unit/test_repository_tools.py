@@ -30,6 +30,25 @@ class RepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.executor = Executor()
         self.tools = WorkspaceTools(self.project, self.executor)
 
+    async def test_truncated_listing_keeps_the_repository_root_first(self):
+        for index in range(6):
+            (self.repo / f"a_pkg/mod{index}.py").parent.mkdir(exist_ok=True)
+            (self.repo / f"a_pkg/mod{index}.py").write_text("x = 1\n", encoding="utf-8")
+        (self.repo / "setup.py").write_text("setup()\n", encoding="utf-8")
+        tools = WorkspaceTools(self.project, self.executor)
+        listing = tools.list_files(limit=3)
+        paths = [row["path"] for row in listing["files"]]
+        self.assertTrue(listing["truncated"])
+        self.assertIn("setup.py", paths)
+        self.assertEqual([path.count("/") for path in paths], sorted(path.count("/") for path in paths))
+        self.assertEqual(tools.list_files()["total"], listing["total"])
+
+    async def test_setuptools_eggs_directory_is_not_part_of_the_workspace(self):
+        (self.repo / ".eggs/certifi.egg/certifi").mkdir(parents=True)
+        (self.repo / ".eggs/certifi.egg/certifi/core.py").write_text("x = 1\n", encoding="utf-8")
+        tools = WorkspaceTools(self.project, self.executor)
+        self.assertFalse(any(row["path"].startswith(".eggs") for row in tools.list_files()["files"]))
+
     async def test_discovery_and_recursive_search_without_fixed_filenames(self):
         listing = self.tools.list_files()
         self.assertIn("src/pkg/core.py", {row["path"] for row in listing["files"]})

@@ -30,3 +30,24 @@ class AgentExecutionError(RuntimeError):
             raise ValueError("Unknown agent error code")
         self.code = code
         super().__init__(code)
+
+
+class SourceModifiedError(PermissionError):
+    """A command changed repository files its role may not change; `paths` is a bounded list."""
+
+    def __init__(self, message: str, paths=()):
+        names = sorted(paths)
+        self.paths, self.more = names[:10], max(0, len(names) - 10)
+        super().__init__(message)
+
+
+class RejectedEditError(ValueError):
+    """A write that would leave a file worse than before; nothing was written."""
+
+    REASONS = ("invalid_python", "tool_markup")
+
+    def __init__(self, reason: str, path: str, line: int | None = None):
+        if reason not in self.REASONS:
+            raise ValueError("Unknown rejected edit reason")
+        self.reason, self.path, self.line = reason, path, line
+        super().__init__(f"{reason}: {path}")

@@ -141,8 +141,8 @@ class BatchToolTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((self.repo / "tests/test_main.py").read_bytes(), original)
 
     async def test_tester_region_edit_cannot_touch_implementation_or_coder_owned_test(self):
-        self.workspace.edit_file(role="Coder", path="tests/test_main.py", content="coder owned\n")
-        for path, old in (("src/main.py", "one"), ("tests/test_main.py", "coder owned"), ("../outside", "old")):
+        self.workspace.edit_file(role="Coder", path="tests/test_main.py", content="coder_owned = True\n")
+        for path, old in (("src/main.py", "one"), ("tests/test_main.py", "coder_owned"), ("../outside", "old")):
             result = await self.tools.execute(self.tester, "replace_text", {"path": path, "old_text": old, "new_text": "bad"})
             self.assertFalse(result["ok"])
         self.assertEqual((self.repo / "src/main.py").read_text(), "one\ntwo\nthree\nfour\n")

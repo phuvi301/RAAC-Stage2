@@ -25,6 +25,7 @@ class LocalExecutionPolicy(BaseModel):
     timeout_seconds: float = Field(default=60.0, gt=0, le=300)
     max_output_bytes: int = Field(default=131072, ge=1024, le=1048576)
     max_report_bytes: int = Field(default=16777216, ge=1024, le=67108864)
+    allow_skipped_tests: bool = True  # skipped tests do not fail a suite that has really run and passed
 
 
 class OutputLimitError(RuntimeError):
@@ -168,7 +169,8 @@ class LocalExecutor:
             observed_report = Path(temporary) / "observed-report.json"
             specification = {"observed_report_path": str(observed_report), "workspace_root": str(Path(root).resolve()), "command": command,
                              "cwd": cwd, "env": env or {}, "report_path": report_path,
-                             "default_report_path": str(Path(temporary) / "junit.xml")}
+                             "default_report_path": str(Path(temporary) / "junit.xml"),
+                             "allow_skipped_tests": self.policy.allow_skipped_tests}
             helper_python = command[0] if re.fullmatch(r"python(?:3(?:\.\d+)?)?(?:\.exe)?", Path(command[0]).name, re.I) else sys.executable
             observed = await self.run_command(root, command=[helper_python, "-I", "-B",
                 str(Path(__file__).with_name("local_test_runner.py")), json.dumps(specification)], cwd=cwd, unlimited=unlimited)

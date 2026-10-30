@@ -144,6 +144,21 @@ class ReportDetailTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse((await self.read(path=["absent"]))["ok"])
         self.assertFalse((await self.tools.execute(self.registry.get("Analyst"), "read_tool_result", args, context=self.context))["ok"])
 
+    async def test_a_wrong_path_says_what_exists_there_instead_of_a_generic_error(self):
+        missing = await self.read(path=["summary_text"])
+        self.assertFalse(missing["ok"])
+        self.assertEqual(missing["error_kind"], "UnknownObservation")
+        self.assertIn("'summary_text' does not exist at the top level", missing["error"])
+        self.assertIn("test_cases", missing["error"])
+        past_end = await self.read(path=["test_cases", 5000])
+        self.assertIn("indices 0 to 968", past_end["error"])
+        plain = await self.read(path=["status", "x"])
+        self.assertIn("no children", plain["error"])
+        unknown = await self.tools.execute(self.registry.get("Reviewer"), "read_tool_result",
+                                           {"observation_ref": "nope", "path": []}, context=self.context)
+        self.assertEqual(unknown["error_kind"], "UnknownObservation")
+        self.assertIn("observation_ref", unknown["error"])
+
     async def test_large_nested_values_return_bounded_explicit_preview(self):
         response = await self.read(path=["results"], limit=10)
         self.assertTrue(response["result"]["preview_only"])

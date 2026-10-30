@@ -63,6 +63,26 @@ def junit_report(path):
             "test_cases": [(case.get("classname", "") + "." + case.get("name", "")).strip(".") for case in cases]}
 
 
+def unittest_text_report(text):
+    """Counts from the summary a unittest-based runner prints (Django's runtests.py, for one).
+
+    Only an explicit "Ran N test(s)" line followed by its OK/FAILED verdict counts; anything else returns None so
+    counts are never invented.
+    """
+    ran = re.findall(r"^Ran (\d+) tests? in ", text, re.M)
+    verdict = re.findall(r"^(OK|FAILED)(?: \((.*)\))?\s*$", text, re.M)
+    if not ran or not verdict:
+        return None
+    status, details = verdict[-1]
+    counts = {key.strip(): int(value) for key, value in re.findall(r"([a-z ]+)=(\d+)", details or "")}
+    failed = counts.get("failures", 0) + counts.get("errors", 0) + counts.get("unexpected successes", 0)
+    if status == "FAILED" and not failed:
+        failed = 1
+    names = re.findall(r"^(\w+ \([\w.]+\))(?:\n.*?)? \.\.\. ", text, re.M)
+    return {"tests_run": int(ran[-1]), "failed": failed, "skipped": counts.get("skipped", 0),
+            "expected_failures": counts.get("expected failures", 0), "test_cases": list(dict.fromkeys(names))}
+
+
 def emit_report(report, config):
     destination = config.get("observed_report_path")
     if destination:
@@ -142,14 +162,18 @@ def main():
             if tests and names:
                 stats = {"tests_run": int(tests[-1]), "failed": int(fails[-1]) if fails else 0,
                          "skipped": int(skips[-1]) if skips else 0, "test_cases": names}
+            else:
+                stats = unittest_text_report(text)
     if not stats or stats["tests_run"] <= 0:
         report = {"status": "error", "tests_run": 0, "failed": 0, "test_cases": [],
                   "summary": "No reliable test report. Select unittest, pytest, Node TAP or a JUnit report_path.\n" + text[-14000:]}
     else:
-        # An observed expected failure is different from an unexecuted skip.
-        # Keep skipped totals intact and require at least one actual pass.
-        passed = (exit_code == 0 and stats["failed"] == 0
-                  and stats["skipped"] == stats.get("expected_failures", 0)
+        # An observed expected failure is different from an unexecuted skip. Skipped totals stay in the report.
+        # Skips are tolerated by default (large suites skip tests for optional dependencies); with
+        # allow_skipped_tests=false every skip other than an expected failure fails the suite. Either way at least
+        # one test must really have run and passed.
+        skips_ok = config.get("allow_skipped_tests", True) or stats["skipped"] == stats.get("expected_failures", 0)
+        passed = (exit_code == 0 and stats["failed"] == 0 and skips_ok
                   and stats["tests_run"] > stats["skipped"])
         report = {**stats, "status": "passed" if passed else "failed", "summary": text[-16000:]}
     report["command"] = command
