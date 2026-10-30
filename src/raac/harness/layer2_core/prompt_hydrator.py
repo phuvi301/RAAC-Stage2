@@ -59,7 +59,13 @@ def hydrate_messages(role: LoadedRole, request: dict, *, compact=True) -> list[d
         "Follow output_format and output_schema for the final handoff. "
         "Do not add Markdown fences or explanatory prose."
     ) + tool_guidance + (
-        " Return only the cumulative unified diff; use empty text for no changes." if role.spec.id == "coder"
+        " Your saved file edits are the patch: the framework builds it from the saved workspace files, so never write "
+        "a diff by hand. End with a plain-text handoff report: one line per plan step "
+        "`STEP <id> | done|partial|blocked | what you changed and why` (a partial or blocked step must say why), one line "
+        "per feedback point or error `ISSUE <short label> | fixed|unfixed | note` (an unfixed one must say why it could "
+        "not be fixed), then optional `NOTES: risks and the checks you actually ran`. If you made no edits because nothing "
+        "needs to change, say so in the step lines or NOTES."
+        if role.spec.id == "coder"
         else " Return exactly one JSON object matching output_schema."
     )
     return [

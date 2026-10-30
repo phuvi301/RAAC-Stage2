@@ -2,7 +2,7 @@ id: analyst
 role: Analyst
 group: core
 prompt: prompts/analyst.md
-prompt_version: chain-v4
+prompt_version: chain-v6
 tools:
   - list_files
   - read_file

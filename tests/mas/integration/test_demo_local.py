@@ -91,6 +91,19 @@ def commit_payload(data):
     return data
 
 
+def scripted_hub_choice(artifacts):
+    """What a cooperative Hub would pick from the summary alone (the usual Chain order)."""
+    allowed, summary = artifacts["allowed"], artifacts["summary"]
+    tests, review = summary.get("tests"), summary.get("review")
+    if review and review.get("verdict") == "REJECT" and "coder" in allowed:
+        return "coder"
+    if tests and tests.get("passed") and review is None and "reviewer" in allowed:
+        return "reviewer"
+    if tests is None and "tester" in allowed:
+        return "tester"
+    return "coder" if "coder" in allowed else "planner"
+
+
 class LocalChainTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -234,13 +247,14 @@ class ServiceTests(unittest.TestCase):
 
         stdout = io.StringIO()
         args = SimpleNamespace(command="run-chain", model="mock-project", base_url="http://mock.invalid/v1", max_rounds=1,
-                               project_dir=str(self.project_dir))
+                               topology="chain", project_dir=str(self.project_dir))
         with patch("raac.mas_cli.load_registry", return_value=registry), \
                 patch("raac.mas_cli.load_llm_config", return_value=config), \
                 patch("raac.mas_cli.LLMClient", side_effect=client_factory), redirect_stdout(stdout):
-            self.assertEqual(await execute(args), 0)
+            code = await execute(args)
         output_dir = Path(json.loads(stdout.getvalue())["output"])
         record = json.loads((output_dir / "result.json").read_text(encoding="utf-8"))
+        self.assertEqual(code, 0, {key: record.get(key) for key in ("status", "stop_reason", "error")})
         self.assertEqual(set(selected), set(registry.roles) - {"hub"})  # the Hub only runs in star
         self.assertGreater(selected.count("coder"), 1)
         self.assertGreater(selected.count("tester"), 1)
@@ -377,7 +391,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(record["execution"]["mode"], "local")
         self.assertNotIn("evaluation", record)
         self.assertNotIn("sandbox_image_id", record)
-        self.assertEqual(record["provenance"]["registry_version"], "0.18.7")
+        self.assertEqual(record["provenance"]["registry_version"], "0.18.14")
         declaration = record["provenance"]["registry_snapshot"]["roles"]["planner"]
         self.assertEqual(declaration["role"], "Planner")
         self.assertEqual(declaration["model"], {"ref": "default"})
@@ -496,7 +510,7 @@ class ServiceTests(unittest.TestCase):
                           "tests_run": 99, "failed": 0, "test_cases": ["invented"],
                           "covered_ac_ids": ["AC1"], "blocking_issues": [], "summary": "HTTP mock report"}
             elif system.startswith("You are the Hub"):
-                output = {"next": "coder", "reason": "scripted hub"}
+                output = {"next": scripted_hub_choice(work["artifacts"]), "reason": "scripted hub"}
             else:
                 output = {"patch_hash": work["artifacts"]["patch_hash"], "verdict": "PASS",
                           "covered_ac_ids": ["AC1"], "blocking_issues": [], "summary": "HTTP mock review"}
@@ -525,11 +539,13 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual((decision["hub_mode"], decision["max_dispatches"]), ("llm", 12))
         self.assertEqual(record["topology"], "star")
         hub_events = [event for event in record["events"] if event["event"] == "hub_decision"]
-        self.assertEqual([event["next"] for event in hub_events],
-                         ["analyst", "planner", "coder", "tester", "reviewer", "finish"])
+        self.assertEqual([(event["next"], event["source"]) for event in hub_events],
+                         [("analyst", "rules"), ("planner", "llm"), ("coder", "llm"), ("tester", "llm"),
+                          ("reviewer", "llm"), ("finish", "rules")])
         trace = [json.loads(line) for line in (output_dir / "llm.jsonl").read_text(encoding="utf-8").splitlines()]
         started = [event["agent_id"] for event in trace if event["event"] == "agent_started"]
-        self.assertEqual(started, ["environment", "analyst", "planner", "coder", "tester", "reviewer"])
+        self.assertEqual(started, ["environment", "analyst", "hub", "planner", "hub", "coder", "hub", "tester",
+                                   "hub", "reviewer"])
         self.assertEqual(record["provenance"]["effective_config"]["coordinator_decision"], decision)
 
     async def test_cli_star_hub_llm_routes_a_review_rejection_through_the_real_runner(self):
@@ -593,7 +609,7 @@ class ServiceTests(unittest.TestCase):
                           "covered_ac_ids": ["AC1"], "blocking_issues": [], "summary": "HTTP mock report"}
             elif system.startswith("You are the Hub"):
                 hub_requests.append(work)
-                output = {"next": "coder", "reason": "fix the edge case the Reviewer named"}
+                output = {"next": scripted_hub_choice(work["artifacts"]), "reason": "follow the usual order"}
             else:
                 reviews += 1
                 rejected = reviews == 1
@@ -626,17 +642,19 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(record["topology"], "star")
         hub_events = [event for event in record["events"] if event["event"] == "hub_decision"]
         self.assertEqual([(event["next"], event["source"]) for event in hub_events],
-                         [("analyst", "rules"), ("planner", "rules"), ("coder", "rules"), ("tester", "rules"),
-                          ("reviewer", "rules"), ("coder", "llm"), ("tester", "rules"), ("reviewer", "rules"),
+                         [("analyst", "rules"), ("planner", "llm"), ("coder", "llm"), ("tester", "llm"),
+                          ("reviewer", "llm"), ("coder", "llm"), ("tester", "llm"), ("reviewer", "llm"),
                           ("finish", "rules")])
         trace = [json.loads(line) for line in (output_dir / "llm.jsonl").read_text(encoding="utf-8").splitlines()]
         started = [event["agent_id"] for event in trace if event["event"] == "agent_started"]
-        self.assertEqual(started, ["environment", "analyst", "planner", "coder", "tester", "reviewer",
-                                   "hub", "coder", "tester", "reviewer"])
-        self.assertEqual(len(hub_requests), 1)
-        self.assertEqual(hub_requests[0]["artifacts"]["allowed"], ["coder", "planner", "finish"])
-        self.assertEqual(hub_requests[0]["artifacts"]["summary"]["review"]["blocking_issues"], ["Handle the edge case"])
-        self.assertNotIn("requirement", hub_requests[0])
+        self.assertEqual(started, ["environment", "analyst", "hub", "planner", "hub", "coder", "hub", "tester",
+                                   "hub", "reviewer", "hub", "coder", "hub", "tester", "hub", "reviewer"])
+        self.assertEqual(len(hub_requests), 7)
+        rejection = hub_requests[4]  # asked right after the Reviewer's rejection
+        self.assertEqual(rejection["artifacts"]["allowed"],
+                         ["analyst", "planner", "coder", "tester", "reviewer", "finish"])
+        self.assertEqual(rejection["artifacts"]["summary"]["review"]["blocking_issues"], ["Handle the edge case"])
+        self.assertTrue(all("requirement" not in request for request in hub_requests))
         self.assertEqual(record["review_report"]["verdict"], "PASS")
         self.assertEqual(record["provenance"]["effective_config"]["coordinator_decision"], decision)
 
