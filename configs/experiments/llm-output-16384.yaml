@@ -1,0 +1,22 @@
+# Trial only; compare truncation rate, latency and total tokens before changing defaults.
+version: llm-output-budget-16384-v1
+base_url: http://127.0.0.1:20128/v1
+model: cc/claude-opus-5-5
+temperature: 0.0
+max_tokens: 16384
+timeout_seconds: 400.0
+max_retries: 2
+backoff_seconds: 0.5
+profiles:
+  environment:
+    model: cc/claude-opus-5-5
+  analyst:
+    model: cc/claude-opus-5-5
+  planner:
+    model: cc/claude-opus-5-5
+  coder:
+    model: cc/claude-opus-5-5
+  tester:
+    model: cc/claude-opus-5-5
+  reviewer:
+    model: cc/claude-opus-5-5

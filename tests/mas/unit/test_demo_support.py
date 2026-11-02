@@ -157,9 +157,15 @@ max_llm_calls: 6
 
     def test_core_roles_permissions_and_prompt_provenance(self):
         registry = load_registry(PROJECT / "registry")
+<<<<<<< HEAD
         self.assertEqual(len(registry.roles), 7)  # six chain roles + the star Hub
+=======
+        self.assertEqual(len(registry.roles), 7)
+>>>>>>> origin/main
         self.assertEqual(registry.get("Coder").spec.id, "coder")
+        self.assertEqual(registry.get("Router").spec.id, "router")
         self.assertNotIn("edit_file", registry.get("Reviewer").spec.tools)
+        self.assertNotIn("edit_file", registry.get("Router").spec.tools)
         self.assertNotIn("apply_patch", registry.get("Tester").spec.tools)
         self.assertTrue(registry.snapshot()["roles"]["analyst"]["prompt_hash"])
 
@@ -525,8 +531,13 @@ class WorkspaceTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
             WorkspaceTools(root, self.executor)
 
     async def test_existing_tests_are_part_of_the_repository_input(self):
+<<<<<<< HEAD
         self.workspace.edit_file(role="Tester", path="test_generated.py", content="old_tests = True  # placeholder; .py writes must parse\n")
         await self.workspace.run_tests(require_generated=False)
+=======
+        self.workspace.edit_file(role="Tester", path="test_generated.py", content="old tests")
+        await self.workspace.run_tests(command=["python", "-m", "unittest", "discover"], require_generated=False)
+>>>>>>> origin/main
         self.assertIn("test_generated.py", self.executor.calls[-1])
         await self.workspace.run_tests()
         self.assertEqual(self.executor.calls[-1]["test_generated.py"], "old_tests = True  # placeholder; .py writes must parse\n")
@@ -853,8 +864,8 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
         from raac.common.errors import AgentExecutionError
         malformed = patch_to(IMPLEMENTED).replace("@@ -1,3 +1,3 @@", "@@ -1,3 +1,99 @@")
         with self.assertRaises(AgentExecutionError) as caught:
-            await self.run_coder_responses([response(malformed)])
-        self.assertEqual(caught.exception.code, "invalid_coder_patch")
+            await self.run_coder_responses([response(malformed), response(malformed)])
+        self.assertEqual(caught.exception.code, "invalid_output")
         self.assertEqual(self.workspace.read_file("solution.py")["content"], BASELINE)
 
     async def test_saved_edits_do_not_bypass_workspace_patch_validation(self):
@@ -870,18 +881,23 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
     async def test_invalid_patch_without_saved_code_has_specific_safe_error(self):
         from raac.common.errors import AgentExecutionError
         with self.assertRaises(AgentExecutionError) as caught:
+<<<<<<< HEAD
             await self.run_coder_responses([response(patch_to(IMPLEMENTED).replace("@@ -1,3 +1,3 @@", "@@ -1,3 +1,99 @@"))],
                                            trace=True)
         self.assertEqual(caught.exception.code, "invalid_coder_patch")
+=======
+            await self.run_coder_responses([response(json.dumps({"summary": "Patch only", "patch": "bad diff"}))] * 2, trace=True)
+        self.assertEqual(caught.exception.code, "invalid_output")
+>>>>>>> origin/main
         self.assertEqual(self.workspace.read_file("solution.py")["content"], BASELINE)
         events = [json.loads(line) for line in (Path(self.temp.name) / "coder.jsonl").read_text().splitlines()]
         self.assertEqual(events[-1]["event"], "agent_failed")
-        self.assertEqual(events[-1]["code"], "invalid_coder_patch")
+        self.assertEqual(events[-1]["code"], "invalid_output")
         self.assertTrue(events[-1]["stack"])
         saved = list((Path(self.temp.name) / "memory").glob("*.json"))
         self.assertEqual(len(saved), 1)
         memory = json.loads(saved[0].read_text())
-        self.assertTrue(any(entry.get("kind") == "failure" and entry.get("code") == "invalid_coder_patch"
+        self.assertTrue(any(entry.get("kind") == "failure" and entry.get("code") == "invalid_output"
                             for entry in memory["entries"]))
 
     async def test_unchanged_code_can_proceed_to_testing_without_fake_patch(self):
@@ -960,7 +976,7 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
                     response(json.dumps({"steps": [{"id": "S1", "ac_ids": ["AC1"], "target": "solution.py",
                                                    "approach": "Implement the operation"}], "covered_ac_ids": ["AC1"]})),
                     response(json.dumps({"patch": patch, "summary": "Implementation fixture"})),
-                    response(tool_calls=[{"id": "write-tests", "type": "function", "function": {
+                    response(tool_calls=[{"id": "select-tests", "type": "function", "function": {"name": "run_tests", "arguments": json.dumps({"command": ["python", "-m", "unittest", "discover"]})}}, {"id": "write-tests", "type": "function", "function": {
                         "name": "edit_file", "arguments": json.dumps({"path": "test_generated.py",
                          "content": "import unittest\nclass Generated(unittest.TestCase):\n    def test_case(self):\n        self.assertTrue(True)\n"}),
                     }}]),

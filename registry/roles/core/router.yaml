@@ -1,0 +1,14 @@
+id: router
+role: Router
+group: core
+prompt: prompts/router.md
+prompt_version: l2-router-v1
+tools:
+  - list_files
+  - read_file
+  - read_files
+  - search_repo
+model:
+  ref: default
+cost_weight: 1.0  # TODO: calibrate cost weight (default 1.0 until pilot data exists)
+max_llm_calls: 4

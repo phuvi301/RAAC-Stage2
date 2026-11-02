@@ -127,10 +127,10 @@ async def test_bad_arguments_are_observations_and_bad_output_is_failure(tmp_path
     call = tool()
     call["function"]["arguments"] = "not-json"
     runner, client, seen = make_runner(
-        tmp_path, [{"tool_calls": [call]}, {"content": "invalid output"}]
+        tmp_path, [{"tool_calls": [call]}, {"content": "invalid output"}, {"content": "still invalid"}]
     )
     try:
-        with pytest.raises(ValueError):
+        with pytest.raises(RuntimeError, match="invalid_output"):
             await runner("Analyst", request())
         assert json.loads(seen[1]["messages"][-1]["content"])["ok"] is False
     finally:

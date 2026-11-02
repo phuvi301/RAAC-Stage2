@@ -254,8 +254,12 @@ class ServiceTests(unittest.TestCase):
             code = await execute(args)
         output_dir = Path(json.loads(stdout.getvalue())["output"])
         record = json.loads((output_dir / "result.json").read_text(encoding="utf-8"))
+<<<<<<< HEAD
         self.assertEqual(code, 0, {key: record.get(key) for key in ("status", "stop_reason", "error")})
         self.assertEqual(set(selected), set(registry.roles) - {"hub"})  # the Hub only runs in star
+=======
+        self.assertEqual(set(selected), set(registry.roles) - {"router"})
+>>>>>>> origin/main
         self.assertGreater(selected.count("coder"), 1)
         self.assertGreater(selected.count("tester"), 1)
         role_models = record["provenance"]["effective_config"]["role_models"]
@@ -346,7 +350,7 @@ class ServiceTests(unittest.TestCase):
                 output = None
                 tool_calls = [{"id": "write-tests", "type": "function", "function": {
                     "name": "edit_file", "arguments": json.dumps({"path": "test_generated.py", "content": generated_source}),
-                }}]
+                }}, {"id": "select-suite", "type": "function", "function": {"name": "run_tests", "arguments": json.dumps({"command": ["python", "-m", "unittest", "discover"]})}}]
             elif system.startswith("You are the Tester"):
                 output = {"patch_hash": work["artifacts"]["patch_hash"], "status": "passed",
                           "tests_run": 99, "failed": 0, "test_cases": ["invented"],

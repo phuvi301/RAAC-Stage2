@@ -388,6 +388,7 @@ async def test_tester_final_validation_receipt_prevents_test_rerun(
     (ws.root / "test_value.py").write_text(
         "import unittest\nfrom pathlib import Path\nclass T(unittest.TestCase):\n def test_value(self):\n  p=Path('count.txt'); p.write_text(str(int(p.read_text())+1) if p.exists() else '1')\n"
     )
+    ws.test_spec = {"command": ["python", "-m", "unittest", "discover"], "cwd": ".", "env": {}}
     original = runner._finalize_output
 
     class Crash(BaseException):

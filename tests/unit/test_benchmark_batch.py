@@ -10,6 +10,23 @@ from raac.benchmark.runner import run_benchmark_batch
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_fingerprint_includes_external_llm_trial_file(tmp_path):
+    from raac.benchmark.runner import benchmark_fingerprint
+
+    llm = tmp_path / "llm.yaml"
+    settings = yaml.safe_load((ROOT / "configs/llm.yaml").read_text())
+    settings["max_tokens"] = 8192
+    llm.write_text(yaml.safe_dump(settings))
+    config = yaml.safe_load((ROOT / "configs/benchmark.yaml").read_text())
+    config["llm_config"] = str(llm)
+    path = tmp_path / "benchmark.yaml"
+    path.write_text(yaml.safe_dump(config))
+    first = benchmark_fingerprint(path, config, {})
+    settings["max_tokens"] = 4096
+    llm.write_text(yaml.safe_dump(settings))
+    assert benchmark_fingerprint(path, config, {}) != first
+
+
 @pytest.mark.asyncio
 async def test_batch_runs_matrix_once_and_resume_skips_completed(tmp_path, monkeypatch):
     import raac.benchmark.runner as module
@@ -25,6 +42,9 @@ async def test_batch_runs_matrix_once_and_resume_skips_completed(tmp_path, monke
     async def run(task, *, output_dir, level, repetition, **kwargs):
         calls.append((task.id, repetition))
         output_dir.mkdir(parents=True)
+        (output_dir / "llm.jsonl").write_text('{"event":"benchmark_phase_completed","status":"completed"}\n')
+        if kwargs.get("on_trace_ready"):
+            kwargs["on_trace_ready"](output_dir / "llm.jsonl")
         record = RunRecord(run_id=output_dir.name, task_id=task.id, level=level,
             base_commit=task.base_commit, repetition=repetition, status="completed", agent_status="rejected",
             evaluation_status="resolved")
@@ -33,14 +53,60 @@ async def test_batch_runs_matrix_once_and_resume_skips_completed(tmp_path, monke
 
     monkeypatch.setattr(module, "run_task", run)
     kwargs = {"config_path": config_path, "task_ids": ids, "levels": ["L3"], "repetitions": 2, "batch_id": "fixture"}
-    result = await run_benchmark_batch(**kwargs)
+    observed = []
+    result = await run_benchmark_batch(**kwargs, on_trace_ready=observed.append)
     assert len(calls) == 4 and result["total"] == 4
-    await run_benchmark_batch(**kwargs, resume=True)
+    assert len(observed) == 4
+    first_attempts = observed[:]
+    await run_benchmark_batch(**kwargs, resume=True, on_trace_ready=observed.append)
     assert len(calls) == 4
+    assert observed[4:] == first_attempts
     config["agent_run_timeout_seconds"] = 100.0
     config_path.write_text(yaml.safe_dump(config))
     with pytest.raises(ValueError, match="fingerprint"):
         await run_benchmark_batch(**kwargs, resume=True)
+
+
+@pytest.mark.asyncio
+async def test_batch_runs_each_selected_level_and_checks_identity_per_level(tmp_path, monkeypatch):
+    import json
+
+    import raac.benchmark.runner as module
+
+    config = yaml.safe_load((ROOT / "configs/benchmark.yaml").read_text())
+    config["results"] = str(tmp_path / "results")
+    config["dataset"] = str(ROOT / config["dataset"])
+    config_path = tmp_path / "benchmark.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    task_id = next(iter(load_tasks(Path(config["dataset"]))))
+    calls = []
+
+    async def run(task, *, output_dir, level, repetition, **kwargs):
+        calls.append(level)
+        output_dir.mkdir(parents=True)
+        record = RunRecord(run_id=output_dir.name, task_id=task.id, level=level, base_commit=task.base_commit,
+            repetition=repetition, status="completed", evaluation_status="unresolved")
+        write_record(output_dir / "record.json", record)
+        return record
+
+    monkeypatch.setattr(module, "run_task", run)
+    kwargs = {"config_path": config_path, "task_ids": [task_id], "levels": ["L1", "L2", "L3"],
+              "repetitions": 1, "batch_id": "levels"}
+    result = await run_benchmark_batch(**kwargs)
+    assert calls == ["L1", "L2", "L3"] and result["total"] == 3
+    await run_benchmark_batch(**kwargs, resume=True)
+    assert calls == ["L1", "L2", "L3"]
+    manifest = json.loads((tmp_path / "results/benchmark-batches/levels/manifest.json").read_text())
+    l1_run = manifest["entries"][0]["attempts"][0]
+    path = tmp_path / "results" / l1_run / "record.json"
+    swapped = RunRecord.model_validate_json(path.read_text())
+    swapped.level = "L3"
+    write_record(path, swapped)
+    with pytest.raises(ValueError, match="identity"):
+        await run_benchmark_batch(**kwargs, resume=True)
+    for levels in (["L1", "L1"], ["L4"], []):
+        with pytest.raises(ValueError):
+            await run_benchmark_batch(**{**kwargs, "levels": levels, "batch_id": "invalid"})
 
 
 @pytest.mark.asyncio

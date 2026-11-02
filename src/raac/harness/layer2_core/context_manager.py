@@ -14,6 +14,8 @@ class RoleContextPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     enabled: bool = True
+    command_output_filter: bool = False
+    concise_output: bool = False
     recent_tool_turns: int = Field(default=1, ge=0, le=4)
     max_tool_output_chars: int = Field(default=8000, ge=512, le=65536)
     max_old_tool_output_chars: int = Field(default=1200, ge=256, le=8192)
@@ -315,7 +317,7 @@ def _file_context(groups, maximum, validator):
     return selected
 
 
-def prepare_messages(messages, policy: RoleContextPolicy, *, file_validator=None):
+def _prepare_messages(messages, policy: RoleContextPolicy, *, file_validator=None):
     """Retain valid tool-call/result pairs or replace the whole exchange with receipts.
 
     The system prompt and initial task message are never truncated. Recent read
@@ -375,3 +377,30 @@ def prepare_messages(messages, policy: RoleContextPolicy, *, file_validator=None
     if after >= before and not (files and after <= before + 1200):
         return deepcopy(messages), {"before_chars": before, "after_chars": before, "compacted_turns": 0}
     return output, {"before_chars": before, "after_chars": after, "compacted_turns": compacted, **history_metrics}
+
+
+CONCISE_VERSION = "concise-v1"
+CONCISE_GUIDANCE = (
+    "\nBe concise: omit repetition and introductory prose. Preserve every required field, "
+    "JSON key, acceptance criterion, constraint, API signature, code/diff and exact error string."
+)
+
+
+def prepare_messages(messages, policy: RoleContextPolicy, *, file_validator=None):
+    from .command_output import filter_messages
+
+    source = filter_messages(messages) if policy.command_output_filter else deepcopy(messages)
+    if policy.enabled and len(source) > 1:
+        try:
+            task = json.loads(source[1]["content"])
+        except (ValueError, TypeError, KeyError):
+            task = None
+        if isinstance(task, dict):
+            compacted_task = compact_request(task)
+            if compacted_task != task:
+                source[1]["content"] = _json(compacted_task)
+    prepared, metrics = _prepare_messages(source, policy, file_validator=file_validator)
+    if policy.concise_output and prepared and CONCISE_GUIDANCE not in prepared[0]["content"]:
+        prepared[0]["content"] += CONCISE_GUIDANCE
+    metrics.update(before_chars=len(_json(messages)), after_chars=len(_json(prepared)))
+    return prepared, metrics

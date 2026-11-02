@@ -18,17 +18,20 @@ def main(argv=None):
     benchmark_commands = benchmark.add_subparsers(dest="command", required=True)
     one = benchmark_commands.add_parser("run")
     one.add_argument("--task-id", required=True)
-    one.add_argument("--level", choices=["L3"], default="L3")
+    one.add_argument("--level", choices=["L1", "L2", "L3"], default="L3")
     one.add_argument("--repetition", type=int, default=1)
     one.add_argument("--config")
     many = benchmark_commands.add_parser("batch")
     many.add_argument("--task-id", action="append", required=True)
-    many.add_argument("--level", choices=["L3"], default="L3")
+    many.add_argument("--level", choices=["L1", "L2", "L3"], default="L3")
     many.add_argument("--repetitions", type=int, default=1)
     many.add_argument("--batch-id", required=True)
     many.add_argument("--resume", action="store_true")
     many.add_argument("--retry-errors", action="store_true")
     many.add_argument("--config")
+    for command in (one, many):
+        command.add_argument("--observe", choices=["web", "terminal", "none"], default="web",
+                             help="Observe benchmark logs (default: web; none for scripts/CI)")
     sandbox = sub.add_parser("sandbox")
     commands = sandbox.add_subparsers(dest="command", required=True)
     for name in ("check", "prepare", "run"):

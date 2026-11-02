@@ -10,8 +10,9 @@ import time
 from pathlib import PurePosixPath
 from types import SimpleNamespace
 from uuid import uuid4
-
 from raac.common.errors import SourceModifiedError
+from raac.common.errors import WorkspaceIntegrityError
+
 
 from ..environment import EnvironmentManager
 from .paths import EXCLUDED_DIRS, SECRET_FILES, repo_path, test_path
@@ -208,6 +209,8 @@ class DockerWorkspaceTools(WorkspaceTools):
         self.baseline_ref = hashlib.sha256((json.dumps(manifest) + "\0" + requirement).encode()).hexdigest()
 
     def _rpc(self, operation, **values):
+        if operation in {"write", "delete", "mkdir"}:
+            self.invalidate_runtime_snapshot()
         if time.monotonic() >= self.executor.deadline:
             raise TimeoutError("Run deadline exceeded")
         request = {"operation": operation, "excluded": sorted(EXCLUDED_DIRS), "secrets": sorted(SECRET_FILES),
@@ -262,10 +265,22 @@ class DockerWorkspaceTools(WorkspaceTools):
         return super()._can_write(role, name)
 
     async def _mutating_command(self, role, call):
+        started = time.perf_counter()
+        self.invalidate_runtime_snapshot()
         before = self._snapshot()
         before_modes = dict(self.current_modes)
+        before_seconds = time.perf_counter() - started
+        execution_started = time.perf_counter()
         try:
             result = await call()
+        except ValueError:
+            # Validation can fail before spawn; verify instead of poisoning a clean workspace.
+            prior_error = getattr(self, "integrity_error", None)
+            self.integrity_error = "Command failed before mutation verification"
+            after = self._snapshot()
+            if before == after and before_modes == self.current_modes:
+                self.integrity_error = prior_error
+            raise
         except BaseException:
             # A call refused before it ran (a bad argument, say) changes nothing and must not taint the run: the
             # candidate could never be exported afterwards. One that failed midway may have left files behind
@@ -278,6 +293,8 @@ class DockerWorkspaceTools(WorkspaceTools):
             if not untouched:
                 self.integrity_error = "Command failed before mutation verification"
             raise
+        execution_seconds = time.perf_counter() - execution_started
+        after_started = time.perf_counter()
         after = self._snapshot()
         if role == "Environment":
             # Symlinks created while preparing the runtime join the baseline; retargeting or removing one still fails.
@@ -318,6 +335,13 @@ class DockerWorkspaceTools(WorkspaceTools):
             self.tester_paths.update(changed)
         if changed and self.executor.trace:
             self.executor.trace("workspace_changed", {"role": role, "paths": sorted(changed)})
+        self._verified_command_snapshot = after
+        if self.executor.trace:
+            self.executor.trace("command_timing", {
+                "before_snapshot_ms": round(before_seconds * 1000, 3),
+                "execution_ms": round(execution_seconds * 1000, 3),
+                "after_snapshot_ms": round((time.perf_counter() - after_started) * 1000, 3),
+            })
         return result
 
     async def run_command(self, *, command, cwd=".", env=None, timeout_seconds=None, unlimited=False):

@@ -29,7 +29,11 @@ def reg_dir(tmp_path):
 def test_real_registry_loads():
     registry = load_registry(REAL_REGISTRY)
     assert set(REQUIRED_CORE_ROLES) <= set(registry.roles)
+<<<<<<< HEAD
     assert {r.id for r in registry.roles_in_group(RoleGroup.CORE)} == set(REQUIRED_CORE_ROLES) | {"environment", "hub"}
+=======
+    assert {r.id for r in registry.roles_in_group(RoleGroup.CORE)} == set(REQUIRED_CORE_ROLES) | {"environment", "router"}
+>>>>>>> origin/main
     assert registry.roles_in_group(RoleGroup.EXTENDED) == []
     assert registry.version == read_registry_version(REAL_REGISTRY)
 
@@ -129,7 +133,11 @@ def test_render_prompt_substitutes_known_variables_only(reg_dir):
 
 # ---------------------------------------------------------------- version stamping
 def test_version_file_exists_and_is_semver():
+<<<<<<< HEAD
     assert read_registry_version(REAL_REGISTRY) == "0.18.14"
+=======
+    assert read_registry_version(REAL_REGISTRY) == "0.19.5"
+>>>>>>> origin/main
 
 
 def test_bad_or_missing_version(reg_dir):
@@ -146,7 +154,11 @@ def test_bad_or_missing_version(reg_dir):
 def test_stamp_record_adds_version_without_mutating_input(reg_dir):
     record = {"task_id": "t1", "level": "L1"}
     stamped = stamp_record(record, reg_dir)
+<<<<<<< HEAD
     assert stamped == {"task_id": "t1", "level": "L1", "registry_version": "0.18.14"}
+=======
+    assert stamped == {"task_id": "t1", "level": "L1", "registry_version": "0.19.5"}
+>>>>>>> origin/main
     assert "registry_version" not in record
 
 
@@ -158,4 +170,19 @@ def test_stamp_record_follows_version_file(reg_dir):
 def test_stamp_record_rejects_mixed_versions(reg_dir):
     with pytest.raises(RegistryError, match="already has registry_version='0.0.9'"):
         stamp_record({"registry_version": "0.0.9"}, reg_dir)
+<<<<<<< HEAD
     assert stamp_record({"registry_version": "0.18.14"}, reg_dir)["registry_version"] == "0.18.14"
+=======
+    assert stamp_record({"registry_version": "0.19.5"}, reg_dir)["registry_version"] == "0.19.5"
+
+
+@pytest.mark.parametrize("role_id", ["analyst", "planner"])
+def test_inspection_prompts_prefer_batching_only_known_independent_paths(role_id):
+    registry = load_registry(REAL_REGISTRY)
+    prompt = registry.prompts[role_id]
+    assert registry.get_role(role_id).prompt_version == ("chain-v7" if role_id in {"analyst", "tester"} else "chain-v6")
+    assert "independent file paths are already known" in prompt
+    assert "read_files" in prompt
+    assert "changed or the earlier result was truncated" in prompt
+    assert "keep dependent inspections ordered" in prompt
+>>>>>>> origin/main

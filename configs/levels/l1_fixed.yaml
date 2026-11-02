@@ -1,2 +1,11 @@
-# TODO: Define and validate configuration; see docs/implementation_checklist.md.
-{}
+version: l1-fixed-v1
+level: L1
+topology: linear
+roles:
+  - Analyst
+  - Planner
+  - Coder
+  - Tester
+  - Reviewer
+max_rounds: 1
+hard_max_rounds: 1

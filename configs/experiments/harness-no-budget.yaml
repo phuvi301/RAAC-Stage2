@@ -1,0 +1,20 @@
+version: harness-demo-v14-no-budget
+trace_content: true
+token_limit: null  # Disable total-token ceiling; usage guards remain active.
+timeout_seconds: 9000.0
+agent_timeout_seconds: 400
+context:
+  enabled: false
+  recent_tool_turns: 1
+  max_tool_output_chars: 8000
+  max_old_tool_output_chars: 1200
+  max_file_context_chars: 12000
+  max_checkpoint_tokens: 2000
+memory:
+  enabled: true
+  max_tokens: 50000
+  target_tokens: 20000
+execution:
+  mode: local
+  timeout_seconds: 200.0
+  max_output_bytes: 131072
