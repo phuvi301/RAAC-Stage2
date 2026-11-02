@@ -50,6 +50,27 @@ async def test_dsml_documented_inside_valid_json_is_not_a_tool_call(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("invalid,code,saved", [
+    ('{"patch":"not a diff"}', "invalid_output", False),
+    ('<｜｜DSML｜｜ invoke name="replace_text">', "invalid_tool_call_format", False),
+    ('<｜｜DSML｜｜ invoke name="replace_text">', "invalid_tool_call_format", True),
+])
+async def test_coder_reports_preserve_output_recovery_and_tool_markup_guards(tmp_path, invalid, code, saved):
+    runner, client, seen = make_runner(tmp_path, [{"content": invalid}, {"content": invalid}])
+    expected = "VALUE = 2\n" if saved else "VALUE = 1\n"
+    if saved:
+        runner.tools.workspace.edit_file(role="Coder", path="value.py", content=expected)
+    try:
+        with pytest.raises(AgentExecutionError, match=code):
+            await runner("Coder", request())
+        assert len(seen) == 2
+        assert runner.checkpoints.latest_run("run-one")["output_recoveries"] == 1
+        assert (runner.tools.workspace.root / "value.py").read_text() == expected
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_resume_does_not_reset_repair_quota(tmp_path):
     runner, client, _ = make_runner(tmp_path, [
         {"content": "bad"}, {"tool_calls": [tool()]},

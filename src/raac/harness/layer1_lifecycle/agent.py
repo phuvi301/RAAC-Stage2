@@ -723,7 +723,7 @@ class AgentRunner:
             prepared[0]["content"] += (
                 f" This {'final' if remaining == 0 else 'handoff'} call has no tools. Return the required output now: "
                 + (
-                    "unified diff only (empty text for no changes)."
+                    "a plain-text STEP/ISSUE/NOTES handoff report; saved files supply the patch."
                     if role.spec.name == "Coder"
                     else "one concise complete JSON object using observed results; avoid repeated explanations and do not claim unexecuted tests passed."
                 )
@@ -802,7 +802,13 @@ class AgentRunner:
                     detail = ("Tools are unavailable. Return the required handoff JSON using observed results; no tool calls or DSML."
                               if handoff else "Use native tool_calls while tools are available, never DSML text. Otherwise return the required handoff.")
                     self._recover_output(state, "invalid_tool_call_format", detail)
-                elif role == "Coder" and self.tools.workspace.code_edit_count != state["code_edits_before"]:
+                elif role == "Coder" and (
+                    self.tools.workspace.code_edit_count != state["code_edits_before"]
+                    or self.tools.workspace.coder_paths
+                    or (not looks_like_diff(content) and not content.lstrip().startswith(("{", "[", "```")))
+                ):
+                    # Reports and no-op retries finalize the saved workspace
+                    # patch. Unsaved malformed diffs/JSON still need recovery.
                     state["phase"] = "finalize"
                 else:
                     self._recover_output(state, "invalid_output", str(exc))
@@ -981,6 +987,8 @@ class AgentRunner:
                     rebuild_reason = "invalid_model_diff"
                 elif claims_diff:
                     rebuild_reason = "no_new_edits"
+            if not saved_edits and not patch and self.tools.workspace.coder_paths:
+                rebuild_reason = "no_new_edits"
             if not saved_edits and patch:
                 try:
                     selected, already_applied = self.tools.workspace.select_coder_patch(

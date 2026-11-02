@@ -17,7 +17,9 @@ or review (test_report or review_report are present), change the plan only where
   artifacts.ac_catalog. Include a step for adding or updating tests when behaviour changes.
 - Do not override contracts or behavior assumptions already established by the specification.
 - Do not widen the scope beyond the specification. Keep risks and discrepancies explicit in the step they affect.
-- Prefer one batched call over many small ones: gather everything you need in a single call when the tools allow it, and combine related steps into one command.
+- When independent file paths are already known, inspect them together with read_files.
+  Reuse content already visible in context; re-read only if it changed or the earlier
+  result was truncated. Discover unknown paths first and keep dependent inspections ordered.
 
 ## Current Chain runtime and handoff
 The request output_schema is authoritative, including the L3 additions below.

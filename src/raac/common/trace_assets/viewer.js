@@ -33,13 +33,8 @@ async function refreshRuns() {
 const colors = {router:"#556db4",environment:"#477b9e",analyst:"#6186b9",planner:"#9170ae",coder:"#248e83",tester:"#c18a38",reviewer:"#a46f82",mas:"#6f8792"};
 const names = {router:"Router",environment:"Environment",analyst:"Analyst",planner:"Planner",coder:"Coder",tester:"Tester",reviewer:"Reviewer",mas:"MAS"};
 const labels = {requirement:"Yêu cầu",incoming_message:"Bàn giao đầu vào",artifacts:"Tài liệu và kết quả",spec:"Đặc tả",plan:"Kế hoạch",summary:"Tóm tắt",acceptance_criteria:"Tiêu chí nghiệm thu",constraints:"Ràng buộc",approach:"Phương án",steps:"Các bước",risks:"Rủi ro",content:"Nội dung",messages:"Messages",role:"Vai trò",tool_calls:"Yêu cầu tool",arguments:"Tham số",result:"Kết quả",execution:"Thực thi",stdout:"stdout",stderr:"stderr",tests_run:"Số test",failed:"Test lỗi",status:"Trạng thái",verdict:"Phán quyết",notes:"Ghi chú",patch:"Patch",test_cases:"Các test case",code:"Mã lỗi",error:"Lỗi",error_kind:"Loại lỗi",path:"Đường dẫn",command:"Lệnh",repository_files:"Danh sách file",repository_changes:"File thay đổi",from:"Bên gửi",output_schema:"Cấu trúc kết quả yêu cầu",role_memory:"Memory các vòng trước",entries:"Các bản ghi",identity:"Phạm vi memory",revision:"Revision",compactions:"Số lần compact",estimated_tokens:"Token ước lượng",kind:"Loại bản ghi",round:"Vòng",sequence:"Thứ tự",observation:"Quan sát thực tế",tool:"Tool",feedback:"Phản hồi",preview:"Nội dung rút gọn",tool_counts:"Số lần dùng tool",changed_files:"File đã thay đổi",working_notes:"Ghi chú làm việc",conclusions:"Kết luận",ruled_out:"Giả thuyết đã loại",next_steps:"Bước tiếp theo",statement:"Kết luận",evidence:"Bằng chứng tham chiếu",hypothesis:"Giả thuyết",reason:"Lý do",detail_ref:"Chi tiết trong journal"};
-<<<<<<< HEAD
-const state = {events:[], ids:new Set(), cards:new Map(), usageSlots:new Map(), cursor:0, paused:false, role:"", query:"", initial:true, warnings:new Set(), completed:false};
-const flow = {topology:null, name:"", selected:null, loading:false, declared:false};
-=======
 const state = {events:[], ids:new Set(), cards:new Map(), usageSlots:new Map(), cursor:0, paused:false, role:"", query:"", initial:true, warnings:new Set(), completed:false, routing:null};
-const flow = {topology:null, name:"", selected:null, request:0};
->>>>>>> origin/main
+const flow = {topology:null, name:"", selected:null, request:0, declared:false};
 const memoryState = {loaded:false, busy:false, id:"", revision:null, journal:null, journalBusy:false, history:null, historyBusy:false, changeRequest:0};
 const number = value => Number(value || 0).toLocaleString("en-US");
 const normalize = value => String(value).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g,"d");
@@ -328,7 +323,6 @@ function renderFlow() {
     const from = at.get(edge.from), to = at.get(edge.to); if (!from || !to) continue;
     let d, label = null;
     if (edge.back) {
-<<<<<<< HEAD
       const key = `${edge.from}>${edge.to}`;
       if (shape.topArcs.has(key)) {
         const sx = from.x, tx = to.x, y0 = from.y - 25, y1 = to.y - 27, peak = y0 - 58;
@@ -350,13 +344,7 @@ function renderFlow() {
         d = `M${a.x + ox} ${a.y + oy} L${b.x + ox} ${b.y + oy}`;
       } else d = `M${a.x} ${a.y} L${b.x} ${b.y}`;
     }
-    const cls = `flow-edge${edge.traversed ? " traversed" : ""}${edge.active ? " active" : ""}`;
-=======
-      const sx = from.x, sy = from.y + 24, tx = to.x, ty = to.y + 27;
-      d = `M${sx} ${sy} C${sx} ${sy + 46} ${tx} ${ty + 84} ${tx} ${ty}`;
-    } else { const a = clip(from, to), b = clip(to, from, 5); d = `M${a.x} ${a.y} L${b.x} ${b.y}`; }
     const cls = `flow-edge${edge.traversed ? " traversed" : ""}${edge.active ? " active" : ""}${edge.skipped ? " skipped" : ""}`;
->>>>>>> origin/main
     canvas.append(svg("path", {d, class: cls, "marker-end": `url(#${edge.active ? "arrow-live" : edge.traversed ? "arrow-on" : "arrow"})`}));
     if (label) canvas.append(svg("text", {class: `flow-edge-label${edge.traversed ? " traversed" : ""}`, x: label.x, y: label.y}, label.text));
   }
@@ -386,20 +374,12 @@ function renderFlow() {
   $("flow-topology").textContent = flow.declared ? label : `${label} (mặc định, run chưa khai báo topology)`;
   renderFlowDetail(summary, current);
 }
-<<<<<<< HEAD
-async function loadTopology(name = "chain") {
-  // Remember the newest request: the run's topology often arrives while the initial default is still loading.
-  flow.wanted = name;
-  if (flow.loading || flow.name === name) return;
-  flow.loading = true;
-=======
 async function loadTopology(name) {
   if (!name || flow.name === name) return;
   const request = ++flow.request;
   flow.name = name; flow.topology = null; flow.selected = null;
   $("flow-canvas").replaceChildren();
   $("flow-topology").textContent = name;
->>>>>>> origin/main
   try {
     const response = await traceFetch(`/api/topology?name=${encodeURIComponent(name)}`, {cache: "no-store"});
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -411,12 +391,7 @@ async function loadTopology(name) {
     flow.name = "";
     $("flow-topology").textContent = "Chưa tải được topology";
     $("flow-detail").replaceChildren(node("p", "notice", `Không đọc được topology: ${error.message}`));
-<<<<<<< HEAD
-  } finally { flow.loading = false; }
-  if (flow.wanted && flow.wanted !== flow.name) loadTopology(flow.wanted);
-=======
   }
->>>>>>> origin/main
 }
 
 function resetMemoryChanges() {
@@ -552,7 +527,7 @@ async function poll() {
     const response=await traceFetch(`/api/events?cursor=${state.cursor}`,{cache:"no-store"});if(!response.ok)throw new Error(`HTTP ${response.status}`);
     const data=await response.json();
     let changed=Boolean(data.reset)||state.initial;
-    if(data.reset){flow.request++;flow.name="";flow.topology=null;flow.selected=null;state.routing=null;$("flow-canvas").replaceChildren();state.events=[];state.ids.clear();state.cards.clear();state.usageSlots.clear();$("feed").replaceChildren();}
+    if(data.reset){flow.request++;flow.name="";flow.topology=null;flow.selected=null;flow.declared=false;state.routing=null;$("flow-canvas").replaceChildren();state.events=[];state.ids.clear();state.cards.clear();state.usageSlots.clear();$("feed").replaceChildren();}
     if(state.initial){state.role=String(data.initial_agent||"").toLowerCase();state.initial=false;}
     for(const event of data.events) {
       if(state.ids.has(event.id))continue;
@@ -571,16 +546,10 @@ async function poll() {
     $("warning").textContent=[...state.warnings].join(" ");$("warning").hidden=!state.warnings.size;
     if(data.routing && JSON.stringify(data.routing)!==JSON.stringify(state.routing)){state.routing=data.routing;changed=true;}
     const topologyName=topologyForRun(state.events, data.level);
+    flow.declared=state.events.some(event=>event.event==="run_started"&&event.topology);
     if(topologyName && topologyName!==flow.name)loadTopology(topologyName);
     if(changed){
-<<<<<<< HEAD
-      const declared=[...state.events].reverse().find(event=>event.event==="run_started"&&event.topology);
-      if(declared&&!flow.declared){flow.declared=true;if(declared.topology===flow.name)renderFlow();}
-      if(declared&&declared.topology!==flow.name)loadTopology(declared.topology);
       updateStats();updateCommunicationUsage();updateFilters();renderFlow();renderAssumptions();
-=======
-      updateStats();updateCommunicationUsage();updateFilters();renderFlow();
->>>>>>> origin/main
     }
     if(!memoryState.loaded || $("memory-panel").open || data.events.some(event=>event.event.startsWith("memory_")))await refreshMemory();
     $("connection").textContent=data.has_more?"Đang đọc thêm…":state.completed?"Đã đọc đến cuối run":"Đang theo dõi · 1,5 giây/lần";

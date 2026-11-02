@@ -254,12 +254,8 @@ class ServiceTests(unittest.TestCase):
             code = await execute(args)
         output_dir = Path(json.loads(stdout.getvalue())["output"])
         record = json.loads((output_dir / "result.json").read_text(encoding="utf-8"))
-<<<<<<< HEAD
         self.assertEqual(code, 0, {key: record.get(key) for key in ("status", "stop_reason", "error")})
-        self.assertEqual(set(selected), set(registry.roles) - {"hub"})  # the Hub only runs in star
-=======
-        self.assertEqual(set(selected), set(registry.roles) - {"router"})
->>>>>>> origin/main
+        self.assertEqual(set(selected), set(registry.roles) - {"hub", "router"})
         self.assertGreater(selected.count("coder"), 1)
         self.assertGreater(selected.count("tester"), 1)
         role_models = record["provenance"]["effective_config"]["role_models"]
@@ -395,7 +391,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(record["execution"]["mode"], "local")
         self.assertNotIn("evaluation", record)
         self.assertNotIn("sandbox_image_id", record)
-        self.assertEqual(record["provenance"]["registry_version"], "0.18.14")
+        self.assertEqual(record["provenance"]["registry_version"], "0.19.5")
         declaration = record["provenance"]["registry_snapshot"]["roles"]["planner"]
         self.assertEqual(declaration["role"], "Planner")
         self.assertEqual(declaration["model"], {"ref": "default"})

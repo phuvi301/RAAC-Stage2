@@ -157,11 +157,7 @@ max_llm_calls: 6
 
     def test_core_roles_permissions_and_prompt_provenance(self):
         registry = load_registry(PROJECT / "registry")
-<<<<<<< HEAD
-        self.assertEqual(len(registry.roles), 7)  # six chain roles + the star Hub
-=======
-        self.assertEqual(len(registry.roles), 7)
->>>>>>> origin/main
+        self.assertEqual(len(registry.roles), 8)  # five core roles, Environment, Hub and Router
         self.assertEqual(registry.get("Coder").spec.id, "coder")
         self.assertEqual(registry.get("Router").spec.id, "router")
         self.assertNotIn("edit_file", registry.get("Reviewer").spec.tools)
@@ -531,13 +527,8 @@ class WorkspaceTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
             WorkspaceTools(root, self.executor)
 
     async def test_existing_tests_are_part_of_the_repository_input(self):
-<<<<<<< HEAD
         self.workspace.edit_file(role="Tester", path="test_generated.py", content="old_tests = True  # placeholder; .py writes must parse\n")
-        await self.workspace.run_tests(require_generated=False)
-=======
-        self.workspace.edit_file(role="Tester", path="test_generated.py", content="old tests")
         await self.workspace.run_tests(command=["python", "-m", "unittest", "discover"], require_generated=False)
->>>>>>> origin/main
         self.assertIn("test_generated.py", self.executor.calls[-1])
         await self.workspace.run_tests()
         self.assertEqual(self.executor.calls[-1]["test_generated.py"], "old_tests = True  # placeholder; .py writes must parse\n")
@@ -591,7 +582,7 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
         self.registry.roles["coder"] = role.spec.model_copy(update={"max_llm_calls": 2})
         sequence = [response(tool_calls=[{"id": "save", "type": "function", "function": {
             "name": "edit_file", "arguments": json.dumps({"path": "solution.py", "content": IMPLEMENTED})}}]),
-            response(patch_to(IMPLEMENTED))]
+            response("NOTES: saved the implementation")]
         payloads = []
 
         def handler(request):
@@ -610,7 +601,10 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
         self.assertIn("tools", payloads[0])
         self.assertNotIn("tools", payloads[1])
         self.assertIn("final call has no tools", payloads[1]["messages"][0]["content"])
+        self.assertIn("plain-text STEP/ISSUE/NOTES handoff report", payloads[1]["messages"][0]["content"])
+        self.assertNotIn("unified diff only", payloads[1]["messages"][0]["content"])
         self.assertEqual(apply_solution_patch(BASELINE, output.output), IMPLEMENTED)
+        self.assertIn("saved the implementation", output.runtime["summary"])
 
     async def test_explicit_empty_noop_is_opt_in_and_missing_usage_still_blocks(self):
         for allow_empty, has_usage, succeeds in ((False, True, False), (True, True, True), (True, False, False)):
@@ -881,14 +875,10 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
     async def test_invalid_patch_without_saved_code_has_specific_safe_error(self):
         from raac.common.errors import AgentExecutionError
         with self.assertRaises(AgentExecutionError) as caught:
-<<<<<<< HEAD
-            await self.run_coder_responses([response(patch_to(IMPLEMENTED).replace("@@ -1,3 +1,3 @@", "@@ -1,3 +1,99 @@"))],
-                                           trace=True)
-        self.assertEqual(caught.exception.code, "invalid_coder_patch")
-=======
-            await self.run_coder_responses([response(json.dumps({"summary": "Patch only", "patch": "bad diff"}))] * 2, trace=True)
+            # Bypass response()'s legacy fixture conversion so the invalid JSON
+            # patch object reaches the runner unchanged instead of becoming prose.
+            await self.run_coder_responses([response(" " + json.dumps({"summary": "Patch only", "patch": "bad diff"}))] * 2, trace=True)
         self.assertEqual(caught.exception.code, "invalid_output")
->>>>>>> origin/main
         self.assertEqual(self.workspace.read_file("solution.py")["content"], BASELINE)
         events = [json.loads(line) for line in (Path(self.temp.name) / "coder.jsonl").read_text().splitlines()]
         self.assertEqual(events[-1]["event"], "agent_failed")
