@@ -2,7 +2,7 @@ id: environment
 role: Environment
 group: core
 prompt: prompts/environment.md
-prompt_version: chain-v5
+prompt_version: chain-v6
 tools:
   - read_tool_result
   - list_files

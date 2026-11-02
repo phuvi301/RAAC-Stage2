@@ -19,6 +19,11 @@
       <div><span>TỔNG TOKEN</span><strong id="stat-tokens">0</strong><small id="stat-budget">Theo usage API đã ghi</small></div>
       <div><span>KẾT QUẢ TOOL LỖI</span><strong id="stat-errors">0</strong><small>Gồm test fail và lỗi thực thi</small></div>
     </section>
+    <section class="assumptions" id="assumptions" hidden aria-label="Giả định agent đã chọn">
+      <div class="assumptions-head"><h2>Giả định agent đã chọn</h2><span class="tag" id="assumption-count"></span></div>
+      <p class="subtitle">Yêu cầu không quyết định các hành vi này. Không ai được hỏi trong run, nên Analyst tự chọn cách hiểu; kết quả chấm có thể khác nếu đáp án hiểu theo cách khác.</p>
+      <ol id="assumption-list"></ol>
+    </section>
     <section class="flow" id="flow" aria-label="Tiến trình theo topology">
       <div class="flow-head"><div><h2>Tiến trình theo topology</h2><p class="subtitle">Tự đồng bộ theo mức điều phối của run. Bấm vào node để xem role đó đang làm gì.</p></div><span class="tag" id="flow-topology">Đang đọc mức điều phối…</span></div>
       <div class="flow-body">

@@ -72,6 +72,8 @@ class RunRecord(RecordModel):
     messages: Count = 0
     rounds: Count = 0
     errors: list[dict[str, str]] = Field(default_factory=list)
+    # Analyst assumptions for behaviour the issue leaves undecided (question, assumption, affects_behavior).
+    assumptions: list[dict[str, Any]] = Field(default_factory=list)
     provenance: dict[str, Any] = Field(default_factory=dict)
     trace: dict[str, Any] = Field(default_factory=dict)
 

@@ -29,7 +29,9 @@ def reg_dir(tmp_path):
 def test_real_registry_loads():
     registry = load_registry(REAL_REGISTRY)
     assert set(REQUIRED_CORE_ROLES) <= set(registry.roles)
-    assert {r.id for r in registry.roles_in_group(RoleGroup.CORE)} == set(REQUIRED_CORE_ROLES) | {"environment", "router"}
+    assert {r.id for r in registry.roles_in_group(RoleGroup.CORE)} == (
+        set(REQUIRED_CORE_ROLES) | {"environment", "hub", "router"}
+    )
     assert registry.roles_in_group(RoleGroup.EXTENDED) == []
     assert registry.version == read_registry_version(REAL_REGISTRY)
 
@@ -164,7 +166,7 @@ def test_stamp_record_rejects_mixed_versions(reg_dir):
 @pytest.mark.parametrize("role_id", ["analyst", "planner"])
 def test_inspection_prompts_prefer_batching_only_known_independent_paths(role_id):
     registry = load_registry(REAL_REGISTRY)
-    prompt = registry.prompts[role_id]
+    prompt = " ".join(registry.prompts[role_id].split())
     assert registry.get_role(role_id).prompt_version == ("chain-v7" if role_id in {"analyst", "tester"} else "chain-v6")
     assert "independent file paths are already known" in prompt
     assert "read_files" in prompt

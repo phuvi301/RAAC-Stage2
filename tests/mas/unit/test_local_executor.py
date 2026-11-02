@@ -12,6 +12,27 @@ import unittest
 from raac.harness.layer3_execution.local_executor import LocalExecutor, LocalExecutionPolicy
 
 
+class SkippedTestPolicyTests(unittest.IsolatedAsyncioTestCase):
+    async def run_suite(self, **policy):
+        with tempfile.TemporaryDirectory() as temporary:
+            (Path(temporary) / "test_skips.py").write_text(
+                "import unittest\nclass Case(unittest.TestCase):\n"
+                "    def test_ran(self):\n        self.assertTrue(True)\n"
+                "    @unittest.skip('optional dependency missing')\n    def test_optional(self):\n        self.fail()\n",
+                encoding="utf-8")
+            executor = LocalExecutor(LocalExecutionPolicy(timeout_seconds=8.0, **policy))
+            return await executor.run_tests(Path(temporary), command=["python", "-m", "unittest", "discover"])
+
+    async def test_skips_do_not_fail_a_suite_by_default(self):
+        report = await self.run_suite()
+        self.assertEqual((report["status"], report["tests_run"], report["failed"], report["skipped"]),
+                         ("passed", 2, 0, 1))
+
+    async def test_skips_fail_the_suite_when_the_policy_forbids_them(self):
+        report = await self.run_suite(allow_skipped_tests=False)
+        self.assertEqual((report["status"], report["failed"], report["skipped"]), ("failed", 0, 1))
+
+
 class LocalExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         temporary = tempfile.TemporaryDirectory()

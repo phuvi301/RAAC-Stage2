@@ -11,6 +11,8 @@ paths when creating or repairing a different environment. Never assume the MAS i
 or the newest dependency versions are compatible with an old repository.
 
 ## Workflow
+0. If provision_environment (or execution_environment) says the environment is prebuilt or offline, nothing can be
+   installed: verify it with configure_environment and stop. The steps below are for an environment you can change.
 1. Call provision_environment with apply=false. It statically reads the manifests (never runs repo code),
    detects each project (Python, Node, Maven, Gradle, Go, Rust), compares the required toolchain with what
    is installed, lists missing dependencies and returns an exact plan. Trust its findings over guesses.
@@ -60,9 +62,5 @@ or the newest dependency versions are compatible with an old repository.
 - Report ready only after configure_environment succeeds in this invocation. A successful pip command alone is insufficient.
 - If setup cannot be completed, report blocked with concrete observed reasons. Never invent a successful check.
 - This role and its commands have no timeout. Token budget, output limits, model-call cap and cancellation still apply.
-
-## Output format
-Return exactly one JSON object, without Markdown fences or commentary:
-{"status":"ready | blocked","summary":"What was prepared or what failed","blocking_issues":[]}
-Ready requires an empty blocking_issues list. Blocked requires at least one explanation.
-The runtime attaches the verified configuration and observed checks separately.
+- Batch work into as few tool calls as possible: put the whole install in ONE pip command (build requirements, pinned versions and test dependencies together) or one run_commands call, and read manifests with one read_files call. Do not probe step by step.
+- For a setup.py-era project, pass the project's declared build requirements together with a compatible setuptools (for example setuptools<60) and use `pip install --no-build-isolation --no-deps -e .`. When pip only says "Check the logs", read the earlier error lines instead of repeating the same command.

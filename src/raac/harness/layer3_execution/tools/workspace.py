@@ -5,11 +5,14 @@
 # File tools và lệnh phát triển chạy trên laptop; phạm vi hiện tại không có sandbox.
 # Baseline là snapshot đầu run trong RAM; current là nội dung repo hiện tại.
 
+import ast
 import difflib  # So sánh các dòng văn bản để sinh unified diff nhiều file.
 import base64
 from copy import deepcopy
 import hashlib  # Tính SHA-256 để định danh nội dung file và baseline.
 import json  # Chuyển manifest thành JSON trước khi tính hash tổng.
+import re
+import warnings
 import os  # Duyệt cây thư mục bằng os.walk().
 import subprocess  # Hỏi git những file untracked bị .gitignore loại (chỉ đọc).
 from pathlib import Path  # Biểu diễn đường dẫn, ghép path và đọc/ghi file.
@@ -17,7 +20,7 @@ from pathlib import Path  # Biểu diễn đường dẫn, ghép path và đọc
 from .patching import apply_repo_patch, rebase_repo_patch  # Áp patch vào dữ liệu trong RAM, chưa ghi ổ đĩa.
 # excluded_directory: thư mục bỏ qua; repo_path: kiểm tra tên; test_path: đoán file test theo tên.
 from .paths import excluded_directory, excluded_runtime_name, repo_path, test_path
-from raac.common.errors import WorkspaceSnapshotError
+from raac.common.errors import WorkspaceSnapshotError, RejectedEditError
 
 
 class EditConflictError(ValueError):
@@ -33,7 +36,7 @@ class WorkspaceTools:
     # Đây là giới hạn tài nguyên của tool, không phải quy ước cấu trúc project.
     max_file_bytes = 4 * 1024 * 1024  # Tối đa 4 MiB cho từng file.
     max_repo_bytes = 64 * 1024 * 1024  # Tối đa 64 MiB cho các file trong snapshot.
-    max_files = 2000  # Tối đa 2.000 file sau khi loại trừ cache/credential.
+    max_files = 10000  # Tối đa 10.000 file sau khi loại trừ cache/credential.
 
     def invalidate_runtime_snapshot(self):
         self._checkpoint_fingerprint = None
@@ -438,7 +441,8 @@ class WorkspaceTools:
             raise ValueError("Not a repository directory")
         prefix = "" if path == "." else repo_path(path) + "/"
         entries = []
-        for name, data in sorted(self._snapshot().items()):
+        # Shallow files first: a truncated listing must still show the repository root (setup.py, tox.ini...).
+        for name, data in sorted(self._snapshot().items(), key=lambda item: (item[0].count("/"), item[0])):
             if not name.startswith(prefix) or (not recursive and "/" in name[len(prefix):]):
                 continue
             entries.append({"path": name, "bytes": len(data)})
@@ -489,6 +493,39 @@ class WorkspaceTools:
         # Duyệt xong mà chưa chạm ngưỡng thì kết quả không bị cắt.
         return {"matches": matches, "truncated": False}
 
+    # Model output sometimes leaks its own tool-call markup into file content.
+    _TOOL_MARKUP = re.compile(r"to=functions\.|<\|(?:im_start|im_end|endoftext)\|>")
+
+    @staticmethod
+    def _python_error_line(source: str):
+        """None when the text parses as Python, otherwise the 1-based line of the syntax error."""
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                ast.parse(source)
+        except SyntaxError as exc:
+            return exc.lineno or 1
+        except ValueError:  # null bytes
+            return 1
+        return None
+
+    def _check_write(self, name: str, target, content: str):
+        """Refuse a write that makes the file worse: new tool markup, or Python that no longer parses.
+
+        Only changes introduced by this write count: markup or broken syntax already present in the
+        current file (for example a Python 2 fixture) does not block an edit.
+        """
+        try:
+            previous = self._read(target) if target.exists() else None
+        except (OSError, ValueError, UnicodeError):
+            previous = None
+        if len(self._TOOL_MARKUP.findall(content)) > len(self._TOOL_MARKUP.findall(previous or "")):
+            raise RejectedEditError("tool_markup", name)
+        if name.endswith(".py"):
+            line = self._python_error_line(content)
+            if line is not None and (previous is None or self._python_error_line(previous) is None):
+                raise RejectedEditError("invalid_python", name, line)
+
     # Tạo file mới hoặc ghi đè toàn bộ nội dung file thật trong repo.
     def edit_file(self, *, role: str, path: str, content: str) -> dict:
         # Chuẩn hóa tên, kiểm tra đường dẫn thật, rồi kiểm tra quyền role.
@@ -498,6 +535,8 @@ class WorkspaceTools:
         # Encode để kiểm tra byte thực tế, không chỉ số ký tự Unicode.
         if len(content.encode("utf-8")) > self.max_file_bytes:
             raise ValueError("File exceeds size limit")
+        # Từ chối nội dung làm file tệ hơn (markup của tool, Python không parse được); không ghi gì.
+        self._check_write(name, target, content)
         # Tạo toàn bộ thư mục cha còn thiếu; thư mục đã tồn tại không gây lỗi.
         target.parent.mkdir(parents=True, exist_ok=True)
         # Kiểm tra lại path sau bước tạo thư mục.
@@ -575,6 +614,9 @@ class WorkspaceTools:
             self._can_write("Coder", name)
             if content is not None and len(content.encode("utf-8")) > self.max_file_bytes:
                 raise ValueError("File exceeds size limit")
+            if content is not None:
+                # Kiểm tra mọi file trước khi ghi file đầu tiên, để patch hỏng không ghi dở.
+                self._check_write(name, self._path(name), content)
         # Vòng 2 mới thực hiện ghi. Chưa có rollback nếu lỗi ổ đĩa giữa nhiều lần ghi.
         for name, content in changes.items():
             if content is None:

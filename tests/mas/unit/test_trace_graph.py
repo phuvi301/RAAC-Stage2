@@ -145,3 +145,87 @@ console.log(JSON.stringify(out));
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReviewLoopGraphTests(unittest.TestCase):
+    def test_run_started_row_exposes_round_limits(self):
+        row = present_event({"event": "run_started", "decision": {
+            "topology": "chain_review_loop", "max_rounds": 3, "max_review_rounds": 2}}, 1)
+        self.assertEqual((row["max_rounds"], row["max_review_rounds"]), (3, 2))
+        self.assertIn("Reviewer → Coder tối đa 2 vòng", row["summary"])
+        plain = present_event({"event": "run_started", "decision": {"topology": "chain", "max_rounds": 3}}, 1)
+        self.assertNotIn("Reviewer → Coder", plain["summary"])
+
+    @unittest.skipUnless(shutil.which("node"), "node is needed to run the graph module")
+    def test_review_edge_arcs_over_the_main_row_and_limit_edge_stays_below(self):
+        script = (
+            "import {layout} from %r;"
+            "const names=['environment','analyst','planner','coder','tester','check','limit','reviewer','result'];"
+            "const t={entry_node:'environment',exit_node:'result',"
+            "steps:names.map(n=>({node_id:n,role:['check','limit','result'].includes(n)?null:n})),"
+            "edges:%s};"
+            "const l=layout(t);"
+            "console.log(JSON.stringify({top:[...l.topArcs],back:[...l.back].sort(),"
+            "coderY:l.nodes.find(n=>n.node_id==='coder').y,limitY:l.nodes.find(n=>n.node_id==='limit').y}));"
+        ) % ((ASSETS / "graph.mjs").as_uri(), json.dumps([list(edge) for edge in __import__(
+            "raac.collaboration.topologies", fromlist=["x"]).get_topology("chain_review_loop").edges]))
+        done = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        data = json.loads(done.stdout)
+        self.assertEqual(data["top"], ["reviewer>coder"])
+        self.assertEqual(data["back"], ["limit>coder", "reviewer>coder"])
+        self.assertGreater(data["coderY"], 64)  # room reserved above the row for the arc
+        self.assertGreater(data["limitY"], data["coderY"])
+
+
+class StarGraphTests(unittest.TestCase):
+    def test_topology_payload_exposes_layout(self):
+        from raac.common.trace_web import topology_payload
+        self.assertEqual(topology_payload("star")["layout"], "star")
+        self.assertEqual(topology_payload("chain")["layout"], "chain")
+
+    @unittest.skipUnless(shutil.which("node"), "node is needed to run the graph module")
+    def test_star_layout_puts_the_hub_in_the_middle_with_no_loop_edges(self):
+        from raac.common.trace_web import topology_payload
+        script = (
+            "import {layout} from %r;"
+            "const l=layout(%s);"
+            "const at=Object.fromEntries(l.nodes.map(n=>[n.node_id,[Math.round(n.x),Math.round(n.y)]]));"
+            "console.log(JSON.stringify({back:[...l.back],at}));"
+        ) % ((ASSETS / "graph.mjs").as_uri(), json.dumps(topology_payload("star")))
+        done = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        data = json.loads(done.stdout)
+        self.assertEqual(data["back"], [])
+        at = data["at"]
+        self.assertLess(at["environment"][0], at["hub"][0])
+        self.assertLess(at["hub"][0], at["result"][0])
+        self.assertEqual(at["environment"][1], at["hub"][1])
+        spokes = [at[name] for name in ("analyst", "planner", "coder", "tester", "reviewer")]
+        self.assertEqual(len({tuple(point) for point in spokes}), 5)
+        # Spokes sit clear of the hub box and of the entry node on the left.
+        for x, y in spokes:
+            self.assertGreater(((x - at["hub"][0]) ** 2 + (y - at["hub"][1]) ** 2) ** 0.5, 130)
+            self.assertGreater(((x - at["environment"][0]) ** 2 + (y - at["environment"][1]) ** 2) ** 0.5, 125)
+
+
+class AssumptionViewTests(unittest.TestCase):
+    def test_analyst_assumptions_and_reviewer_checks_reach_the_viewer(self):
+        analyst = present_event({"event": "agent_completed", "agent_id": "analyst", "output": {
+            "summary": "s", "assumptions": [{"question": "How is m/s.kg grouped?", "assumption": "Keep m/(s*kg)."},
+                                            {"question": "Docs?", "assumption": "Unchanged", "affects_behavior": False}]}}, 1)
+        self.assertEqual(analyst["assumptions"][0], {"question": "How is m/s.kg grouped?", "assumption": "Keep m/(s*kg).",
+                                                     "affects_behavior": True})
+        self.assertFalse(analyst["assumptions"][1]["affects_behavior"])
+        reviewer = present_event({"event": "agent_completed", "agent_id": "reviewer", "output": {
+            "decision": "approve", "summary": "ok", "comments": [
+                {"severity": "minor", "message": "ASSUMPTION: keep m/(s*kg); the patch follows it"},
+                {"severity": "nit", "message": "style"}]}}, 2)
+        self.assertEqual(reviewer["assumption_checks"], ["ASSUMPTION: keep m/(s*kg); the patch follows it"])
+        plain = present_event({"event": "agent_completed", "agent_id": "analyst", "output": {"summary": "s"}}, 3)
+        self.assertNotIn("assumptions", plain)
+
+    def test_page_has_the_assumption_section(self):
+        page = (ASSETS / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="assumption-list"', page)
+        self.assertIn("renderAssumptions", (ASSETS / "viewer.js").read_text(encoding="utf-8"))

@@ -15,6 +15,7 @@ from raac.common.agent_contracts import (
     RoleHandoff,
     parse_role_output,
 )
+from raac.common.coder_report import looks_like_diff, parse_coder_report, render_coder_report
 from raac.common.errors import (
     AgentExecutionError,
     RunGuardError,
@@ -722,7 +723,7 @@ class AgentRunner:
             prepared[0]["content"] += (
                 f" This {'final' if remaining == 0 else 'handoff'} call has no tools. Return the required output now: "
                 + (
-                    "unified diff only (empty text for no changes)."
+                    "a plain-text STEP/ISSUE/NOTES handoff report; saved files supply the patch."
                     if role.spec.name == "Coder"
                     else "one concise complete JSON object using observed results; avoid repeated explanations and do not claim unexecuted tests passed."
                 )
@@ -801,7 +802,13 @@ class AgentRunner:
                     detail = ("Tools are unavailable. Return the required handoff JSON using observed results; no tool calls or DSML."
                               if handoff else "Use native tool_calls while tools are available, never DSML text. Otherwise return the required handoff.")
                     self._recover_output(state, "invalid_tool_call_format", detail)
-                elif role == "Coder" and self.tools.workspace.code_edit_count != state["code_edits_before"]:
+                elif role == "Coder" and (
+                    self.tools.workspace.code_edit_count != state["code_edits_before"]
+                    or self.tools.workspace.coder_paths
+                    or (not looks_like_diff(content) and not content.lstrip().startswith(("{", "[", "```")))
+                ):
+                    # Reports and no-op retries finalize the saved workspace
+                    # patch. Unsaved malformed diffs/JSON still need recovery.
                     state["phase"] = "finalize"
                 else:
                     self._recover_output(state, "invalid_output", str(exc))
@@ -967,12 +974,21 @@ class AgentRunner:
             try:
                 patch = parse_role_output(name, content).root
             except ValueError:
-                if not saved_edits:
+                claims_diff = looks_like_diff(content)
+                if claims_diff and not saved_edits and not self.tools.workspace.coder_paths:
+                    # A patch was announced but nothing was saved and nothing can be rebuilt.
                     raise AgentExecutionError("invalid_coder_patch") from None
-                # File tools already saved the authoritative changes. Do not
-                # discard them because the model miscounted a summary hunk.
-                # The actual workspace patch is generated and validated below.
-                patch, rebuild_reason = "", "invalid_model_diff"
+                # The final message is the handoff report, not the patch. File
+                # tools already saved the authoritative changes, in this turn
+                # or an earlier one, so a broken hunk or prose never discards
+                # them. The workspace patch is generated and validated below.
+                patch = ""
+                if saved_edits:
+                    rebuild_reason = "invalid_model_diff"
+                elif claims_diff:
+                    rebuild_reason = "no_new_edits"
+            if not saved_edits and not patch and self.tools.workspace.coder_paths:
+                rebuild_reason = "no_new_edits"
             if not saved_edits and patch:
                 try:
                     selected, already_applied = self.tools.workspace.select_coder_patch(
@@ -1020,12 +1036,21 @@ class AgentRunner:
                     model_patch_chars=len(content),
                     patch_chars=len(patch),
                 )
+            plan = (request.get("artifacts") or {}).get("plan")
+            step_ids = [
+                step["id"]
+                for step in (plan.get("steps", []) if isinstance(plan, dict) else [])
+                if isinstance(step, dict) and isinstance(step.get("id"), int)
+            ]
+            report = None if looks_like_diff(content) else parse_coder_report(content, step_ids)
+            account = render_coder_report(report) if report and (report["structured"] or report["notes"]) else ""
             return RoleHandoff(
                 patch,
                 {
-                    "summary": "Workspace changes saved"
-                    if patch
-                    else "No workspace changes",
+                    # The Coder's own account when it gave one; otherwise the framework's fact.
+                    "summary": account
+                    or ("Workspace changes saved" if patch else "No workspace changes"),
+                    "step_report": report if report and report["structured"] else None,
                     "execution_evidence": self.tools.execution_evidence(
                         context, final_hash
                     ),

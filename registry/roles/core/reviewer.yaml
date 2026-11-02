@@ -2,7 +2,7 @@ id: reviewer
 role: Reviewer
 group: core
 prompt: prompts/reviewer.md
-prompt_version: chain-v4
+prompt_version: chain-v6
 tools:
   - read_tool_result
   - list_files

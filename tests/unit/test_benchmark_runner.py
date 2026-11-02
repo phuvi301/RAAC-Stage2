@@ -223,3 +223,31 @@ async def test_cancellation_after_preparation_completes_still_cleans_container(t
         await run_task(task, level="L3", repetition=1, output_dir=output, config_path=ROOT / "configs/benchmark.yaml")
     assert removed == [True]
     assert RunRecord.model_validate_json((output / "record.json").read_text()).status == "interrupted"
+
+
+def test_export_subst_placeholder_lines_do_not_count_as_changed_base_source():
+    from raac.benchmark.runner import same_base_source
+    assert same_base_source(b"ref-names: $Format:%D$\n", b"ref-names: \n")
+    assert same_base_source(b"ref-names: $Format:%D$\n", b"ref-names: tag: v3.4\n")
+    assert same_base_source(b"a\nb\n", b"a\nb\n")
+
+
+def test_other_base_source_differences_are_still_detected():
+    from raac.benchmark.runner import same_base_source
+    assert not same_base_source(None, b"x")
+    assert not same_base_source(b"a = 1\n", b"a = 2\n")
+    assert not same_base_source(b"a\n$Format:%D$\nb\n", b"a\nb\n")  # different line count
+    assert not same_base_source(b"x = 1\nref $Format:%D$\n", b"x = 2\nref \n")  # a real edit beside a placeholder
+
+
+def test_setup_error_detail_names_the_failing_git_command_and_the_missing_file():
+    import subprocess
+    from raac.benchmark.runner import setup_error_detail
+    git = subprocess.CalledProcessError(128, ["git", "--git-dir", "cache.git", "rev-list", "abc^{tree}"],
+                                        stderr=b"fatal: ambiguous argument 'abc^tree'\n")
+    detail = setup_error_detail(git)
+    assert "rev-list" in detail and "exited 128" in detail and "ambiguous argument" in detail
+    assert setup_error_detail(FileNotFoundError(2, "No such file", "C:/x/missing.txt")) == "not found: C:/x/missing.txt"
+    assert setup_error_detail(ValueError("snapshot limit")) == "snapshot limit"
+    assert len(setup_error_detail(ValueError("x" * 1000))) == 400
+    assert setup_error_detail(RuntimeError("private setup detail")) == ""  # unknown failures keep their type only

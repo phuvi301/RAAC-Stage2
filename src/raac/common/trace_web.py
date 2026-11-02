@@ -40,7 +40,7 @@ def topology_payload(name):
     if topology is None:
         topology = get_topology(name)
     return {"topology_id": topology.topology_id, "version": topology.version,
-            "entry_node": topology.entry_node, "exit_node": topology.exit_node,
+            "entry_node": topology.entry_node, "exit_node": topology.exit_node, "layout": topology.layout,
             "steps": [{"node_id": step.node_id, "role": step.role} for step in topology.steps],
             "edges": [list(edge) for edge in topology.edges]}
 
@@ -69,8 +69,11 @@ def present_event(event, identifier):
         row["token_limit"] = effective["token_limit"]
     if kind == "run_started":
         decision = _mapping(event.get("decision"))
+        review = decision.get("max_review_rounds")
         row.update(source="Người dùng", target="MAS", title="Bắt đầu run", topology=decision.get("topology"),
-                   summary=f"Topology {decision.get('topology', '?')} · tối đa {decision.get('max_rounds', '?')} vòng")
+                   max_rounds=decision.get("max_rounds"), max_review_rounds=review,
+                   summary=f"Topology {decision.get('topology', '?')} · tối đa {decision.get('max_rounds', '?')} vòng"
+                           + (f" · phản hồi Reviewer → Coder tối đa {review} vòng" if review is not None else ""))
         payload("Quyết định điều phối", decision)
         payload("Workspace", event.get("workspace"))
     elif kind == "command_output":
@@ -99,6 +102,19 @@ def present_event(event, identifier):
         row.update(source=role, target="Hệ thống", title="Bàn giao kết quả", tone="success",
                    summary=_summary(event.get("output", {})))
         payload("Kết quả bàn giao", event.get("output"))
+        output = _mapping(event.get("output"))
+        if event.get("agent_id") == "analyst" and isinstance(output.get("assumptions"), list):
+            chosen = [{"question": str(item.get("question", "")), "assumption": str(item.get("assumption", "")),
+                       "affects_behavior": item.get("affects_behavior", True) is not False}
+                      for item in output["assumptions"] if isinstance(item, dict)]
+            if chosen:
+                row["assumptions"] = chosen
+                payload("Giả định đã chọn", chosen)
+        if event.get("agent_id") == "reviewer" and isinstance(output.get("comments"), list):
+            checks = [str(item.get("message", "")) for item in output["comments"]
+                      if isinstance(item, dict) and str(item.get("message", "")).startswith("ASSUMPTION:")]
+            if checks:
+                row["assumption_checks"] = checks
         if agent.lower() == "router":
             output = _mapping(event.get("output"))
             for name in ("selected_roles", "skipped"):
@@ -130,6 +146,8 @@ def present_event(event, identifier):
         row.update(title="Sinh lại patch từ file đã lưu", technical=False,
                    summary=("Diff mô tả code đã lưu; đã dùng patch chuẩn theo baseline run."
                             if event.get("reason") == "already_applied_diff" else
+                            "Lượt này Coder không lưu thay đổi mới; patch lấy từ các file đã lưu trước đó."
+                            if event.get("reason") == "no_new_edits" else
                             "Diff LLM sai định dạng; framework đã sinh và kiểm tra patch từ workspace."))
         payload("Nguồn patch", {key: event.get(key) for key in ("source", "reason", "patch_hash", "model_patch_chars", "patch_chars")})
     elif kind in {"memory_saved", "memory_loaded", "memory_compacted"}:

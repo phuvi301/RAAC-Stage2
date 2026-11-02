@@ -14,14 +14,14 @@ from raac.harness.layer3_execution import local_test_runner
 RUNTIMES = list(dict.fromkeys([sys.executable, *filter(None, [os.getenv("RAAC_TEST_PYTHON38")])]))
 
 
-def helper_run(tmp_path, python, *, command, cwd="nested", env=None, report_path=None):
+def helper_run(tmp_path, python, *, command, cwd="nested", env=None, report_path=None, **extra):
     root = tmp_path / "repo"
     (root / "nested").mkdir(parents=True, exist_ok=True)
     report = tmp_path / "observed.json"
     config = {"workspace_root": str(root), "command": command, "cwd": cwd,
               "env": env or {}, "report_path": report_path,
               "default_report_path": str(tmp_path / "junit.xml"),
-              "observed_report_path": str(report)}
+              "observed_report_path": str(report), **extra}
     process = subprocess.run([python, "-I", "-B", str(Path(local_test_runner.__file__)), json.dumps(config)],
                              capture_output=True, text=True, timeout=20)
     assert report.is_file(), process.stderr
@@ -75,7 +75,7 @@ def test_legacy_helper_preserves_path_boundaries(tmp_path, python, escape):
 @pytest.mark.parametrize("python", RUNTIMES)
 @pytest.mark.parametrize("scenario,expected_status,expected_failures", (
     ("pass_xfail", "passed", 1), ("only_xfail", "failed", 1),
-    ("pass_skip", "failed", 0), ("strict_xpass", "failed", 0),
+    ("pass_skip", "passed", 0), ("strict_xpass", "failed", 0),
     ("pass_fail", "failed", 0),
 ))
 def test_pytest_expected_failures_do_not_hide_skips_or_real_failures(
@@ -133,3 +133,55 @@ def test_expected_failure_counts_are_framework_metadata():
     report = execution_report(output, {"status": "passed", "tests_run": 2, "failed": 0,
                                       "skipped": 1, "expected_failures": 1}, "patch-hash")
     assert report.status == "passed" and report.expected_failures == report.skipped == 1
+
+
+@pytest.mark.parametrize("python", RUNTIMES)
+@pytest.mark.parametrize("allow,expected", ((True, "passed"), (False, "failed")))
+def test_skipped_tests_follow_the_allow_skipped_tests_setting(tmp_path, python, allow, expected):
+    nested = tmp_path / "repo/nested"
+    nested.mkdir(parents=True)
+    (nested / "test_case.py").write_text(
+        "import pytest\ndef test_pass(): assert True\n"
+        "@pytest.mark.skip(reason='optional dependency missing')\ndef test_optional(): assert False\n", encoding="utf-8")
+    process, report = helper_run(tmp_path, python, command=[python, "-m", "pytest", "test_case.py", "-q"],
+                                 env={"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"}, allow_skipped_tests=allow)
+    assert report["status"] == expected, report
+    assert (report["tests_run"], report["failed"], report["skipped"]) == (2, 0, 1)
+
+
+@pytest.mark.parametrize("python", RUNTIMES)
+def test_a_suite_where_nothing_ran_never_passes_even_when_skips_are_allowed(tmp_path, python):
+    nested = tmp_path / "repo/nested"
+    nested.mkdir(parents=True)
+    (nested / "test_case.py").write_text(
+        "import pytest\n@pytest.mark.skip(reason='nothing runs')\ndef test_only(): assert True\n", encoding="utf-8")
+    process, report = helper_run(tmp_path, python, command=[python, "-m", "pytest", "test_case.py", "-q"],
+                                 env={"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"}, allow_skipped_tests=True)
+    assert report["status"] == "failed", report
+
+
+@pytest.mark.parametrize("python", RUNTIMES)
+@pytest.mark.parametrize("body, status, tests_run, failed, skipped", [
+    ("class Case(unittest.TestCase):\n def test_a(self): pass\n @unittest.skip('db')\n def test_b(self): pass\n",
+     "passed", 2, 0, 1),
+    ("class Case(unittest.TestCase):\n def test_a(self): pass\n def test_b(self): self.fail('x')\n", "failed", 2, 1, 0),
+])
+def test_custom_unittest_runner_summary_is_read_without_junit(tmp_path, python, body, status, tests_run, failed, skipped):
+    """Django's runtests.py is not `-m unittest`: its printed summary is the only report it gives."""
+    nested = tmp_path / "repo/nested"
+    nested.mkdir(parents=True)
+    (nested / "runtests.py").write_text(
+        "import sys, unittest\n" + body + "\n"
+        "suite = unittest.defaultTestLoader.loadTestsFromTestCase(Case)\n"
+        "result = unittest.TextTestRunner(verbosity=2).run(suite)\n"
+        "sys.exit(0 if result.wasSuccessful() else 1)\n", encoding="utf-8")
+    process, report = helper_run(tmp_path, python, command=[python, "runtests.py"])
+    assert (report["status"], report["tests_run"], report["failed"], report["skipped"]) == (status, tests_run, failed, skipped)
+
+
+def test_unittest_summary_parser_never_invents_counts():
+    parse = local_test_runner.unittest_text_report
+    assert parse("no summary here\n") is None
+    assert parse("Ran 5 tests in 0.1s\n") is None
+    assert parse("Ran 127 tests in 9s\n\nFAILED (failures=3, skipped=23)\n")["failed"] == 3
+    assert parse("Ran 3 tests in 1s\n\nFAILED (errors=1, expected failures=1)\n")["expected_failures"] == 1

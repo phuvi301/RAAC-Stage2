@@ -157,7 +157,7 @@ max_llm_calls: 6
 
     def test_core_roles_permissions_and_prompt_provenance(self):
         registry = load_registry(PROJECT / "registry")
-        self.assertEqual(len(registry.roles), 7)
+        self.assertEqual(len(registry.roles), 8)  # five core roles, Environment, Hub and Router
         self.assertEqual(registry.get("Coder").spec.id, "coder")
         self.assertEqual(registry.get("Router").spec.id, "router")
         self.assertNotIn("edit_file", registry.get("Reviewer").spec.tools)
@@ -527,18 +527,18 @@ class WorkspaceTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
             WorkspaceTools(root, self.executor)
 
     async def test_existing_tests_are_part_of_the_repository_input(self):
-        self.workspace.edit_file(role="Tester", path="test_generated.py", content="old tests")
+        self.workspace.edit_file(role="Tester", path="test_generated.py", content="old_tests = True  # placeholder; .py writes must parse\n")
         await self.workspace.run_tests(command=["python", "-m", "unittest", "discover"], require_generated=False)
         self.assertIn("test_generated.py", self.executor.calls[-1])
         await self.workspace.run_tests()
-        self.assertEqual(self.executor.calls[-1]["test_generated.py"], "old tests")
+        self.assertEqual(self.executor.calls[-1]["test_generated.py"], "old_tests = True  # placeholder; .py writes must parse\n")
 
     async def test_next_run_has_fresh_command_state_but_keeps_repository_tests(self):
-        self.workspace.edit_file(role="Tester", path="test_generated.py", content="old tests")
+        self.workspace.edit_file(role="Tester", path="test_generated.py", content="old_tests = True  # placeholder; .py writes must parse\n")
         next_task = WorkspaceTools(Path(self.temp.name), self.executor)
         self.assertIn("test_generated.py", next_task.readable)
         self.assertIsNone(next_task.test_spec)
-        self.assertEqual(next_task.read_file("test_generated.py")["content"], "old tests")
+        self.assertEqual(next_task.read_file("test_generated.py")["content"], "old_tests = True  # placeholder; .py writes must parse\n")
 
     async def test_generated_patch_roundtrips_without_original_final_newline(self):
         original = BASELINE.rstrip("\n")
@@ -582,7 +582,7 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
         self.registry.roles["coder"] = role.spec.model_copy(update={"max_llm_calls": 2})
         sequence = [response(tool_calls=[{"id": "save", "type": "function", "function": {
             "name": "edit_file", "arguments": json.dumps({"path": "solution.py", "content": IMPLEMENTED})}}]),
-            response(patch_to(IMPLEMENTED))]
+            response("NOTES: saved the implementation")]
         payloads = []
 
         def handler(request):
@@ -601,7 +601,10 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
         self.assertIn("tools", payloads[0])
         self.assertNotIn("tools", payloads[1])
         self.assertIn("final call has no tools", payloads[1]["messages"][0]["content"])
+        self.assertIn("plain-text STEP/ISSUE/NOTES handoff report", payloads[1]["messages"][0]["content"])
+        self.assertNotIn("unified diff only", payloads[1]["messages"][0]["content"])
         self.assertEqual(apply_solution_patch(BASELINE, output.output), IMPLEMENTED)
+        self.assertIn("saved the implementation", output.runtime["summary"])
 
     async def test_explicit_empty_noop_is_opt_in_and_missing_usage_still_blocks(self):
         for allow_empty, has_usage, succeeds in ((False, True, False), (True, True, True), (True, False, False)):
@@ -659,7 +662,7 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
         self.assertEqual(written["arguments"]["content"], source)
         self.assertTrue(any(event["event"] == "context_compacted" for event in events))
 
-    async def run_coder_responses(self, sequence, *, trace=False):
+    async def run_coder_responses(self, sequence, *, trace=False, artifacts=None):
         client = LLMClient(LLMConfig(model="test-model"), log_path=Path(self.temp.name) / "coder.jsonl",
                            transport=httpx.MockTransport(lambda request: httpx.Response(200, json=sequence.pop(0))),
                            trace_content=trace)
@@ -668,7 +671,7 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
         try:
             handoff = await runner("Coder", {"run_id": "coder-run", "task_id": "task", "work_id": "task",
                                           "scope": "task", "requirement": "Implement the operation",
-                                          "output_schema": {}})
+                                          "output_schema": {}, **({"artifacts": artifacts} if artifacts else {})})
             return {"patch": handoff.output, **handoff.runtime}
         finally:
             await client.aclose()
@@ -686,7 +689,7 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
                     }}]),
                     response(final),
                 ])
-                CodeOutput.model_validate(output)
+                CodeOutput.model_validate({k: v for k, v in output.items() if k != "step_report"})
                 self.assertEqual(apply_solution_patch(BASELINE, output["patch"]), IMPLEMENTED)
                 self.assertEqual(self.workspace.read_file("solution.py")["content"], IMPLEMENTED)
 
@@ -736,6 +739,56 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(e["event"] == "memory_loaded" for e in events))
         self.assertFalse(any(e["event"] == "memory_compacted" for e in events))
         self.assertTrue(any(e["event"] == "coder_patch_rebuilt" and e["reason"] == "already_applied_diff" for e in events))
+
+    async def test_retry_without_new_edits_keeps_the_patch_saved_earlier(self):
+        # An earlier Coder turn saved the change; this turn edits nothing and answers with a malformed diff, prose or nothing.
+        self.workspace.edit_file(role="Coder", path="solution.py", content=IMPLEMENTED)
+        expected = self.workspace.current_patch()
+        self.assertTrue(expected)
+        for final in (patch_to(IMPLEMENTED).replace("@@ -1,3 +1,3 @@", "@@ -1,3 +1,99 @@"),
+                      "No change is needed; the earlier edit already fixes it.", ""):
+            with self.subTest(final=final):
+                output = await self.run_coder_responses([response(final)], trace=True)
+                self.assertEqual(output["patch"], expected)
+                self.assertEqual(self.workspace.read_file("solution.py")["content"], IMPLEMENTED)
+        events = [json.loads(line) for line in (Path(self.temp.name) / "coder.jsonl").read_text().splitlines()]
+        rebuilt = [event for event in events if event["event"] == "coder_patch_rebuilt"]
+        self.assertTrue(rebuilt and all(event["reason"] == "no_new_edits" for event in rebuilt))
+
+    async def test_no_edits_anywhere_and_a_text_report_is_a_no_op_that_keeps_the_report(self):
+        output = await self.run_coder_responses([response("The code already satisfies the plan; nothing to change.")])
+        self.assertEqual(output["patch"], "")
+        self.assertIn("nothing to change", output["summary"])
+        self.assertEqual(self.workspace.read_file("solution.py")["content"], BASELINE)
+
+    async def test_handoff_report_names_each_plan_step_and_the_reason_for_what_was_not_done(self):
+        plan = {"steps": [{"id": 1, "description": "implement", "ac_ids": []}, {"id": 2, "description": "docs", "ac_ids": []},
+                          {"id": 3, "description": "tests", "ac_ids": []}]}
+        report = ("STEP 1 | done | implemented the operation in solution.py\n"
+                  "STEP 2 | blocked | no docs directory exists in this repository\n"
+                  "ISSUE edge case with empty input | unfixed | the spec leaves the expected result open\n"
+                  "NOTES: ran the smoke check, it passed")
+        self.workspace.edit_file(role="Coder", path="solution.py", content=IMPLEMENTED)
+        output = await self.run_coder_responses([response(report)], artifacts={"plan": plan})
+        self.assertIn("Step 1 done: implemented the operation in solution.py", output["summary"])
+        self.assertIn("Step 2 blocked: no docs directory exists in this repository", output["summary"])
+        self.assertIn("Step 3 not reported", output["summary"])
+        self.assertIn("Issue 'edge case with empty input' unfixed: the spec leaves the expected result open", output["summary"])
+        steps = output["step_report"]["steps"]
+        self.assertEqual([(s["step"], s["status"]) for s in steps], [(1, "done"), (2, "blocked"), (3, "not_reported")])
+        self.assertTrue(output["patch"].startswith("--- a/solution.py"))  # the patch still comes from the saved files
+
+    async def test_a_patch_in_the_final_message_is_not_taken_for_a_report(self):
+        self.workspace.edit_file(role="Coder", path="solution.py", content=IMPLEMENTED)
+        output = await self.run_coder_responses([response(patch_to(IMPLEMENTED))])
+        self.assertEqual(output["summary"], "Workspace changes saved")
+        self.assertIsNone(output["step_report"])
+
+    async def test_no_edits_anywhere_and_empty_text_is_an_explicit_no_op(self):
+        output = await self.run_coder_responses([response("")])
+        self.assertEqual(output["patch"], "")
+        self.assertEqual(output["summary"], "No workspace changes")
+        self.assertEqual(self.workspace.read_file("solution.py")["content"], BASELINE)
 
     async def test_wrong_base_patch_that_does_not_match_saved_code_still_aborts(self):
         from raac.common.errors import AgentExecutionError
@@ -822,7 +875,9 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
     async def test_invalid_patch_without_saved_code_has_specific_safe_error(self):
         from raac.common.errors import AgentExecutionError
         with self.assertRaises(AgentExecutionError) as caught:
-            await self.run_coder_responses([response(json.dumps({"summary": "Patch only", "patch": "bad diff"}))] * 2, trace=True)
+            # Bypass response()'s legacy fixture conversion so the invalid JSON
+            # patch object reaches the runner unchanged instead of becoming prose.
+            await self.run_coder_responses([response(" " + json.dumps({"summary": "Patch only", "patch": "bad diff"}))] * 2, trace=True)
         self.assertEqual(caught.exception.code, "invalid_output")
         self.assertEqual(self.workspace.read_file("solution.py")["content"], BASELINE)
         events = [json.loads(line) for line in (Path(self.temp.name) / "coder.jsonl").read_text().splitlines()]

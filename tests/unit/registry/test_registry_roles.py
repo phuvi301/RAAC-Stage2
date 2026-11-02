@@ -60,15 +60,20 @@ def test_malformed_answer_is_rejected_for_every_role(registry, role_id):
 
 
 @pytest.mark.parametrize("role_id", REQUIRED_CORE_ROLES)
-def test_prompt_is_english_and_states_the_output_contract(registry, role_id):
+def test_prompt_is_english_and_the_framework_states_the_output_contract(registry, role_id):
+    # The role prompt carries the role's job and rules; inputs and outputs are defined by the framework:
+    # the request brings output_format/output_schema and the hydrator adds the instruction to follow them.
+    from raac.harness.layer2_core.prompt_hydrator import hydrate_messages
     prompt = render_prompt(registry, role_id)
     assert prompt.startswith(f"You are the **{registry.get_role(role_id).role}**")
-    assert "## Output format" in prompt
     assert prompt.isascii()  # English only; no stray Vietnamese
+    system = hydrate_messages(registry.get(role_id), {"requirement": "x"})[0]["content"]
+    assert "Follow output_format and output_schema" in system
     if registry.get_role(role_id).output_format is OutputFormat.UNIFIED_DIFF:
-        assert "unified diff" in prompt and "@@" in prompt
+        # The Coder's saved files are the patch; the framework builds it, so the model is told not to write one.
+        assert "never write a diff by hand" in system
     else:
-        assert "exactly one JSON object" in prompt
+        assert "exactly one JSON object matching output_schema" in system
 
 
 # keys the prompt documents must be exactly the keys the validator accepts
@@ -81,10 +86,12 @@ JSON_KEYS = {
 
 
 @pytest.mark.parametrize("role_id", JSON_KEYS)
-def test_prompt_documents_every_output_key(registry, role_id):
-    prompt = render_prompt(registry, role_id)
+def test_output_schema_documents_every_output_key(registry, role_id):
+    import json
+    from raac.common.agent_contracts import role_output_model
+    schema = json.dumps(role_output_model(role_id).model_json_schema())
     for key in JSON_KEYS[role_id]:
-        assert f'"{key}"' in prompt, f"{role_id} prompt does not mention '{key}'"
+        assert f'"{key}"' in schema, f"{role_id} output schema does not define '{key}'"
 
 
 def test_permissions_match_current_mas_roles(registry):

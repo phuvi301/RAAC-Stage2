@@ -5,7 +5,11 @@ import re
 
 
 EXCLUDED_DIRS = {".git", ".hg", ".svn", ".venv", "venv", "node_modules", "__pycache__",
-                 ".pytest_cache", ".mypy_cache", ".ruff_cache", ".idea"}
+                 ".pytest_cache", ".mypy_cache", ".ruff_cache", ".idea",
+                 # Written by matplotlib's image-comparison tests whenever they run; never source.
+                 "result_images",
+                 # setuptools downloads setup_requires eggs here while an image is built; never source.
+                 ".eggs"}
 SECRET_FILES = {".npmrc", ".pypirc", ".netrc", "id_rsa", "id_ed25519"}
 WINDOWS_DEVICES = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)),
                    *(f"lpt{i}" for i in range(1, 10))}

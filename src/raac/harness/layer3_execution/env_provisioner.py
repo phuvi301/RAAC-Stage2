@@ -175,7 +175,14 @@ def python_requirements(directory):
                    or (directory / "conftest.py").is_file() or "pytest" in pyproject.get("tool", {})
                    or any(canonicalize_name(Requirement(d).name) in {"pytest", "pytest-cov"} for d in dependencies))
     installable = bool(project.get("name") or cfg.get("name") or setup_py.is_file())
-    return {"name": name, "requires_python": requires_python, "supported_minors": sorted(minors),
+    build_requires = []
+    for text_line in pyproject.get("build-system", {}).get("requires", []):
+        try:
+            build_requires.append(str(Requirement(text_line)))
+        except InvalidRequirement:
+            pass
+    return {"name": name, "build_requires": build_requires, "legacy_setup_py": setup_py.is_file(),
+            "requires_python": requires_python, "supported_minors": sorted(minors),
             "pinned": pinned, "dependencies": sorted(set(dependencies)), "unparsed": unparsed,
             "uses_pytest": uses_pytest, "installable": installable}
 
@@ -381,13 +388,43 @@ def inspect_python(root, directory, *, python_executable=None):
                       "purpose": "Install declared dependencies that are missing"})
     if requirements["installable"] and not report["project_installed"]:
         steps.append({"argv": [py, "-m", "pip", "install", "-e", "."], "cwd": directory,
-                      "purpose": "Install the project itself in editable mode"})
+                      "purpose": "Install the project itself in editable mode",
+                      "on_failure": legacy_build_recovery(py, directory, requirements)})
     warnings += [f"Skipped unparsable requirement: {item}" for item in requirements["unparsed"]]
     return {"ecosystem": "python", "directory": directory, "requirements": requirements,
             "interpreters": candidates, "selected_python": chosen, "venv_python": py,
             "dependencies": report, "blocking": blocking, "warnings": warnings, "plan": steps,
             "toolchain_fix": None,
             "test_command": [py, "-m", "pytest"] if requirements["uses_pytest"] else [py, "-m", "unittest", "discover"]}
+
+
+def legacy_build_recovery(py, directory, requirements):
+    """Fallback for setup.py-era projects whose isolated build breaks on today's setuptools/pip.
+
+    Install the project's own declared build requirements next to a pre-60 setuptools, then build
+    against that environment instead of an isolated one.
+    """
+    build = []
+    for item in requirements.get("build_requires", []):
+        name = canonicalize_name(Requirement(item).name)
+        if name == "setuptools_scm" or name == "setuptools-scm":
+            item = f"{Requirement(item).name}<7"  # newer setuptools_scm breaks the pre-60 setuptools toolchain
+        if name not in {"setuptools", "wheel"}:
+            build.append(item)
+    return [{"argv": [py, "-m", "pip", "install", "setuptools<60", "wheel", *build], "cwd": directory,
+             "purpose": "Recovery: install declared build requirements with setuptools<60"},
+            {"argv": [py, "-m", "pip", "install", "--no-build-isolation", "--no-deps", "-e", "."], "cwd": directory,
+             "purpose": "Recovery: editable install without build isolation"}]
+
+
+_ERROR_LINE = re.compile(r"error|no module named|not found|failed|cannot|unable|traceback|exception", re.I)
+
+
+def error_lines(stdout, stderr, limit=12):
+    """The informative lines of a failed install; pip's own tail only says 'check the logs'."""
+    lines = [line.strip() for line in (stdout + "\n" + stderr).splitlines() if _ERROR_LINE.search(line)]
+    lines = [line for line in lines if "You should consider upgrading" not in line]
+    return lines[-limit:]
 
 
 def python_installer(version):
@@ -553,6 +590,20 @@ def inspect_project(root, cwd=".", *, python_executable=None):
                       "blocked" if p["blocking"] and not p.get("toolchain_fix") else "needs install") for p in projects)}
 
 
+async def _run_step(workspace, root, step, executed, *, recovery=False):
+    observation = await workspace.executor.run_command(root, command=step["argv"], cwd=step["cwd"], unlimited=True)
+    stdout, stderr = observation.get("stdout", ""), observation.get("stderr", "")
+    entry = {"argv": step["argv"], "cwd": step["cwd"], "purpose": step["purpose"],
+             "status": observation.get("status"), "exit_code": observation.get("exit_code"),
+             "stdout": stdout[-1500:], "stderr": stderr[-1500:]}
+    if observation.get("exit_code") not in (0, None) or observation.get("status") != "completed":
+        entry["error_lines"] = error_lines(stdout, stderr)
+    if recovery:
+        entry["recovery"] = True
+    executed.append(entry)
+    return observation
+
+
 async def provision(workspace, *, cwd=".", apply=False, python_executable=None, max_rounds=3):
     """Inspect, then (apply=True) run the install plan project by project until nothing is missing."""
     root = workspace.root
@@ -569,15 +620,17 @@ async def provision(workspace, *, cwd=".", apply=False, python_executable=None, 
             steps = ([project["toolchain_fix"] | {"cwd": "."}] if project.get("toolchain_fix") else []) + \
                     ([] if project.get("toolchain_fix") else project["plan"])
             for step in steps:
-                observation = await workspace.executor.run_command(
-                    root, command=step["argv"], cwd=step["cwd"], unlimited=True)
-                executed.append({"argv": step["argv"], "cwd": step["cwd"], "purpose": step["purpose"],
-                                 "status": observation.get("status"), "exit_code": observation.get("exit_code"),
-                                 "stdout": observation.get("stdout", "")[-1500:],
-                                 "stderr": observation.get("stderr", "")[-1500:]})
+                observation = await _run_step(workspace, root, step, executed)
                 if observation.get("status") != "completed" or observation.get("exit_code") != 0:
-                    failed = True
-                    break
+                    recovered = bool(step.get("on_failure"))
+                    for fallback in step.get("on_failure") or []:
+                        observation = await _run_step(workspace, root, fallback, executed, recovery=True)
+                        if observation.get("status") != "completed" or observation.get("exit_code") != 0:
+                            recovered = False
+                            break
+                    if not recovered:
+                        failed = True
+                        break
             if failed:
                 break
         report = await asyncio.to_thread(inspect_project, root, cwd, python_executable=python_executable)

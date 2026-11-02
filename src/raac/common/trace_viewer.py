@@ -160,6 +160,8 @@ class TraceViewer:
         elif kind == "coder_patch_rebuilt":
             message = ("Diff đã có trong workspace; dùng patch chuẩn theo baseline run"
                        if event.get("reason") == "already_applied_diff" else
+                       "Lượt này Coder không lưu thay đổi mới; patch lấy từ các file đã lưu trước đó"
+                       if event.get("reason") == "no_new_edits" else
                        "Diff LLM sai định dạng; đã sinh và kiểm tra patch từ file Coder lưu")
         elif kind in {"memory_saved", "memory_loaded", "memory_compacted"}:
             title = {"memory_saved": "LƯU MEMORY", "memory_loaded": "NẠP MEMORY",

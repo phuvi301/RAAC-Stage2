@@ -42,6 +42,7 @@ class DockerExecutionPolicy(BaseModel):
     run_timeout_seconds: float = Field(default=9000.0, gt=0, allow_inf_nan=False)
     max_output_bytes: int = Field(default=131072, ge=1024, le=1048576)
     max_report_bytes: int = Field(default=16777216, ge=1024, le=67108864)
+    allow_skipped_tests: bool = True  # skipped tests do not fail a suite that has really run and passed
 
 
 class DockerRunWorkspace:
@@ -224,7 +225,8 @@ class DockerExecutor:
             python = selected[0]
         specification = {"observed_report_path": report, "workspace_root": "/workspace",
                          "command": selected, "cwd": cwd, "env": env or {},
-                         "report_path": report_path, "default_report_path": "/tmp/raac-junit-" + identifier + ".xml"}
+                         "report_path": report_path, "default_report_path": "/tmp/raac-junit-" + identifier + ".xml",
+                         "allow_skipped_tests": self.policy.allow_skipped_tests}
         if report_path is not None:
             repo_path(report_path)
         self.put_file(helper, Path(__file__).with_name("local_test_runner.py").read_bytes())

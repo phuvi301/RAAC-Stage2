@@ -22,6 +22,7 @@ const agentOf = step => String(step.role || "").toLowerCase();
 
 /** Back edges (cycles) found by DFS from the entry node. */
 export function backEdges(topology) {
+  if (topology.layout === "star") return new Set();  // hub-and-spoke edges are drawn as parallel pairs, not loops
   const out = new Map(topology.steps.map(step => [step.node_id, []]));
   for (const [from, to] of topology.edges) out.get(from)?.push(to);
   const state = new Map(), back = new Set();
@@ -37,8 +38,28 @@ export function backEdges(topology) {
   return back;
 }
 
+/** Hub in the middle, the other roles on a circle around it, entry on the left and exit on the right. */
+function starLayout(topology, {marginX, marginY, radiusX = 205, radiusY = 135}) {
+  const degree = new Map(topology.steps.map(step => [step.node_id, 0]));
+  for (const [from, to] of topology.edges) {degree.set(from, degree.get(from) + 1); degree.set(to, degree.get(to) + 1);}
+  const hub = [...degree.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  const spokes = topology.steps.map(step => step.node_id).filter(id => ![hub, topology.entry_node, topology.exit_node].includes(id));
+  const cx = marginX + radiusX + 150, cy = marginY + radiusY + 24;
+  const positions = new Map([[topology.entry_node, {x: marginX, y: cy}], [hub, {x: cx, y: cy}],
+    [topology.exit_node, {x: cx + radiusX + 140, y: cy}]]);
+  spokes.forEach((id, index) => {
+    const angle = (-90 + index * 360 / spokes.length) * Math.PI / 180;
+    positions.set(id, {x: cx + radiusX * Math.cos(angle), y: cy + radiusY * Math.sin(angle)});
+  });
+  const nodes = topology.steps.map(step => ({...step, agent: agentOf(step), control: !step.role,
+    ...(positions.get(step.node_id) || {x: cx, y: cy}), row: 0}));
+  return {nodes, back: new Set(), topArcs: new Set(),
+    width: Math.max(...nodes.map(node => node.x)) + marginX, height: cy + radiusY + marginY};
+}
+
 /** Shortest entry→exit path forms the main row; other nodes hang below, between their neighbours. */
 export function layout(topology, {stepX = 138, rowGap = 92, marginX = 74, marginY = 64} = {}) {
+  if (topology.layout === "star") return starLayout(topology, {marginX, marginY});
   const back = backEdges(topology);
   const forward = topology.edges.filter(([from, to]) => !back.has(edgeKey(from, to)));
   const parent = new Map([[topology.entry_node, null]]);
@@ -49,7 +70,10 @@ export function layout(topology, {stepX = 138, rowGap = 92, marginX = 74, margin
   }
   const main = [];
   for (let node = parent.has(topology.exit_node) ? topology.exit_node : null; node; node = parent.get(node)) main.unshift(node);
-  const positions = new Map(main.map((node, index) => [node, {x: marginX + index * stepX, y: marginY, row: 0}]));
+  // Back edges leaving the main row arc over the top, so they never share a path with the lower loop-backs.
+  const topArcs = new Set([...back].filter(key => main.includes(key.split(">")[0])));
+  const baseY = marginY + (topArcs.size ? 40 : 0);
+  const positions = new Map(main.map((node, index) => [node, {x: marginX + index * stepX, y: baseY, row: 0}]));
   const pending = topology.steps.map(step => step.node_id).filter(node => !positions.has(node));
   const taken = new Set();
   for (let pass = 0; pass < pending.length + 1; pass++) {
@@ -62,13 +86,13 @@ export function layout(topology, {stepX = 138, rowGap = 92, marginX = 74, margin
       let row = 1;
       while (taken.has(`${Math.round(x)}:${row}`)) row++;
       taken.add(`${Math.round(x)}:${row}`);
-      positions.set(node, {x, y: marginY + row * rowGap, row});
+      positions.set(node, {x, y: baseY + row * rowGap, row});
     }
   }
-  const nodes = topology.steps.map(step => ({...step, agent: agentOf(step), control: !step.role, ...(positions.get(step.node_id) || {x: marginX, y: marginY, row: 0})}));
+  const nodes = topology.steps.map(step => ({...step, agent: agentOf(step), control: !step.role, ...(positions.get(step.node_id) || {x: marginX, y: baseY, row: 0})}));
   const width = Math.max(...nodes.map(node => node.x)) + marginX;
   const height = Math.max(...nodes.map(node => node.y)) + marginY + (back.size ? 34 : 0);
-  return {nodes, back, width, height};
+  return {nodes, back, topArcs, width, height};
 }
 
 function pendingTool(events) {

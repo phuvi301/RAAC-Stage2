@@ -8,7 +8,7 @@ from raac.common.report_context import compact_environment_report, compact_test_
 def _select_task_input(request, *, role=None):
     """Send raw chat only to Environment/Analyst/Reviewer, as a Chain handoff rule."""
     result = deepcopy(request)
-    if role not in {"Planner", "Coder", "Tester"}:
+    if role not in {"Planner", "Coder", "Tester", "Hub"}:
         return result
     requirement = result.pop("requirement", None)
     incoming = result.get("incoming_message")

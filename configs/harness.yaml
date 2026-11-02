@@ -1,8 +1,8 @@
 version: harness-demo-v14
 trace_content: true
-token_limit: 800000
-timeout_seconds: 9000.0
-agent_timeout_seconds: 400
+token_limit: 1000000
+timeout_seconds: 900000.0
+agent_timeout_seconds: 1200000
 context:
   enabled: false
   recent_tool_turns: 1
@@ -18,3 +18,5 @@ execution:
   mode: local
   timeout_seconds: 200.0
   max_output_bytes: 131072
+  # A suite with skipped tests (optional dependencies) still passes when tests really ran and none failed.
+  allow_skipped_tests: true

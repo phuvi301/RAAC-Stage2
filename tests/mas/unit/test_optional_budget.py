@@ -30,14 +30,22 @@ def test_invalid_budget_not_treated_as_disabled(limit):
         HarnessConfig.model_validate(data)
 
 
-def test_trial_config_only_disables_budget():
+def test_trial_config_disables_budget_with_explicit_deadlines():
     config = yaml.safe_load((ROOT / "configs/experiments/benchmark-no-budget.yaml").read_text())
     benchmark = yaml.safe_load((ROOT / "configs/benchmark.yaml").read_text())
     assert config == {**benchmark, "harness_config": "configs/experiments/harness-no-budget.yaml"}
     _, actual = load_harness(ROOT, config)
     _, default = load_harness(ROOT, {})
-    assert default["token_limit"] == 800000
-    assert actual == {**default, "token_limit": None, "version": "harness-demo-v14-no-budget"}
+    assert default["token_limit"] > 0
+    # This preset keeps its own deadlines when the deployed defaults change.
+    # Normalize omitted policy defaults before comparing the remaining guards.
+    assert HarnessConfig.model_validate(actual).model_dump() == {
+        **HarnessConfig.model_validate(default).model_dump(),
+        "token_limit": None,
+        "version": "harness-demo-v14-no-budget",
+        "timeout_seconds": 9000.0,
+        "agent_timeout_seconds": 400.0,
+    }
 
 
 @pytest.mark.asyncio

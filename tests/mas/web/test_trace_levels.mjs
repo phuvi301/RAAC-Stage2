@@ -77,3 +77,32 @@ test("SVG render includes Router, skipped accessible labels and finish without r
   assert.ok(svgNodes.some(x=>x.attrs?.["aria-label"]?.includes("Bỏ qua")));
   assert.ok(svgNodes.some(x=>x.text==="Kết quả"));
 });
+
+test("review-loop labels and separate star directions survive the viewer merge",()=>{
+  const reviewLoop = {topology_id:"chain_review_loop", version:"1", entry_node:"coder", exit_node:"result",
+    steps:[{node_id:"coder",role:"Coder"},{node_id:"tester",role:"Tester"},
+      {node_id:"reviewer",role:"Reviewer"},{node_id:"result",role:null}],
+    edges:[["coder","tester"],["tester","reviewer"],["reviewer","coder"],["reviewer","result"]]};
+  const star = {topology_id:"star", version:"1", layout:"star", entry_node:"environment", exit_node:"result",
+    steps:[{node_id:"environment",role:"Environment"},{node_id:"hub",role:"Hub"},
+      {node_id:"coder",role:"Coder"},{node_id:"result",role:null}],
+    edges:[["environment","hub"],["hub","coder"],["coder","hub"],["hub","result"]]};
+  for (const topology of [reviewLoop,star]) {
+    const svgNodes=[];
+    const element=()=>({append(){},replaceChildren(){},addEventListener(){},style:{setProperty(){}}});
+    const context=vm.createContext({layout,summarize,STATUS_LABELS,
+      flow:{topology,selected:null,declared:true},state:{events:[{event:"run_started",max_review_rounds:2}],routing:null},
+      names:{},colors:{mas:"gray"},$:()=>element(),
+      svg:(tag,attrs,text)=>{svgNodes.push({tag,attrs,text});return element();}});
+    vm.runInContext(source.slice(source.indexOf("function clip("),source.indexOf("async function loadTopology("))+
+      "\nrenderFlowDetail=()=>{};renderFlow();",context);
+    if(topology===reviewLoop) {
+      assert.ok(svgNodes.some(node=>node.text==="Reviewer từ chối · tối đa 2 vòng"));
+    } else {
+      const paths=svgNodes.filter(node=>node.tag==="path"&&node.attrs.class?.startsWith("flow-edge"));
+      const coordinates=path=>path.match(/-?\d+(?:\.\d+)?/g).map(Number);
+      const outgoing=coordinates(paths[1].attrs.d),incoming=coordinates(paths[2].attrs.d);
+      assert.notDeepEqual(outgoing,[...incoming.slice(2),...incoming.slice(0,2)]);
+    }
+  }
+});
