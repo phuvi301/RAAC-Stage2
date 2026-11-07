@@ -98,7 +98,7 @@ console.log(JSON.stringify(out));
     def test_layout_keeps_main_path_in_a_row_and_hangs_limit_below_it(self):
         result = self.run_node({})["layout"]
         nodes = result["nodes"]
-        main = ["environment", "analyst", "planner", "coder", "tester", "check", "reviewer", "result"]
+        main = ["hub", "analyst", "planner", "coder", "tester", "check", "reviewer", "result"]
         main = main[main.index(CHAIN.entry_node):]
         self.assertEqual({nodes[i]["row"] for i in main}, {0})
         self.assertEqual([nodes[i]["x"] for i in main], sorted(nodes[i]["x"] for i in main))
@@ -109,14 +109,14 @@ console.log(JSON.stringify(out));
     def test_progress_states_current_activity_and_retry_loop(self):
         scenarios = {
             "fresh": "[]",
-            "running_tool": "[ev('run_started','mas'), ...life('environment',1), ...life('analyst',1), ...life('planner',1), "
+            "running_tool": "[ev('run_started','mas'), ...life('hub',1), ...life('analyst',1), ...life('planner',1), "
                             "ev('agent_started','coder',{round:1}), ev('tool_call_started','coder',{tool_name:'run_command',tool_call_id:'t1'})]",
-            "waiting_llm": "[...life('environment',1), ev('agent_started','analyst'), ev('llm_request','analyst',{turn:2})]",
-            "retry": "[...life('environment',1), ...life('analyst',1), ...life('planner',1), ...life('coder',1), ...life('tester',1), "
+            "waiting_llm": "[...life('hub',1), ev('agent_started','analyst'), ev('llm_request','analyst',{turn:2})]",
+            "retry": "[...life('hub',1), ...life('analyst',1), ...life('planner',1), ...life('coder',1), ...life('tester',1), "
                      "ev('agent_started','coder',{round:2})]",
-            "failed": "[...life('environment',1), ev('agent_started','analyst'), ev('agent_failed','analyst',{tone:'error',summary:'timeout'})]",
-            "blocked_env": "[...life('environment',1,true,{tone:'error'}), ev('agent_completed','environment',{tone:'error'})]",
-            "finished": "[...life('environment',1), ...life('analyst',1), ...life('planner',1), ...life('coder',1), ...life('tester',1), "
+            "failed": "[...life('hub',1), ev('agent_started','analyst'), ev('agent_failed','analyst',{tone:'error',summary:'timeout'})]",
+            "blocked_hub": "[...life('hub',1,true,{tone:'error'}), ev('agent_completed','hub',{tone:'error'})]",
+            "finished": "[...life('hub',1), ...life('analyst',1), ...life('planner',1), ...life('coder',1), ...life('tester',1), "
                         "...life('reviewer',1), ev('run_completed','mas')]",
             "interrupted": "[ev('agent_started','coder'), ev('run_completed','mas',{tone:'error'})]",
         }
@@ -135,9 +135,9 @@ console.log(JSON.stringify(out));
         self.assertIn("limit>coder*", retry["edges"])
         self.assertIn("planner>coder", retry["edges"])
         self.assertEqual(data["failed"]["status"]["analyst"], "failed")
-        self.assertEqual(data["blocked_env"]["status"]["environment"], "failed")
+        self.assertEqual(data["blocked_hub"]["status"]["hub"], "failed")
         done = data["finished"]
-        self.assertTrue(all(done["status"][role] == "done" for role in ("environment", "analyst", "planner", "coder", "tester", "reviewer")))
+        self.assertTrue(all(done["status"][role] == "done" for role in ("hub", "analyst", "planner", "coder", "tester", "reviewer")))
         self.assertEqual(done["status"]["result"], "done")
         self.assertEqual(done["status"]["limit"], "idle")
         self.assertEqual(data["interrupted"]["status"]["coder"], "stopped")
@@ -160,8 +160,8 @@ class ReviewLoopGraphTests(unittest.TestCase):
     def test_review_edge_arcs_over_the_main_row_and_limit_edge_stays_below(self):
         script = (
             "import {layout} from %r;"
-            "const names=['environment','analyst','planner','coder','tester','check','limit','reviewer','result'];"
-            "const t={entry_node:'environment',exit_node:'result',"
+            "const names=['hub','analyst','planner','coder','tester','check','limit','reviewer','result'];"
+            "const t={entry_node:'hub',exit_node:'result',"
             "steps:names.map(n=>({node_id:n,role:['check','limit','result'].includes(n)?null:n})),"
             "edges:%s};"
             "const l=layout(t);"
@@ -198,15 +198,13 @@ class StarGraphTests(unittest.TestCase):
         data = json.loads(done.stdout)
         self.assertEqual(data["back"], [])
         at = data["at"]
-        self.assertLess(at["environment"][0], at["hub"][0])
+        self.assertNotIn("environment", at)
         self.assertLess(at["hub"][0], at["result"][0])
-        self.assertEqual(at["environment"][1], at["hub"][1])
         spokes = [at[name] for name in ("analyst", "planner", "coder", "tester", "reviewer")]
         self.assertEqual(len({tuple(point) for point in spokes}), 5)
-        # Spokes sit clear of the hub box and of the entry node on the left.
+        # Spokes sit clear of the Hub entry box.
         for x, y in spokes:
             self.assertGreater(((x - at["hub"][0]) ** 2 + (y - at["hub"][1]) ** 2) ** 0.5, 130)
-            self.assertGreater(((x - at["environment"][0]) ** 2 + (y - at["environment"][1]) ** 2) ** 0.5, 125)
 
 
 class AssumptionViewTests(unittest.TestCase):

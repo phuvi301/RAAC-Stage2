@@ -8,17 +8,28 @@ operations directly, and never treat a model's unstructured text as a report.
 import asyncio
 import hashlib
 import time
+from collections.abc import Callable
 from copy import deepcopy
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 from raac.collaboration.topologies import get_topology
-from raac.common.errors import AgentExecutionError, RunGuardError, WorkspaceSnapshotError
+from raac.common.errors import (
+    AgentExecutionError,
+    RunGuardError,
+    WorkspaceSnapshotError,
+)
 
 from .chain_handoff import prepare_role_request
-from .hub_policy import SPOKES, hub_options, hub_summary
 from .chain_state import (
-    ChainState, CodeOutput, ReviewReport, RoleHandoff, execution_report, parse_role_output, role_output_model,
+    ChainState,
+    CodeOutput,
+    ReviewReport,
+    RoleHandoff,
+    execution_report,
+    parse_role_output,
+    role_output_model,
 )
+from .hub_policy import hub_options, hub_summary
 
 
 class AgentRunner(Protocol):
@@ -92,7 +103,7 @@ class ChainNodes:
         if self.budget_guard is not None:
             try:
                 allowed = self.budget_guard(deepcopy(state))
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 -- isolate injected runner/guard errors without payloads
                 return self._abort(state, node, "guard_error", error_kind=type(exc).__name__)
             if allowed is not True:
                 return self._abort(state, node, "budget_exceeded")
@@ -115,21 +126,13 @@ class ChainNodes:
             "output_schema": role_output_model(role).model_json_schema(),
         }, role=role)
         events = [self._event(state, node, "agent_started", role=role, round=round_number)]
-        started_at = time.time()
-        deadline_extension = 0.0
         try:
-            default = None if role == "Environment" else state["limits"]["agent_timeout_seconds"]
+            default = state["limits"]["agent_timeout_seconds"]
             resolver = getattr(self.runner, "role_timeout", None)
             timeout = resolver(role, default) if resolver else default
-            if role != "Environment":
-                remaining = max(0, state["deadline_at"] - time.time())
-                timeout = remaining if timeout is None else min(timeout, remaining)
+            remaining = max(0, state["deadline_at"] - time.time())
+            timeout = remaining if timeout is None else min(timeout, remaining)
             raw = await asyncio.wait_for(self.runner(role, request), timeout=timeout)
-            if role == "Environment":
-                # Environment preparation has its own clock. Preserve the time
-                # remaining for development even after a long dependency install.
-                deadline_extension = time.time() - started_at
-                state = {**state, "deadline_at": state["deadline_at"] + deadline_extension}
             runtime = deepcopy(raw.runtime) if isinstance(raw, RoleHandoff) else {}
             payload = raw.output if isinstance(raw, RoleHandoff) else raw
             output = RoleHandoff(parse_role_output(role, payload).model_dump(), runtime)
@@ -143,7 +146,7 @@ class ChainNodes:
             return None, self._abort(state, node, exc.code, events=events), []
         except (ValueError, TypeError):
             return None, self._abort(state, node, "invalid_output", events=events), []
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- isolate injected runner/guard errors without payloads
             # Do not copy exception messages/raw model output into logs: an
             # adapter might include credentials or sensitive task content.
             return None, self._abort(
@@ -154,15 +157,13 @@ class ChainNodes:
             interrupted["events"] = events + interrupted["events"]
             return None, interrupted, []
         events.append(self._event(state, node, "agent_completed", role=role, round=round_number))
-        if deadline_extension:
-            output = RoleHandoff(output.output, {**output.runtime, "deadline_at": state["deadline_at"]})
         return output, None, events
 
     async def analyst(self, state: ChainState) -> dict:
         rework = state.get("spec") is not None
         output, failure, events = await self._call(
             state, "analyst", "Analyst",
-            {"from": "Hub" if rework else "caller", "requirement": state["work"]["requirement"]},
+            {"from": "Hub", "requirement": state["work"]["requirement"]},
             ({"previous_spec": state["spec"], "test_report": state["test_report"],
               "review_report": state.get("review_feedback"),
               **({"hub_note": state["hub_note"]} if state.get("hub_note") else {})} if rework else {}),
@@ -213,26 +214,6 @@ class ChainNodes:
             update.update(plan_changed=True, test_report=None, review_report=None, tests_passed=False,
                           verdict=None, stop_reason=None)
         return update
-
-    async def environment(self, state: ChainState) -> dict:
-        # First node: verify the runtime before spending Analyst/Planner tokens.
-        # No spec/plan exists yet, so it selects the suite from the raw requirement and repository.
-        output, failure, events = await self._call(
-            state, "environment", "Environment",
-            {"from": "caller", "requirement": state["work"]["requirement"]}, {},
-        )
-        if failure:
-            return failure
-        report = {**output.output, "configuration": output.runtime.get("configuration"),
-                  "verification": output.runtime.get("verification", []),
-                  "smoke_report": output.runtime.get("smoke_report"),
-                  "observation_ref": output.runtime.get("observation_ref")}
-        if output.output["status"] != "ready" or output.runtime.get("verified") is not True:
-            return {**self._abort(state, "environment", "environment_setup_failed", events=events),
-                    "environment_report": report}
-        return {"environment_report": report, "next_node": self._next(state, "analyst"),
-                "deadline_at": output.runtime.get("deadline_at", state["deadline_at"]),
-                "events": [*events, self._event(state, "environment", "environment_verified", target="analyst")]}
 
     async def coder(self, state: ChainState) -> dict:
         if state["round_number"] >= state["limits"]["max_rounds"]:
@@ -308,7 +289,7 @@ class ChainNodes:
         return update
 
     async def hub(self, state: ChainState) -> dict:
-        """Star routing: rules always bound the choice; an LLM Hub may pick among the allowed roles."""
+        """Enter through Analyst; star routing may revisit the Hub after each role."""
         passed = _tests_pass(state)
         options, default = hub_options(state, passed)
         limits = state["limits"]

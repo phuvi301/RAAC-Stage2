@@ -15,7 +15,11 @@ from raac.common.agent_contracts import (
     RoleHandoff,
     parse_role_output,
 )
-from raac.common.coder_report import looks_like_diff, parse_coder_report, render_coder_report
+from raac.common.coder_report import (
+    looks_like_diff,
+    parse_coder_report,
+    render_coder_report,
+)
 from raac.common.errors import (
     AgentExecutionError,
     RunGuardError,
@@ -54,6 +58,8 @@ class AgentRunner:
         context_policy: RoleContextPolicy | None = None,
         memory_policy: ShortTermMemoryPolicy | None = None,
         auto_approve: bool = True,
+        approval_handler=None,
+        approval_tools: frozenset[str] | None = None,
     ):
         client.config.resolve_role_models(
             {role.id: role.model.ref for role in registry.roles.values()}
@@ -65,6 +71,8 @@ class AgentRunner:
         self.memory_policy = memory_policy or ShortTermMemoryPolicy()
         self._memory_sessions = {}
         self.auto_approve = auto_approve
+        self.approval_handler = approval_handler
+        self.approval_tools = approval_tools
         self.checkpoints = CheckpointStore(client.log_path.parent / "lifecycle.sqlite3")
         self._active_states = {}
 
@@ -387,6 +395,7 @@ class AgentRunner:
                 "log": str(self.client.log_path.resolve()),
                 "token_limit": self.token_limit,
                 "auto_approve": self.auto_approve,
+                "approval_tools": sorted(self.approval_tools) if self.approval_tools is not None else None,
             }
         )
 
@@ -851,7 +860,8 @@ class AgentRunner:
                 raise LifecycleError("operation_identity_mismatch")
             return deepcopy(receipt["observation"])
         self._guard(state)
-        if not self.auto_approve and state.get("approved_operation") != operation:
+        requires_approval = not self.auto_approve and (self.approval_tools is None or name in self.approval_tools)
+        if requires_approval and state.get("approved_operation") != operation:
             if state["status"] != "WAITING_HUMAN_APPROVAL":
                 self._transition(state, "WAITING_HUMAN_APPROVAL")
                 state["pending_approval"] = operation
@@ -862,15 +872,25 @@ class AgentRunner:
                     revision=state["revision"],
                     operation=operation,
                 )
-            raise AgentPaused(
-                state["invocation_id"], state["revision"], "approval_required"
-            )
+            if self.approval_handler is None:
+                raise AgentPaused(state["invocation_id"], state["revision"], "approval_required")
+            decision = await self.approval_handler({
+                "invocation_id": state["invocation_id"], "revision": state["revision"],
+                "operation_id": operation_id, "arguments_hash": operation["arguments_hash"],
+                "role": role.spec.name, "tool": name, "arguments": deepcopy(arguments),
+                "workspace": str(self.tools.workspace.root),
+            })
+            validate_approval(state, decision)
+            if not decision.approve:
+                raise LifecycleError("approval_rejected")
+            self._guard(state)
+
         state["approved_operation"] = state["pending_approval"] = None
         self._transition(state, "EXECUTING_TOOL")
         state["inflight"] = operation
         self._save(state)
         observation = await self._perform_tool(
-            role, name, arguments, context=context, **kwargs
+            role, name, arguments, context={**context, "operation_id": operation_id}, **kwargs
         )
         state["receipts"][operation_id] = {
             "operation": operation,

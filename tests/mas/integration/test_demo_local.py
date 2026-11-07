@@ -114,6 +114,28 @@ class LocalChainTests(unittest.IsolatedAsyncioTestCase):
         (self.project_dir / "repo/solution.py").write_text(BASELINE)
         (self.project_dir / "requirement/user_chat.txt").write_text("Count smaller elements to the right")
 
+    async def test_run_local_uses_direct_workspace_and_approvals(self):
+        original_execute = execute
+        approvals = []
+
+        async def local_execute(args):
+            from raac.harness.layer1_lifecycle import ApprovalDecision
+            async def approve(pending):
+                approvals.append(pending)
+                return ApprovalDecision(**{key: pending[key] for key in
+                    ("invocation_id", "revision", "operation_id", "arguments_hash")}, approve=True)
+            args.command = "run-local"
+            args.workspace = str(Path(args.project_dir) / "repo")
+            args.prompt = (Path(args.project_dir) / "requirement/user_chat.txt").read_text()
+            with patch.dict(os.environ, {"LOCALAPPDATA": str(self.project_dir.parent / "artifacts")}):
+                return await original_execute(args, approval_handler=approve)
+
+        with patch(__name__ + ".execute", side_effect=local_execute):
+            await self.test_cli_nested_src_project_selects_tests_without_solution_file()
+        self.assertIn("run_tests", {entry["tool"] for entry in approvals})
+        self.assertIn("run_commands", {entry["tool"] for entry in approvals})
+        self.assertNotIn("edit_file", {entry["tool"] for entry in approvals})
+
     async def test_cli_nested_src_project_selects_tests_without_solution_file(self):
         repo = self.project_dir / "repo"
         (repo / "solution.py").unlink()
@@ -255,7 +277,7 @@ class ServiceTests(unittest.TestCase):
         output_dir = Path(json.loads(stdout.getvalue())["output"])
         record = json.loads((output_dir / "result.json").read_text(encoding="utf-8"))
         self.assertEqual(code, 0, {key: record.get(key) for key in ("status", "stop_reason", "error")})
-        self.assertEqual(set(selected), set(registry.roles) - {"hub", "router"})
+        self.assertEqual(set(selected), set(registry.roles) - {"hub", "router", "environment"})
         self.assertGreater(selected.count("coder"), 1)
         self.assertGreater(selected.count("tester"), 1)
         role_models = record["provenance"]["effective_config"]["role_models"]
@@ -411,10 +433,10 @@ class ServiceTests(unittest.TestCase):
                          "tool_call_completed", "agent_completed", "run_completed"}.issubset(events))
         self.assertEqual(record["trace"]["event_count"], len(trace))
         environment_calls = [event for event in trace if event["event"] == "agent_started" and event["agent_id"] == "environment"]
-        self.assertEqual(len(environment_calls), 1)
-        self.assertEqual(decision["topology_version"], "5")
+        self.assertEqual(len(environment_calls), 0)
+        self.assertEqual(decision["topology_version"], "6")
         self.assertTrue(record["test_report"]["observation_ref"])
-        self.assertTrue(record["environment_report"]["observation_ref"])
+        self.assertIsNone(record["environment_report"])
         self.assertEqual([event["sequence"] for event in trace], list(range(1, len(trace) + 1)))
         planner = next(event for event in trace if event["event"] == "agent_started" and event["agent_id"] == "planner")
         self.assertEqual(planner["request"]["incoming_message"]["from"], "Analyst")
@@ -504,7 +526,7 @@ class ServiceTests(unittest.TestCase):
                 output = None
                 tool_calls = [{"id": "write-tests", "type": "function", "function": {
                     "name": "edit_file", "arguments": json.dumps({"path": "test_generated.py", "content": generated_source}),
-                }}]
+                }}, {"id": "select-suite", "type": "function", "function": {"name": "run_tests", "arguments": json.dumps({"command": ["python", "-m", "unittest", "discover"]})}}]
             elif system.startswith("You are the Tester"):
                 output = {"patch_hash": work["artifacts"]["patch_hash"], "status": "passed",
                           "tests_run": 99, "failed": 0, "test_cases": ["invented"],
@@ -535,7 +557,7 @@ class ServiceTests(unittest.TestCase):
         record = json.loads((output_dir / "result.json").read_text(encoding="utf-8"))
         self.assertEqual(record["verdict"], "PASS")
         decision = record["coordinator_decision"]
-        self.assertEqual((decision["topology"], decision["topology_version"]), ("star", "1"))
+        self.assertEqual((decision["topology"], decision["topology_version"]), ("star", "2"))
         self.assertEqual((decision["hub_mode"], decision["max_dispatches"]), ("llm", 12))
         self.assertEqual(record["topology"], "star")
         hub_events = [event for event in record["events"] if event["event"] == "hub_decision"]
@@ -544,7 +566,7 @@ class ServiceTests(unittest.TestCase):
                           ("reviewer", "llm"), ("finish", "rules")])
         trace = [json.loads(line) for line in (output_dir / "llm.jsonl").read_text(encoding="utf-8").splitlines()]
         started = [event["agent_id"] for event in trace if event["event"] == "agent_started"]
-        self.assertEqual(started, ["environment", "analyst", "hub", "planner", "hub", "coder", "hub", "tester",
+        self.assertEqual(started, ["analyst", "hub", "planner", "hub", "coder", "hub", "tester",
                                    "hub", "reviewer"])
         self.assertEqual(record["provenance"]["effective_config"]["coordinator_decision"], decision)
 
@@ -602,7 +624,7 @@ class ServiceTests(unittest.TestCase):
                 output = None
                 tool_calls = [{"id": "write-tests", "type": "function", "function": {
                     "name": "edit_file", "arguments": json.dumps({"path": "test_generated.py", "content": generated_source}),
-                }}]
+                }}, {"id": "select-suite", "type": "function", "function": {"name": "run_tests", "arguments": json.dumps({"command": ["python", "-m", "unittest", "discover"]})}}]
             elif system.startswith("You are the Tester"):
                 output = {"patch_hash": work["artifacts"]["patch_hash"], "status": "passed",
                           "tests_run": 99, "failed": 0, "test_cases": ["invented"],
@@ -637,7 +659,7 @@ class ServiceTests(unittest.TestCase):
         record = json.loads((output_dir / "result.json").read_text(encoding="utf-8"))
         self.assertEqual(record["verdict"], "PASS")
         decision = record["coordinator_decision"]
-        self.assertEqual((decision["topology"], decision["topology_version"]), ("star", "1"))
+        self.assertEqual((decision["topology"], decision["topology_version"]), ("star", "2"))
         self.assertEqual((decision["hub_mode"], decision["max_dispatches"]), ("llm", 12))
         self.assertEqual(record["topology"], "star")
         hub_events = [event for event in record["events"] if event["event"] == "hub_decision"]
@@ -647,7 +669,7 @@ class ServiceTests(unittest.TestCase):
                           ("finish", "rules")])
         trace = [json.loads(line) for line in (output_dir / "llm.jsonl").read_text(encoding="utf-8").splitlines()]
         started = [event["agent_id"] for event in trace if event["event"] == "agent_started"]
-        self.assertEqual(started, ["environment", "analyst", "hub", "planner", "hub", "coder", "hub", "tester",
+        self.assertEqual(started, ["analyst", "hub", "planner", "hub", "coder", "hub", "tester",
                                    "hub", "reviewer", "hub", "coder", "hub", "tester", "hub", "reviewer"])
         self.assertEqual(len(hub_requests), 7)
         rejection = hub_requests[4]  # asked right after the Reviewer's rejection

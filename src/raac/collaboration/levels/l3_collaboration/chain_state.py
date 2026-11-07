@@ -12,6 +12,8 @@ from typing import Annotated, Any, Literal
 from pydantic import Field, model_validator
 from typing_extensions import TypedDict
 
+from raac.collaboration.topologies import get_topology
+
 # Preserve existing collaboration imports after extracting shared wire contracts.
 from raac.common.agent_contracts import (  # noqa: F401
     JSON_OUTPUT_MODELS,
@@ -185,5 +187,5 @@ def initial_chain_state(work: WorkItem, limits: ChainLimits, topology_id: str = 
         "topology_id": topology_id, "tests_passed": False,
         "verdict": None, "stop_reason": None, "error": None,
         "environment_report": None,
-        "next_node": "analyst", "events": [], "result": None,
+        "next_node": get_topology(topology_id).entry_node, "events": [], "result": None,
     }

@@ -1,7 +1,7 @@
 # Các mẫu topology L3
 
 Hai mẫu dưới đây dùng chung năm role Analyst, Planner, Coder, Tester và
-Reviewer; Chain bổ sung role Environment chuẩn bị runtime. Chain đã có node/graph và adapter demo cho Registry, client 9router,
+Reviewer, với Hub làm entry của mọi topology L3. Environment không còn nằm trong graph. Chain đã có node/graph và adapter demo cho Registry, client 9router,
 file tool và lệnh chạy local; Subtask Chain còn ở mức định nghĩa. Coordinator hiện cố định chọn Chain; chưa chọn topology thích ứng
 hoặc tích hợp Engine/harness benchmark đầy đủ. Xem
 [hướng dẫn chạy demo](../../../../../docs/chain_demo.md).
@@ -13,7 +13,7 @@ Planner chạy một lượt, Coder–Tester lặp trong giới hạn, sau đó 
 chốt kết quả. Vì có cạnh phản hồi Tester → Coder, mẫu này không còn là
 Linear Chain.
 
-Trong adapter hiện tại, user chat gốc chỉ gửi cho Environment, Analyst và Reviewer.
+Trong adapter hiện tại, user chat gốc chỉ gửi cho Analyst và Reviewer.
 Planner/Coder/Tester nhận WorkSpec/AC/constraints/interface_contracts của Analyst
 cùng các artifact cần cho vai trò của mình. Reviewer dùng user chat để đối chiếu
 Spec và sản phẩm; việc các role khác đồng ý hoặc test pass không thay thế kiểm tra
@@ -23,7 +23,7 @@ yêu cầu gốc. Mỗi role vẫn có context riêng, không nhận toàn bộ 
 flowchart TD
     analyst["Analyst<br/>Requirement, Business Rules & AC"]
     planner["Planner<br/>Technical Plan & API/Data Schema"]
-    environment["Environment<br/>Chuẩn bị và xác minh runtime"]
+    hub["Hub<br/>Khởi tạo điều phối"]
     coder["Coder<br/>Hiện thực hoặc sửa lỗi"]
     tester["Tester<br/>Test Cases & Execution Report"]
     check{"Test bắt buộc pass<br/>và không còn vấn đề chặn?"}
@@ -31,9 +31,8 @@ flowchart TD
     reviewer["Reviewer<br/>Review sản phẩm và test report"]
     result["Kết quả Chain<br/>PASS / REJECT và lý do kết thúc"]
 
-    environment -->|Sẵn sàng| analyst --> planner --> coder
+    hub --> analyst --> planner --> coder
     coder --> tester
-    environment -->|Chưa sẵn sàng| result
     tester --> check
     check -->|Đạt| reviewer
     check -->|Chưa đạt| limit
@@ -46,7 +45,7 @@ flowchart TD
 | --- | --- | --- | --- | --- |
 | `analyst` | Analyst | Task/subtask từ bên gọi | Phân tích requirement, user story, Business Rules, ràng buộc và AC. Khi nhận subtask, làm rõ AC cục bộ và giữ nhất quán với Spec toàn task. | Work Spec, AC có mã định danh, giả định và thông tin còn thiếu. |
 | `planner` | Planner | `analyst` | Từ Spec và AC, chọn giải pháp, thiết kế cấu trúc dữ liệu/API Contract, xác định file/module cần sửa, thứ tự thao tác và cách tích hợp. Chain này không tự mở thêm Chain con. | Technical Plan, API/Data Schema Spec và ánh xạ bước thực hiện tới AC. |
-| `environment` | Environment | Task từ bên gọi (entry) | Chạy một lần ở bước đầu tiên, trước Analyst/Planner: chọn Python, cài dependency local, xác minh import/collection/thực thi suite theo requirement gốc và repo. Coder/Tester dùng lại runtime cả run; không tăng round. | JSON ready/blocked; runtime bổ sung cấu hình và kết quả thật. Chưa ready thì dừng. |
+| `hub` | Hub | Task từ bên gọi (entry) | Chain/review-loop chuyển sang Analyst bằng rules; star điều phối giữa các role. Không tự chuẩn bị runtime. | Quyết định dispatch. |
 | `coder` | Coder | `planner` ở lượt đầu; qua `limit` từ report của `tester` khi sửa lỗi | Hiện thực theo kế hoạch hoặc sửa lỗi Tester báo; tự kiểm tra sơ bộ trước khi bàn giao. Không tự hạ AC hay bỏ test để được pass. | Source Code Patch / Build có version, kết quả tự kiểm tra và mô tả thay đổi. |
 | `tester` | Tester | `coder` | Đọc Spec/AC/contract của Analyst và contract mới từ Planner để viết test độc lập; chạy trên đúng patch/build hiện tại và kiểm tra hồi quy liên quan. | Test Case, Test Execution Report, lỗi tái hiện được, AC chưa đạt và vấn đề chặn đã biết. |
 | `check` | Không — node điều khiển | `tester` | Kiểm tra toàn bộ test bắt buộc đã pass và không còn vấn đề chặn trên đúng code version. Không coi thiếu test hoặc test chưa chạy là pass. | Đạt: chuyển `reviewer`; chưa đạt: chuyển `limit` cùng report. |
@@ -58,16 +57,11 @@ Spec, Plan, AC, patch và test report là artifact dùng chung có version.
 Tester/Reviewer đọc phần liên quan dù không có cạnh message trực tiếp từ
 mọi role trước đó; không mặc định nhận toàn bộ lịch sử hội thoại.
 
-Chain topology v5 có cạnh Environment → Analyst → Planner → Coder; retry đi trực tiếp
-Limit → Coder → Tester. Environment không nhận report của Tester để chuẩn bị lại.
-
-Environment còn thực thi pytest suite để trả smoke_report/mẫu lỗi tương thích, thay vì chỉ collection. Role phân biệt dependency/API lỗi với assertion task chưa được sửa.
-
-Environment dùng `timeout_seconds: null` ở role: không timeout agent/HTTP/lệnh/batch;
-đồng hồ deadline chung được kéo dài đúng thời gian role này chạy. Các role khác,
-budget token và call cap vẫn giữ giới hạn. Coder/Tester dùng Python và cấu hình test
-đã xác minh. Dữ liệu này nằm ở `environment_report` trong ChainState/result,
-không thay state vòng đời Layer 1 hoặc memory Coder.
+Chain v6 và review-loop v2 bắt đầu Hub → Analyst → Planner → Coder;
+star v2 bắt đầu tại Hub. L1 vẫn bắt đầu tại Analyst, L2 tại Router.
+Chuẩn bị interpreter/dependency trước khi chạy; Tester chọn suite bằng run_tests.
+Không còn lượt Environment hoặc cơ chế kéo dài deadline theo role này.
+`environment_report` giữ giá trị null để tương thích định dạng result hiện có.
 
 ## Hợp đồng dùng lại Chain
 

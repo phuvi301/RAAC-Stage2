@@ -1,9 +1,9 @@
 """Execute MAS development commands directly on the laptop in the real repo."""
 
 import asyncio
+import codecs
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import signal
@@ -11,11 +11,15 @@ import subprocess
 import sys
 import tempfile
 import time
+from contextvars import ContextVar
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from .tools.paths import repo_path
+
+execution_context = ContextVar("local_execution_context", default=None)
 
 
 class LocalExecutionPolicy(BaseModel):
@@ -36,6 +40,7 @@ class LocalExecutor:
     def __init__(self, policy: LocalExecutionPolicy):
         self.policy = policy
         self.environment = None
+        self.trace = None
 
     def resolve_command(self, command, root, environment, *, cwd="."):
         if (not isinstance(command, list) or not 1 <= len(command) <= 64
@@ -129,16 +134,51 @@ class LocalExecutor:
         outputs = {"stdout": bytearray(), "stderr": bytearray()}
 
         async def read(stream, name):
-            while chunk := await stream.read(8192):
-                remaining = self.policy.max_output_bytes - sum(map(len, outputs.values()))
-                outputs[name].extend(chunk[:max(0, remaining)])
-                if len(chunk) > remaining:
-                    raise OutputLimitError
+            decoder = codecs.getincrementaldecoder("utf-8")("replace")
+            pending = ""
+            context = execution_context.get() or {}
+
+            def emit(final=False):
+                nonlocal pending
+                if not self.trace:
+                    pending = ""
+                    return
+                # Keep incomplete lines/credentials until they can be redacted as a unit.
+                end = len(pending) if final else pending.rfind("\n") + 1
+                if not final and "-----BEGIN" in pending:
+                    end = min(end, pending.index("-----BEGIN"))
+                if not final:
+                    for secret in self.trace.secrets:
+                        for length in range(1, min(len(secret), len(pending) + 1)):
+                            if pending.endswith(secret[:length]):
+                                end = min(end, len(pending) - length)
+                        position = pending.find(secret)
+                        while position >= 0:
+                            if position < end < position + len(secret):
+                                end = position
+                            position = pending.find(secret, position + 1)
+                if end:
+                    self.trace.emit(context, event="command_output", stream=name, text=pending[:end])
+                    pending = pending[end:]
+
+            try:
+                while chunk := await stream.read(8192):
+                    remaining = self.policy.max_output_bytes - sum(map(len, outputs.values()))
+                    accepted = chunk[:max(0, remaining)]
+                    outputs[name].extend(accepted)
+                    pending += decoder.decode(accepted)
+                    emit()
+                    if len(chunk) > remaining:
+                        raise OutputLimitError
+            finally:
+                pending += decoder.decode(b"", final=True)
+                emit(final=True)
 
         tasks = [asyncio.create_task(read(process.stdout, "stdout")),
                  asyncio.create_task(read(process.stderr, "stderr")), asyncio.create_task(process.wait())]
+        combined = asyncio.gather(*tasks)
         try:
-            await asyncio.wait_for(asyncio.gather(*tasks), timeout)
+            await asyncio.wait_for(combined, timeout)
             result.update(exit_code=process.returncode, status="completed",
                           summary="Local command completed")
         except (TimeoutError, OutputLimitError) as error:
@@ -153,6 +193,7 @@ class LocalExecutor:
                     if not task.done():
                         task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
+                await asyncio.gather(combined, return_exceptions=True)
                 await self._close_transport(process)
         result.update({name: data.decode("utf-8", errors="replace") for name, data in outputs.items()})
         result["duration_ms"] = round((time.perf_counter() - started) * 1000, 3)
@@ -174,7 +215,7 @@ class LocalExecutor:
                              "cwd": cwd, "env": env or {}, "report_path": report_path,
                              "default_report_path": str(Path(temporary) / "junit.xml"),
                              "allow_skipped_tests": self.policy.allow_skipped_tests}
-            helper_python = command[0] if re.fullmatch(r"python(?:3(?:\.\d+)?)?(?:\.exe)?", Path(command[0]).name, re.I) else sys.executable
+            helper_python = command[0] if re.fullmatch(r"python(?:3(?:\.\d+)?)?(?:\.exe)?", Path(command[0]).name, re.IGNORECASE) else sys.executable
             observed = await self.run_command(root, command=[helper_python, "-I", "-B",
                 str(Path(__file__).with_name("local_test_runner.py")), json.dumps(specification)], cwd=cwd, unlimited=unlimited)
             report = None
@@ -191,7 +232,7 @@ class LocalExecutor:
             return failure
         try:
             if not isinstance(report, dict):
-                raise ValueError("Missing or oversized structured test report")
+                raise TypeError("Missing or oversized structured test report")
             if (type(report.get("tests_run")) is not int or report["tests_run"] < 0
                     or type(report.get("failed")) is not int or not 0 <= report["failed"] <= report["tests_run"]
                     or not isinstance(report.get("test_cases"), list)):
