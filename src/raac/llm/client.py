@@ -1,4 +1,4 @@
-"""OpenAI-compatible, non-streaming Chat Completions client for 9router."""
+"""OpenAI-compatible Chat Completions client for 9router."""
 
 import asyncio
 import hashlib
@@ -15,6 +15,7 @@ from raac.common.tracing import JSONLTrace
 
 from .config import LLMConfig
 from .protocol import normalize_message
+from .streaming import PublicText, StreamFormatError, assemble
 from .usage import UsageTracker, logged_usage
 
 
@@ -45,7 +46,7 @@ class Completion:
 
 class LLMClient:
     def __init__(self, config: LLMConfig, *, log_path: Path,
-                 transport=None, usage: UsageTracker | None = None, trace_content=False):
+                 transport=None, usage: UsageTracker | None = None, trace_content=False, stream=False):
         self._seen_context = {}
         self.upstream_errors = {}
         self._activation = {}
@@ -55,6 +56,7 @@ class LLMClient:
         key = config.api_key.get_secret_value()
         self.trace = JSONLTrace(self.log_path, secrets=(key,))
         self.trace_content = trace_content
+        self.stream = stream
         self._http = httpx.AsyncClient(
             base_url=config.base_url + "/", timeout=config.timeout_seconds,
             headers={"Authorization": f"Bearer {key}"} if key else {},
@@ -63,6 +65,36 @@ class LLMClient:
 
     async def aclose(self):
         await self._http.aclose()
+
+    async def _stream_response(self, payload, context, attempt):
+        text = PublicText(self.trace)
+        chunk = 1
+        completed = False
+
+        def publish(delta='', *, final=False):
+            nonlocal chunk
+            if self.trace_content:
+                safe = text.feed(delta, final=final)
+                if safe:
+                    chunk += 1
+                    self.trace_event(context, 'llm_output_delta', attempt=attempt, chunk=chunk, text=safe)
+
+        self._log(context, event='llm_stream_started', attempt=attempt, chunk=chunk)
+        chunk += 1
+        # shortcut: no documented public-summary mapping for 9router; add only with provider evidence.
+        self.trace_event(context, 'llm_public_summary', attempt=attempt, chunk=chunk,
+                         text='Summary unavailable', supported=False)
+        try:
+            async with self._http.stream('POST', 'chat/completions', json=payload,
+                                         **({'timeout': None} if context.get('unlimited_timeout') else {})) as response:
+                response.raise_for_status()
+                data = await assemble(response, publish)
+                publish(final=True)
+                completed = True
+                return httpx.Response(response.status_code, json=data, request=response.request)
+        finally:
+            # Incomplete buffered text is discarded on errors/cancellation.
+            self._log(context, event='llm_stream_ended', attempt=attempt, chunk=chunk + 1, completed=completed)
 
     def _log(self, context, **record):
         if record.get("event") == "llm_call" and record.get("error"):
@@ -160,6 +192,8 @@ class LLMClient:
         self._require_complete_usage(context)
         context = {**context, "llm_call_id": uuid.uuid4().hex,
                    "model_ref": model_ref, "model_settings": settings.model_dump()}
+        if self.stream:
+            context.setdefault('agent_call_id', activation)
         metrics = context.pop("context_metrics", None)
         if metrics is not None:
             # Track exact repeated message/schema representations within this run only.
@@ -179,8 +213,10 @@ class LLMClient:
                       repetition_scope="prior requests in this client session and run; exact messages/schemas")
         payload = {
             **settings.model_dump(), "messages": messages,
-            "stream": False,
+            "stream": self.stream,
         }
+        if self.stream:
+            payload['stream_options'] = {'include_usage': True}
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
@@ -190,12 +226,18 @@ class LLMClient:
             self.usage.record_attempt(context)
             started = time.perf_counter()
             response = None
-            self.trace_event(context, "llm_attempt_started", attempt=attempt + 1)
+            if self.stream:
+                self._log(context, event="llm_attempt_started", attempt=attempt + 1)
+            else:
+                self.trace_event(context, "llm_attempt_started", attempt=attempt + 1)
             data = None
             message = None
             try:
-                response = await self._http.post("chat/completions", json=payload,
-                                                 **({"timeout": None} if context.get("unlimited_timeout") else {}))
+                if self.stream:
+                    response = await self._stream_response(payload, context, attempt + 1)
+                else:
+                    response = await self._http.post("chat/completions", json=payload,
+                                                     **({"timeout": None} if context.get("unlimited_timeout") else {}))
                 status = response.status_code
                 if response.is_error:
                     raise httpx.HTTPStatusError("API request failed", request=response.request,
@@ -207,7 +249,15 @@ class LLMClient:
                           latency_ms=round((time.perf_counter() - started) * 1000, 3),
                           error="Cancelled")
                 raise
+            except StreamFormatError as exc:
+                self.usage.add(context, None, count_call=False)
+                self._log(context, event='llm_call', attempt=attempt + 1, usage=None,
+                          error='InvalidStream', response_error=exc.code,
+                          retry_scheduled=False, retry_blocked_reason='usage_unavailable')
+                raise LLMError('Invalid or incomplete completion stream') from None
             except httpx.HTTPError as exc:
+                if isinstance(exc, httpx.HTTPStatusError):
+                    response = exc.response
                 status = response.status_code if response is not None else None
                 if status is None or status in (408, 504, 524):
                     self.usage.add(context, None, count_call=False)
@@ -242,6 +292,11 @@ class LLMClient:
                 response_error = "invalid_response"
             usage = data.get("usage") if isinstance(data, dict) else None
             self.usage.add(context, usage, count_call=False)
+            if self.stream and not self.usage.snapshot(run_id=context['run_id'])['usage_complete']:
+                self._log(context, event='llm_call', attempt=attempt + 1, status=response.status_code,
+                          usage=logged_usage(usage), error='UsageUnavailable', retry_scheduled=False,
+                          retry_blocked_reason='usage_unavailable')
+                self._require_complete_usage(context)
             if response_error:
                 self._log(context, event="llm_call", attempt=attempt + 1,
                           requested_model=settings.model, status=response.status_code,

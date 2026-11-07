@@ -113,19 +113,28 @@ class WorkspaceTools:
             self.setup_generated_paths = set(snapshot["setup_generated_paths"])
 
     # project là thư mục cha chứa repo/ và requirement/; executor chạy lệnh local.
-    def __init__(self, project: Path, executor):
+    def __init__(self, project: Path, executor, *, requirement: str | None = None):
         self.project = Path(project).resolve()
         self.executor = executor
-        self.root = self._checked_path(self.project / "repo", self.project)         # Ghép PROJECT/repo rồi kiểm tra path/symlink; đây là gốc codebase.
-        requirements = self._checked_path(self.project / "requirement", self.project)# Requirement nằm ngoài repo nhưng vẫn thuộc thư mục project đã chọn.
-        
-        # Thiếu cấu trúc đầu vào thì dừng, không phục hồi từ kết quả run cũ.
-        if not self.root.is_dir() or not requirements.is_dir():         
-            raise ValueError("Project must contain repo/ and requirement/ directories")
-        user_chat = self._checked_path(requirements / "user_chat.txt", self.project)
-        self.requirement_files = {"requirement/user_chat.txt": user_chat}
-        # Đọc yêu cầu UTF-8, có kiểm tra giới hạn dung lượng; thiếu file sẽ báo lỗi.
-        self.requirement = self._read(user_chat)
+        if requirement is None:
+            self.root = self._checked_path(self.project / "repo", self.project)         # Ghép PROJECT/repo rồi kiểm tra path/symlink; đây là gốc codebase.
+            requirements = self._checked_path(self.project / "requirement", self.project)# Requirement nằm ngoài repo nhưng vẫn thuộc thư mục project đã chọn.
+
+            # Thiếu cấu trúc đầu vào thì dừng, không phục hồi từ kết quả run cũ.
+            if not self.root.is_dir() or not requirements.is_dir():
+                raise ValueError("Project must contain repo/ and requirement/ directories")
+            user_chat = self._checked_path(requirements / "user_chat.txt", self.project)
+            self.requirement_files = {"requirement/user_chat.txt": user_chat}
+            # Đọc yêu cầu UTF-8, có kiểm tra giới hạn dung lượng; thiếu file sẽ báo lỗi.
+            self.requirement = self._read(user_chat)
+        else:
+            self.root = self.project
+            if not self.root.is_dir():
+                raise ValueError("Workspace must be an existing directory")
+            if not isinstance(requirement, str) or len(requirement.encode("utf-8")) > self.max_file_bytes:
+                raise ValueError("Invalid or oversized requirement")
+            self.requirement = requirement
+            self.requirement_files = {}
         # strip() chỉ dùng kiểm tra rỗng; nội dung gốc trong self.requirement không đổi.
         if not self.requirement.strip():
             raise ValueError("Requirements must not be empty")
@@ -448,7 +457,7 @@ class WorkspaceTools:
             entries.append({"path": name, "bytes": len(data)})
         return {"files": entries[:limit], "total": len(entries), "truncated": len(entries) > limit}
 
-    # Đọc nội dung file hoặc một khoảng dòng. 
+    # Đọc nội dung file hoặc một khoảng dòng.
     # Start_line/end_line dùng số dòng từ 1; end_line=None nghĩa là tới hết file.
     def read_file(self, path: str, start_line=1, end_line=None) -> dict:
         # User chat đã nằm trong request của role; file tools chỉ truy cập repo/.
@@ -665,6 +674,6 @@ class WorkspaceTools:
             raise ValueError("Invalid test environment")
         self.test_spec = spec
         return await self.executor.run_tests(self.root, **spec, **({"unlimited": True} if unlimited else {}))
-    
+
 
 

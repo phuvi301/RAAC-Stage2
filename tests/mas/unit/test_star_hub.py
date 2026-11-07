@@ -101,7 +101,7 @@ class StarHubTests(unittest.IsolatedAsyncioTestCase):
     async def test_rules_mode_follows_the_usual_sequence_without_the_llm(self):
         agents = HubAgents()
         output = await self.run_star(agents, mode="rules")
-        self.assertEqual(self.roles(agents, hub=True), ["Environment", "Analyst", "Planner", "Coder", "Tester", "Reviewer"])
+        self.assertEqual(self.roles(agents, hub=True), ["Analyst", "Planner", "Coder", "Tester", "Reviewer"])
         self.assertEqual(output["verdict"], "PASS")
         self.assertEqual(output["result"]["topology"], "star")
         decisions = self.decisions(output)
@@ -113,7 +113,7 @@ class StarHubTests(unittest.IsolatedAsyncioTestCase):
         agents = HubAgents()
         output = await self.run_star(agents)
         self.assertEqual(self.roles(agents, hub=True), [
-            "Environment", "Analyst", "Hub", "Planner", "Hub", "Coder", "Hub", "Tester", "Hub", "Reviewer"])
+            "Analyst", "Hub", "Planner", "Hub", "Coder", "Hub", "Tester", "Hub", "Reviewer"])
         allowed = [request["artifacts"]["allowed"] for request in self.hub_requests(agents)]
         self.assertEqual(allowed, [
             ["analyst", "planner"],
@@ -128,7 +128,7 @@ class StarHubTests(unittest.IsolatedAsyncioTestCase):
     async def test_failing_tests_retry_the_coder_by_rules(self):
         agents = HubAgents(pass_on_round=2)
         output = await self.run_star(agents, mode="rules")
-        self.assertEqual(self.roles(agents), ["Environment", "Analyst", "Planner", "Coder", "Tester",
+        self.assertEqual(self.roles(agents), ["Analyst", "Planner", "Coder", "Tester",
                                               "Coder", "Tester", "Reviewer"])
         self.assertEqual(output["verdict"], "PASS")
         second = [request for role, request in agents.calls if role == "Coder"][1]
@@ -138,7 +138,7 @@ class StarHubTests(unittest.IsolatedAsyncioTestCase):
         agents = HubAgents(pass_on_round=2, choices=BEFORE_TEST_RESULT + [
             {"next": "planner", "reason": "plan misses the None case", "note": "cover None"}])
         output = await self.run_star(agents)
-        self.assertEqual(self.roles(agents), ["Environment", "Analyst", "Planner", "Coder", "Tester", "Planner",
+        self.assertEqual(self.roles(agents), ["Analyst", "Planner", "Coder", "Tester", "Planner",
                                               "Coder", "Tester", "Reviewer"])
         request = self.hub_requests(agents)[3]
         self.assertEqual(request["artifacts"]["allowed"], ["analyst", "planner", "coder", "tester", "reviewer"])
@@ -154,7 +154,7 @@ class StarHubTests(unittest.IsolatedAsyncioTestCase):
         agents = HubAgents(pass_on_round=2, choices=BEFORE_TEST_RESULT + [
             {"next": "analyst", "reason": "tests contradict the spec", "note": "re-read the issue"}])
         output = await self.run_star(agents)
-        self.assertEqual(self.roles(agents), ["Environment", "Analyst", "Planner", "Coder", "Tester", "Analyst",
+        self.assertEqual(self.roles(agents), ["Analyst", "Planner", "Coder", "Tester", "Analyst",
                                               "Planner", "Coder", "Tester", "Reviewer"])
         again = [request for role, request in agents.calls if role == "Analyst"][1]
         self.assertEqual(again["incoming_message"]["from"], "Hub")
@@ -182,7 +182,7 @@ class StarHubTests(unittest.IsolatedAsyncioTestCase):
             {"next": "planner", "reason": "the interface contract is wrong"},
             {"next": "tester", "reason": "only the contract changed; re-check the patch"}])
         output = await self.run_star(agents)
-        self.assertEqual(self.roles(agents), ["Environment", "Analyst", "Planner", "Coder", "Tester", "Planner",
+        self.assertEqual(self.roles(agents), ["Analyst", "Planner", "Coder", "Tester", "Planner",
                                               "Tester", "Reviewer"])
         after_replan = self.hub_requests(agents)[4]
         self.assertEqual(after_replan["artifacts"]["allowed"], ["analyst", "planner", "coder", "tester"])
@@ -228,7 +228,7 @@ class StarHubTests(unittest.IsolatedAsyncioTestCase):
         agents = HubAgents(overrides={"Reviewer": reject_first_review},
                            choices=BEFORE_TEST_RESULT + [SKIP, {"next": "coder", "reason": "fix the None case"}])
         output = await self.run_star(agents)
-        self.assertEqual(self.roles(agents), ["Environment", "Analyst", "Planner", "Coder", "Tester", "Reviewer",
+        self.assertEqual(self.roles(agents), ["Analyst", "Planner", "Coder", "Tester", "Reviewer",
                                               "Coder", "Tester", "Reviewer"])
         second = [request for role, request in agents.calls if role == "Coder"][1]
         self.assertEqual(second["incoming_message"]["from"], "Reviewer")
@@ -249,7 +249,7 @@ class StarHubTests(unittest.IsolatedAsyncioTestCase):
     async def test_uncovered_acceptance_criteria_default_to_the_planner(self):
         agents = HubAgents(overrides={"Reviewer": uncovered_first})
         output = await self.run_star(agents, mode="rules")
-        self.assertEqual(self.roles(agents), ["Environment", "Analyst", "Planner", "Coder", "Tester", "Reviewer",
+        self.assertEqual(self.roles(agents), ["Analyst", "Planner", "Coder", "Tester", "Reviewer",
                                               "Planner", "Coder", "Tester", "Reviewer"])
         self.assertEqual(output["verdict"], "PASS")
         self.assertFalse(output["plan_changed"])
@@ -287,7 +287,7 @@ class StarHubTests(unittest.IsolatedAsyncioTestCase):
     async def test_dispatch_cap_forces_the_run_to_finish(self):
         agents = HubAgents()
         output = await self.run_star(agents, mode="rules", dispatches=3)
-        self.assertEqual(self.roles(agents), ["Environment", "Analyst", "Planner", "Coder"])
+        self.assertEqual(self.roles(agents), ["Analyst", "Planner", "Coder"])
         self.assertEqual(output["stop_reason"], "max_dispatches_reached")
         self.assertEqual(output["result"]["status"], "rejected")
         last = self.decisions(output)[-1]
@@ -304,7 +304,7 @@ class StarHubTests(unittest.IsolatedAsyncioTestCase):
                            choices=BEFORE_TEST_RESULT + [{"next": "planner", "reason": "x"}])
         output = await self.run_star(agents)
         self.assertLessEqual({d["next"] for d in self.decisions(output)} - {"finish"}, CATALOG)
-        self.assertLessEqual(set(self.roles(agents)) - {"Environment"}, {role.capitalize() for role in CATALOG})
+        self.assertLessEqual(set(self.roles(agents)), {role.capitalize() for role in CATALOG})
 
 
 class HubPolicyTests(unittest.TestCase):
@@ -385,7 +385,7 @@ class ReTestAfterReviewTests(unittest.IsolatedAsyncioTestCase):
         graph = build_chain_graph(ChainNodes(agents, hub_shows_default=True), topology=get_topology("star"))
         output = await graph.ainvoke(state, {"recursion_limit": 120})
         roles = [role for role, _ in agents.calls if role != "Hub"]
-        self.assertEqual(roles, ["Environment", "Analyst", "Planner", "Coder", "Tester", "Reviewer", "Tester", "Reviewer"])
+        self.assertEqual(roles, ["Analyst", "Planner", "Coder", "Tester", "Reviewer", "Tester", "Reviewer"])
         retest = [request for role, request in agents.calls if role == "Tester"][1]
         self.assertEqual(retest["incoming_message"]["from"], "Hub")
         self.assertEqual(retest["artifacts"]["review_report"]["verdict"], "REJECT")

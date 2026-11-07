@@ -1,11 +1,16 @@
 # RAAC Agent
 
+TUI local: cài `python -m pip install -e ".[tui]"`, rồi chạy
+`raac-mas tui --workspace "C:/work/my-project"` và bấm Ctrl+Enter.
+TUI chọn được L1 Fixed, L2 Routing, L3 Collaboration (mặc định) và L4 Mock;
+L4 chỉ xem thử, không gọi model hoặc sửa workspace.
+Xem [hướng dẫn TUI](docs/tui.md) về approval, history và phím tắt.
+
 Khung dự án Python >= 3.11 / LangGraph để xây dựng và so sánh bốn cấp điều phối agent.
 
 - Kế hoạch và tiến độ: [checklist](docs/implementation_checklist.md).
 - Quy tắc agent: [.agents/rules/progress.md](.agents/rules/progress.md).
 - Kiến trúc: harness 4 layer bao quanh mỗi agent, collaboration engine dùng LangGraph.
-- CLI sandbox Docker và MAS/L3 Chain chạy local đã hiện thực; Engine chung và các level còn lại chưa hoàn tất. Xem [hướng dẫn sandbox](docs/sandbox.md).
 - `requirements.lock` ghim dependency runtime, dev/test và setuptools; cài file này trước khi cài project.
 - WASM, A2A và long-term memory được đặc tả là stub/tuỳ chọn trong kế hoạch.
 
@@ -37,147 +42,137 @@ Lệnh không thay cấu hình đang dùng và không thay thế quyết định
 
 Khi chủ động cập nhật dependency, dùng uv và chạy lại kiểm thử:
 
-    uv pip compile pyproject.toml --extra dev --universal --python-version 3.11 -o requirements.lock --no-annotate
+    uv pip compile pyproject.toml --extra dev --extra tui --universal --python-version 3.11 -o requirements.lock --no-annotate
 
 Lệnh giữ các pin hiện có khi còn hợp lệ; chỉ thêm `--upgrade` khi muốn nâng phiên bản.
 Các bản lock được resolve cho Python >= 3.11 và có marker theo nền tảng;
 kiểm chứng cài đặt hiện tại dùng Windows/Python 3.11.
 
-CLI sandbox và MAS Chain đã có; CLI benchmark tổng quát và các level còn lại chưa hoàn tất.
+CLI local, sandbox và benchmark L1–L3 đã có; L4 orchestration và nghiệm thu toàn bộ thực nghiệm chưa hoàn tất.
 
-## Cấu trúc thư mục
+## Cấu trúc codebase
 
-Thư mục hiện tại là gốc dự án `raac-agent`.
-Cây dưới đây lược bỏ các file `__init__.py` và `.gitkeep` để dễ đọc.
+Cây rút gọn theo mã hiện tại; bỏ các file `__init__.py`, cache và artifact build.
+**Bốn layer harness** bao quanh từng agent, còn **L1–L4** là các mức điều phối
+giữa agent. L4 hiện chỉ có stub và lựa chọn mock trong TUI.
 
-~~~text
+```text
 ./
-├── README.md
-├── pyproject.toml
-├── requirements.lock                 # ghim version (LangGraph, docker SDK, pytest...)
-├── Makefile                          # make pilot, make test, make freeze
-├── .env.example                      # API key, không commit key thật
-│
-├── configs/                          # toàn bộ tham số, đóng băng trước pilot ở tuần 2
-│   ├── llm.yaml                      # model, temperature, seed, prompt version
-│   ├── harness.yaml                  # trần token, số vòng tối đa, timeout, retry
-│   ├── levels/
-│   │   ├── l1_fixed.yaml
-│   │   ├── l2_routing.yaml
-│   │   ├── l3_collaboration.yaml
-│   │   └── l4_team_formation.yaml
-│   └── benchmark.yaml                # kích thước pilot/full, số lần lặp, song song
-│
-├── registry/                         # dữ liệu Agent Registry (cố định cho 4 level)
-│   ├── VERSION                       # Registry dùng chung, hiện 0.17.1
-│   ├── tools.yaml                    # catalog tool dùng chung
-│   ├── roles/
-│   │   ├── core/                     # Analyst, Planner, Coder, Tester, Reviewer
-│   │   └── extended/                 # Security, Architect, DB/Migration (chỉ L4 dùng)
-│   └── prompts/                      # system prompt template theo role
-│
 ├── src/raac/
-│   ├── common/                       # types, errors, ids, logging chung
-│   │
-│   ├── llm/                          # client duy nhất gọi LLM (đo token tại đây)
-│   │   ├── client.py                 # retry/backoff, đọc usage, ghi JSONL
-│   │   ├── usage.py                  # cộng dồn token theo run/agent/level
-│   │   └── pricing.py
-│   │
-│   ├── registry/                     # code nạp và kiểm tra registry
-│   │   ├── models.py                 # pydantic schema (role, tool, model, nhóm)
-│   │   └── loader.py
-│   │
-│   ├── harness/                      # bộ khung 4 layer bọc quanh MỖI agent
-│   │   ├── agent.py                  # lắp một Agent từ role trong registry
-│   │   │
-│   │   ├── layer1_lifecycle/         # Layer 1 - Interface & Lifecycle
-│   │   │   ├── event_loop.py         # vòng lặp Reason - Act - Observe
-│   │   │   ├── state_machine.py      # IDLE, PLANNING, EXECUTING_TOOL,
-│   │   │   │                         # WAITING_HUMAN_APPROVAL, FAILED, COMPLETED
-│   │   │   ├── checkpoint.py         # lưu/khôi phục trạng thái để resume
-│   │   │   └── approval.py           # chờ người duyệt (benchmark dùng auto-approve)
-│   │   │
-│   │   ├── layer2_core/              # Layer 2 - Intelligence Core
-│   │   │   ├── context_manager.py    # cắt/tóm tắt để vừa context window
-│   │   │   ├── prompt_hydrator.py    # ghép memory + state + tool list thành prompt
-│   │   │   └── memory/
-│   │   │       ├── short_term.py     # bộ nhớ trong phiên
-│   │   │       ├── long_term.py      # RAG (Vector/Graph DB), có thể tắt
-│   │   │       └── retriever.py
-│   │   │
-│   │   ├── layer3_execution/         # Layer 3 - Execution & Security
-│   │   │   ├── tool_orchestrator.py  # chạy song song, retry, timeout
-│   │   │   ├── tools/                # read_file, edit_file, run_tests, search_repo
-│   │   │   ├── sandbox/
-│   │   │   │   ├── docker_sandbox.py # checkout, áp patch, chạy pytest, dọn container
-│   │   │   │   ├── wasm_sandbox.py   # để trống (stub)
-│   │   │   │   └── policy.py         # tắt network, giới hạn CPU/RAM/thời gian
+│   ├── mas_cli.py                    # raac-mas: run-local, tui, run-chain, show-log
+│   ├── cli.py                        # raac: sandbox và benchmark L1–L3
+│   ├── tui/                          # Textual UI, extra tùy chọn [tui]
+│   │   ├── app.py                    # chọn L1–L4/topology, panel, approval, history
+│   │   ├── bridge.py                 # worker asyncio, queue thông báo, hủy run
+│   │   └── state.py                  # replay JSONL, gộp delta, state có giới hạn
+│   ├── llm/                          # client 9router / Chat Completions dùng chung
+│   │   ├── config.py                 # endpoint, model/profile và secret từ môi trường
+│   │   ├── client.py                 # HTTPX, retry, usage guard và trace
+│   │   ├── streaming.py              # SSE UTF-8, ghép delta/tool-call, redaction
+│   │   ├── protocol.py               # chuẩn hóa native tool-call và DSML
+│   │   ├── usage.py                  # token thực nhận theo run/agent/level
+│   │   └── pricing.py                # scaffold; không dùng quy đổi tiền khi so sánh
+│   ├── registry/
+│   │   ├── loader.py                 # nạp Registry, prompt và version/hash
+│   │   ├── models.py                 # schema role/tool/model
+│   │   └── output_formats.py          # kiểm tra output và unified diff
+│   ├── harness/
+│   │   ├── agent.py                  # lắp một agent từ Registry và runner
+│   │   ├── layer1_lifecycle/          # Reason–Act–Observe, approval và checkpoint
+│   │   │   ├── agent.py              # AgentRunner, guard, tool receipt, finalize
+│   │   │   ├── event_loop.py
+│   │   │   ├── state_machine.py
+│   │   │   ├── approval.py
+│   │   │   └── checkpoint.py
+│   │   ├── layer2_core/              # context, prompt, memory, schema/message filter
+│   │   │   └── memory/               # short-term; long-term/retriever còn stub
+│   │   ├── layer3_execution/          # tool orchestration, quyền và giới hạn thực thi
+│   │   │   ├── local_executor.py     # subprocess local, timeout, stdout/stderr
+│   │   │   ├── local_test_runner.py  # báo cáo test quan sát được
+│   │   │   ├── docker_execution.py   # adapter thực thi trong Docker
+│   │   │   ├── tool_orchestrator.py
+│   │   │   ├── tools/                # workspace, file, patch, search, test, môi trường
+│   │   │   ├── sandbox/              # Docker, batch/resume, cache, network, policy
 │   │   │   ├── guardrails/
-│   │   │   │   ├── input_filter.py   # chống prompt injection
-│   │   │   │   ├── output_filter.py  # rò rỉ dữ liệu nhạy cảm
-│   │   │   │   └── validators.py     # kiểm tra JSON quyết định của LLM
-│   │   │   └── cost_control.py       # trần token, số vòng tối đa (budget guard)
-│   │   │
-│   │   └── layer4_connectors/        # Layer 4 - Protocol Connectors
-│   │       ├── base.py               # interface adapter chung
-│   │       ├── mcp_client.py         # gọi MCP Server bên ngoài
-│   │       └── a2a_connector.py      # ủy quyền cho agent khác (stub)
-│   │
-│   ├── collaboration/                # Engine điều phối nhiều agent (LangGraph)
-│   │   ├── state.py                  # State dùng chung (plan, patch, message, vòng)
-│   │   ├── engine.py                 # chạy graph, ghi log kích hoạt agent
-│   │   ├── graph_builder.py
-│   │   ├── topologies.py             # chuỗi, hình sao, Coder-Reviewer, debate
+│   │   │   └── cost_control.py       # token budget và deadline
+│   │   └── layer4_connectors/        # interface connector; A2A còn stub
+│   ├── collaboration/
+│   │   ├── engine.py                 # Engine dùng chung; L1/L2 local đi qua đây
+│   │   ├── graph_builder.py          # dựng LangGraph từ hợp đồng level
+│   │   ├── state.py                  # state điều phối, tách lifecycle từng agent
+│   │   ├── topologies.py             # khai báo chain, chain_review_loop, star
 │   │   └── levels/
-│   │       ├── base.py               # interface level: (task, registry, config) -> result
-│   │       ├── l1_fixed.py
-│   │       ├── l2_routing.py         # node router + conditional edge
-│   │       ├── l3_collaboration.py   # coordinator + điều kiện dừng
-│   │       └── l4_team_formation.py  # team manager thêm/bớt/thay role
-│   │
-│   ├── benchmark/                    # bộ chạy thực nghiệm
-│   │   ├── dataset.py                # loader, chuẩn hóa schema task
-│   │   ├── runner.py                 # lặp (task, level, lần lặp), song song, resume
-│   │   ├── run_record.py             # schema bản ghi kết quả
-│   │   ├── evaluator/
-│   │   │   ├── completion.py         # task completion, test pass rate
-│   │   │   ├── coverage.py           # requirement coverage (LLM giám khảo + rubric)
-│   │   │   ├── quality.py            # linter, radon, kích thước patch
-│   │   │   └── conflict.py
-│   │   ├── analysis/
-│   │   │   ├── pilot_report.py       # trung bình, độ lệch theo level
-│   │   │   ├── cost_estimator.py     # ước tính chi phí full run
-│   │   │   └── utility.py            # utility function chất lượng - chi phí
-│   │   └── pilot_subset.py
-│   │
-│   └── cli.py                        # raac run / raac pilot / raac eval
-│
-├── docker/
-│   ├── Dockerfile.sandbox            # image chạy code/test của agent
-│   └── Dockerfile.bench
-│
-├── data/                             # task, repo cache (gitignore phần lớn)
-├── results/                          # runs/*.jsonl, báo cáo pilot (gitignore)
+│   │       ├── base.py               # hợp đồng Level/LevelGraph
+│   │       ├── l1_fixed.py           # luồng role cố định
+│   │       ├── l2_routing.py         # Router chọn role và ghi lý do bỏ qua
+│   │       ├── l3_collaboration/     # coordinator, Hub, graph, handoff, limits
+│   │       └── l4_team_formation.py  # stub; chưa có orchestration L4 thật
+│   ├── common/                       # hợp đồng output, lỗi, provenance, trace/memory
+│   │   ├── tracing.py               # JSONL và subscriber sau redaction
+│   │   ├── trace_viewer.py           # viewer terminal
+│   │   ├── trace_web.py              # viewer HTTP chỉ đọc
+│   │   └── trace_assets/             # JS/CSS/HTML của web viewer
+│   └── benchmark/
+│       ├── dataset.py                # loader task và chọn tập dữ liệu
+│       ├── runner.py                 # batch task/level, record và resume
+│       ├── engine_runner.py          # adapter L1/L2 trên workspace benchmark
+│       ├── chain_runner.py           # adapter L3 trên workspace benchmark
+│       ├── harness_config.py
+│       ├── run_record.py             # schema kết quả và usage
+│       ├── observe.py
+│       ├── evaluator/               # completion; coverage/quality/conflict còn stub
+│       └── analysis/                # pilot report; cost_estimator/utility còn stub
+├── registry/                         # dữ liệu role/tool/prompt, phiên bản ở VERSION
+│   ├── VERSION
+│   ├── tools.yaml
+│   ├── roles/core/                   # Analyst, Planner, Coder, Tester, Reviewer,
+│   │                                 # Router, Hub, Environment
+│   ├── roles/extended/               # catalog mở rộng; không chứng minh L4 đã chạy
+│   └── prompts/
+├── configs/
+│   ├── llm.yaml                      # cấu hình LLM và profile theo role
+│   ├── harness.yaml                  # budget, timeout, context, memory, execution
+│   ├── levels/                       # YAML cho L1, L2, L3, L4
+│   ├── repos/                        # profile môi trường/test theo repository
+│   ├── experiments/                  # preset thực nghiệm
+│   └── benchmark*.yaml               # tập dữ liệu và cấu hình benchmark
 ├── tests/
-│   ├── unit/                         # theo từng layer, dùng HTTP fixture không gọi API thật
-│   ├── integration/                  # mỗi level chạy trên 3 task mẫu
+│   ├── unit/                         # Registry, Engine, harness và benchmark
+│   ├── integration/                  # kiểm thử tích hợp, gồm các bài cần Docker
+│   ├── mas/
+│   │   ├── unit/                     # lifecycle, local/TUI, SSE và fixture 9router
+│   │   ├── integration/              # HTTP mock + command/test thật ở workspace tạm
+│   │   └── web/                      # Node tests cho trace viewer
 │   └── fixtures/
-├── scripts/                          # freeze_config.sh, run_pilot.sh
+├── scripts/                          # freeze, phân tích/profile, validation môi trường
+├── docker/                           # Dockerfile.sandbox và Dockerfile.bench
+├── data/                             # dataset, evaluator, cache repo; phần lớn gitignored
+├── results/                          # artifact benchmark/báo cáo; phần lớn gitignored
 ├── docs/
-│   ├── architecture.md               # sơ đồ 4 layer và collaboration
-│   ├── level_definitions.md          # biến cố định/tự do ở từng level
-│   ├── l4_spec.md                    # đặc tả L4 của Tuấn
-│   ├── pilot_log.md                  # nhật ký lỗi pilot cho báo cáo
-│   └── implementation_checklist.md   # kế hoạch 14 ngày, tiến độ và bằng chứng
-├── AGENTS.md                         # hướng dẫn agent đọc rule và checklist
-├── .gitignore                        # bỏ qua secret, cache và kết quả chạy
-└── .agents/
-    └── rules/
-        └── progress.md               # cập nhật checklist khi hoàn tất công việc
-~~~
+│   ├── tui.md                        # thao tác TUI, streaming, approval và level mock
+│   ├── architecture.md               # thiết kế harness và collaboration
+│   ├── level_definitions.md
+│   ├── l4_spec.md                     # đặc tả, không phải bằng chứng hiện thực
+│   ├── token_reduction.md
+│   └── implementation_checklist.md   # tiến độ, bằng chứng và giới hạn nghiệm thu
+├── pyproject.toml                    # package, CLI entry point, extra dev/tui
+├── requirements.lock                 # dependency được ghim version
+├── Makefile                          # test, pilot sandbox, freeze
+├── .env.example                      # mẫu cấu hình, không lưu secret thật
+├── AGENTS.md
+└── .agents/rules/progress.md          # quy tắc cập nhật tiến độ
+```
 
-README mô tả cách bắt đầu và vị trí các thành phần. [docs/architecture.md](docs/architecture.md) dành cho thiết kế kỹ thuật: trách nhiệm từng layer, luồng dữ liệu, LangGraph state/nodes/edges, checkpoint và cách các agent phối hợp. File kiến trúc đã mô tả thiết kế bốn layer; cây thư mục và tài liệu thiết kế không xác nhận các tính năng đã được hiện thực.
+Local TUI/API dùng workspace thật và lưu artifact ngoài workspace tại
+`%LOCALAPPDATA%/RAAC/results/` (fallback `~/.local/share/RAAC/results/`).
+Benchmark/sandbox dùng các đường dẫn trong config, thường là `data/` và `results/`.
+TUI mặc định L3; L1/L2 dùng Engine, L4 mock không tạo client hay executor.
+Streaming mặc định chỉ bật trong TUI; CLI/benchmark giữ chế độ non-streaming.
+
+Xem [kiến trúc](docs/architecture.md) về trách nhiệm từng layer và luồng dữ liệu;
+[checklist](docs/implementation_checklist.md) ghi mức kiểm chứng thực tế.
+Cấu trúc thư mục không đồng nghĩa mọi scaffold/stub hoặc mọi level đã nghiệm thu.
+
 
 ## Pipeline repo và test
 
@@ -189,7 +184,7 @@ raac sandbox run --task-id psf__requests-6027
 raac sandbox run --task-id psf__requests-6027 --patch candidate.patch
 ```
 
-Cần Docker Desktop ở chế độ Linux containers. Cache Git nằm ở `data/repos/<owner>/<repo>.git`, kết quả ở `results/<run_id>/record.json`. Có profile cho 12 repo trong dataset; mức kiểm chứng thực tế được ghi trong báo cáo batch. Các kiểm thử cách ly đã chạy qua Docker thật. Xem [docs/sandbox.md](docs/sandbox.md) để cấu hình và kiểm thử.
+Cần Docker Desktop ở chế độ Linux containers. Cache Git nằm ở `data/repos/<owner>/<repo>.git`, kết quả ở `results/<run_id>/record.json`. Có profile cho 12 repo trong dataset; mức kiểm chứng thực tế được ghi trong báo cáo batch và checklist. Dùng `raac sandbox --help` để xem các lệnh hiện có.
 
 Dataset đi kèm project tại `data/tasks/cleaned_benchmark.json` (120 issue/12 repo); cấu hình mặc định không cần đường dẫn đến Stage1.
 
@@ -211,9 +206,9 @@ Dùng `raac sandbox validate --config configs/benchmark.compatibility.yaml --bat
 Các profile compatibility đang được kiểm chứng; chưa mặc định 120/120 đã đạt.
 
 
-Sandbox có quy trình chuẩn bị nhanh: `raac sandbox preflight` → `raac sandbox validate --stage pilot` → `raac sandbox validate --stage full --reuse-validated`. Chỉ full đạt đủ F2P/P2P mới có trạng thái `validated`. Build dùng cache nội bộ của builder sandbox; batch tự retention theo ngân sách mềm 30 GiB. Xem [hướng dẫn CLI, stop/resume và cache](docs/sandbox.md#chuẩn-bị-nhanh-và-retention-2026-10-17) và [bằng chứng kiểm chứng](docs/pilot_log.md).
+Sandbox có quy trình chuẩn bị nhanh: `raac sandbox preflight` → `raac sandbox validate --stage pilot` → `raac sandbox validate --stage full --reuse-validated`. Chỉ full đạt đủ F2P/P2P mới có trạng thái `validated`. Build dùng cache nội bộ của builder sandbox; batch tự retention theo ngân sách mềm 30 GiB. Tham số chi tiết có trong `raac sandbox validate --help`; tiến độ kiểm chứng nằm trong checklist.
 
-Chi tiết sửa lỗi môi trường và adapter theo log: [báo cáo validation_failed](docs/validation_failure_repairs.md). Record `validation_failed` cần xem kết quả từng F2P/P2P; gold pass chưa đủ để đánh dấu task validated.
+Record `validation_failed` cần xem kết quả từng F2P/P2P trong artifact của run; gold pass chưa đủ để đánh dấu task validated.
 
 Tập benchmark đã chốt là **105 task/12 repo**, phiên bản `swebench-verified-raac-105-v1`.
 Dùng `--config configs/benchmark105.yaml` cho các lệnh sandbox của tập này;
@@ -224,13 +219,17 @@ số khi còn task chưa chạy.
 
 ## MAS/L3 Chain
 
-Đã ghép MAS Chain Analyst → Planner → Coder ⇄ Tester → Reviewer, chạy local
-trên repo và user chat. Coordinator hiện cố định Chain; chưa tích hợp Engine
-chung. Đã có đường benchmark L3 tạo candidate trong Docker và chấm độc lập;
-xem [cách chạy candidate benchmark và giới hạn kiểm chứng](docs/candidate_benchmark.md).
+L3 có các topology `chain`, `chain_review_loop` và `star`, bắt đầu từ Hub;
+Environment vẫn có trong Registry/API nhưng không được các graph L3 lên lịch.
+L1/L2 local dùng Engine chung; L3 dùng các builder trong `levels/l3_collaboration/`.
+Đã có đường benchmark L1–L3 tạo candidate trong Docker và chấm độc lập;
+kiểm tra cấu hình `configs/benchmark*.yaml`, `raac benchmark --help` và checklist
+để phân biệt khả năng hiện có với phạm vi thực nghiệm đã được nghiệm thu.
 Cấu hình nằm trong `configs/`, role/prompt trong
 `registry/roles/core/` và `registry/prompts/`; CLI sandbox hiện có giữ nguyên.
 
 Chạy `python -m raac.mas_cli run-chain --project-dir PATH` với `PYTHONPATH=src`,
 hoặc `raac-mas run-chain --project-dir PATH` sau khi cài editable.
-Xem [cấu hình, đầu vào, tools và log viewer](docs/chain_demo.md).
+Để chỉnh trực tiếp project hiện có, dùng `raac-mas tui --workspace PATH`
+hoặc `raac-mas run-local --workspace PATH --prompt "Yêu cầu"`.
+Xem [hướng dẫn TUI/local, streaming và log viewer](docs/tui.md).

@@ -935,11 +935,7 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
         limits = ChainLimits(max_rounds=1, hard_max_rounds=3,
                              timeout_seconds=10.0, agent_timeout_seconds=3.0)
         try:
-            class SkipEnvironment(ChainNodes):
-                async def environment(self, state):  # this test targets Planner usage accounting only
-                    return {"next_node": "analyst"}
-
-            graph = build_chain_graph(SkipEnvironment(runner, budget_guard=runner.budget_guard))
+            graph = build_chain_graph(ChainNodes(runner, budget_guard=runner.budget_guard))
             state = await graph.ainvoke(initial_chain_state(work, limits), {"recursion_limit": 20})
             self.assertEqual(roles, ["Analyst", "Planner"])
             self.assertEqual(state["stop_reason"], "usage_unavailable")

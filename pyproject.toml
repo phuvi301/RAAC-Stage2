@@ -15,6 +15,7 @@ raac = "raac.cli:main"
 raac-mas = "raac.mas_cli:main"
 
 [project.optional-dependencies]
+tui = ["textual>=6,<7"]
 dev = ["pytest", "pytest-asyncio", "ruff", "radon", "setuptools>=68"]
 
 [tool.setuptools.packages.find]

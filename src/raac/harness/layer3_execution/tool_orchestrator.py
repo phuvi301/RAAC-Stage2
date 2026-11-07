@@ -21,8 +21,9 @@ from raac.common.errors import WorkspaceIntegrityError
 from raac.common.working_memory import WorkingMemoryNotes
 
 from .env_provisioner import provision
-from .tool_errors import ObservationLookupError, describe_tool_error
+from .local_executor import execution_context
 from .local_test_runner import normalize_pytest_report
+from .tool_errors import ObservationLookupError, describe_tool_error
 from .tools.paths import repo_path
 from .tools.workspace import EditConflictError
 
@@ -225,6 +226,7 @@ class ToolOrchestrator:
         succeeded = False
         if self.trace:
             self.trace(context, "tool_call_started", **details, arguments=arguments)
+        token = execution_context.set({**context, "tool_name": name})
         try:
             result = await self._execute(role, name, arguments, context=context)
             succeeded = True
@@ -234,6 +236,7 @@ class ToolOrchestrator:
                            latency_ms=round((time.perf_counter() - started) * 1000, 3))
             raise
         finally:
+            execution_context.reset(token)
             if mutating and (not succeeded or getattr(self.workspace, "_verified_command_snapshot", None) is None):
                 self.workspace.invalidate_runtime_snapshot()
         if name in {"run_tests", "configure_environment", "run_command"} and result.get("ok") and context.get("run_id"):
@@ -359,9 +362,10 @@ class ToolOrchestrator:
                 "configure_environment result you were given.")
         walked = []
         for component in args["path"]:
-            if isinstance(value, dict) and isinstance(component, str) and component in value:
-                value = value[component]
-            elif isinstance(value, list) and type(component) is int and 0 <= component < len(value):
+            if (
+                isinstance(value, dict) and isinstance(component, str) and component in value
+                or isinstance(value, list) and type(component) is int and 0 <= component < len(value)
+            ):
                 value = value[component]
             else:
                 where = "/".join(str(part) for part in walked) or "the top level"

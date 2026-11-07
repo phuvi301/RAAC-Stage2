@@ -142,7 +142,7 @@ class ChainNodeTests(unittest.IsolatedAsyncioTestCase):
         agents = JsonAgents()
         output = await self.run_graph(agents)
         self.assertEqual(output["result"]["verdict"], "PASS")
-        self.assertEqual(len(agents.calls), 6)
+        self.assertEqual(len(agents.calls), 5)
         for role, request in agents.calls:
             self.assertEqual(request["output_schema"], role_output_model(role).model_json_schema())
 
@@ -162,7 +162,7 @@ class ChainNodeTests(unittest.IsolatedAsyncioTestCase):
         output = await self.run_graph(agents, state)
         self.assertEqual(output["result"]["verdict"], "PASS")
         self.assertEqual([role for role, _ in agents.calls], [
-            "Environment", "Analyst", "Planner", "Coder", "Tester", "Coder", "Tester", "Reviewer"])
+            "Analyst", "Planner", "Coder", "Tester", "Coder", "Tester", "Reviewer"])
         for role, request in agents.calls:
             with self.subTest(role=role, round=request["round"]):
                 if role in {"Environment", "Analyst", "Reviewer"}:
@@ -207,10 +207,12 @@ class ChainNodeTests(unittest.IsolatedAsyncioTestCase):
         agents = FakeAgents()
         output = await self.run_graph(agents)
         self.assertEqual([role for role, _ in agents.calls], [
-            "Environment", "Analyst", "Planner", "Coder", "Tester", "Reviewer",
+            "Analyst", "Planner", "Coder", "Tester", "Reviewer",
         ])
         self.assertEqual(output["result"]["verdict"], "PASS")
         self.assertEqual(output["rounds_completed"], 1)
+        self.assertEqual((output["events"][0]["node"], output["events"][0]["event"]), ("hub", "hub_decision"))
+        self.assertEqual(agents.calls[0][1]["incoming_message"]["from"], "Hub")
         self.assertEqual(output["stop_reason"], "tests_and_review_passed")
         self.assertEqual(output["events"][-1]["event"], "chain_stopped")
 
@@ -228,7 +230,7 @@ class ChainNodeTests(unittest.IsolatedAsyncioTestCase):
         agents = FakeAgents(pass_on_round=2)
         output = await self.run_graph(agents)
         self.assertEqual([role for role, _ in agents.calls], [
-            "Environment", "Analyst", "Planner", "Coder", "Tester", "Coder", "Tester", "Reviewer",
+            "Analyst", "Planner", "Coder", "Tester", "Coder", "Tester", "Reviewer",
         ])
         coders = [request for role, request in agents.calls if role == "Coder"]
         self.assertEqual(coders[0]["incoming_message"]["from"], "Planner")
@@ -239,7 +241,7 @@ class ChainNodeTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(request["environment_report"], output["environment_report"])
             if role == "Environment":
                 self.assertIsNone(request["environment_report"])
-        self.assertEqual([role for role, _ in agents.calls].count("Environment"), 1)
+        self.assertEqual([role for role, _ in agents.calls].count("Environment"), 0)
         self.assertEqual(output["rounds_completed"], 2)
         self.assertEqual(output["result"]["verdict"], "PASS")
 
@@ -247,7 +249,7 @@ class ChainNodeTests(unittest.IsolatedAsyncioTestCase):
         agents = FakeAgents(pass_on_round=100)
         output = await self.run_graph(agents, make_state(rounds=3))
         roles = [role for role, _ in agents.calls]
-        self.assertEqual(roles.count("Environment"), 1)
+        self.assertEqual(roles.count("Environment"), 0)
         self.assertEqual(roles.count("Coder"), 3)
         self.assertEqual(roles.count("Tester"), 3)
         self.assertEqual(roles.count("Reviewer"), 1)
@@ -290,7 +292,7 @@ class ChainNodeTests(unittest.IsolatedAsyncioTestCase):
         agents = FakeAgents(overrides={"Planner": lambda output, request: "not JSON"})
         output = await self.run_graph(agents)
         self.assertEqual(output["stop_reason"], "invalid_output")
-        self.assertEqual([role for role, _ in agents.calls], ["Environment", "Analyst", "Planner"])
+        self.assertEqual([role for role, _ in agents.calls], ["Analyst", "Planner"])
 
     async def test_plan_cannot_drop_acceptance_criteria(self):
         agents = FakeAgents(overrides={
@@ -410,7 +412,7 @@ class ChainNodeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(completed["rounds_completed"], 2)
         self.assertEqual([role for role, _ in agents.calls].count("Analyst"), 1)
         self.assertEqual([role for role, _ in agents.calls].count("Coder"), 2)
-        self.assertEqual([role for role, _ in agents.calls].count("Environment"), 1)
+        self.assertEqual([role for role, _ in agents.calls].count("Environment"), 0)
 
 
 class ReviewLoopNodeTests(unittest.IsolatedAsyncioTestCase):
@@ -437,7 +439,7 @@ class ReviewLoopNodeTests(unittest.IsolatedAsyncioTestCase):
         agents = FakeAgents(overrides={"Reviewer": self.reject_until(2)})
         output = await self.run_loop(agents)
         self.assertEqual([role for role, _ in agents.calls], [
-            "Environment", "Analyst", "Planner", "Coder", "Tester", "Reviewer",
+            "Analyst", "Planner", "Coder", "Tester", "Reviewer",
             "Coder", "Tester", "Reviewer",
         ])
         second_coder = [request for role, request in agents.calls if role == "Coder"][1]
