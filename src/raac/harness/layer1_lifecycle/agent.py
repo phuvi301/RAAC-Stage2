@@ -789,7 +789,7 @@ class AgentRunner:
             maximum = self.registry.get(context["role"]).spec.max_llm_calls
             if state["turn"] == maximum or (context["role"] in {"Analyst", "Tester"} and state["turn"] == maximum - 1):
                 raise AgentExecutionError("agent_call_limit")
-            if not isinstance(calls, list) or len(calls) > 4:
+            if not isinstance(calls, list) or len(calls) > 8:
                 raise AgentExecutionError("too_many_tool_calls")
             state["messages"].append(
                 {

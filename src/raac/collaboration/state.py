@@ -10,9 +10,13 @@ class CollaborationState(TypedDict, total=False):
     task: Any
     requirement: str
     analysis: Any
+    architecture: Any
     plan: Any
     patch: str | None
     test_results: Any
+    # Immutable per-round history for levels with feedback loops; current artifacts above stay latest-only.
+    iterations: Annotated[list[dict[str, Any]], operator.add]
+    feedback: dict[str, Any] | None
     messages: Annotated[list[Any], operator.add]
     agent_outputs: Annotated[list[dict[str, Any]], operator.add]
     tool_observations: Annotated[list[dict[str, Any]], operator.add]
@@ -37,9 +41,12 @@ def initial_state(*, run_id: str, task: Any, level: str, registry_version: str) 
         "task": task,
         "requirement": requirement,
         "analysis": None,
+        "architecture": None,
         "plan": None,
         "patch": None,
         "test_results": None,
+        "iterations": [],
+        "feedback": None,
         "messages": [],
         "agent_outputs": [],
         "tool_observations": [],

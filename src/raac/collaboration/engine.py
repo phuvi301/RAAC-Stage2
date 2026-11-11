@@ -181,7 +181,10 @@ class Engine:
                                 registry_version=self.registry.version)
         graph = build_graph(level, task=task, registry=self.registry, config=config,
                             checkpointer=self.checkpointer, logger=self._log)
-        invoke_config = {"configurable": {"thread_id": run_id}}
+        # Feedback loops revisit nodes; size the step budget from the level's round cap.
+        rounds = config.get("hard_max_rounds") or config.get("max_rounds") or 1
+        invoke_config = {"configurable": {"thread_id": run_id},
+                         "recursion_limit": 8 * int(rounds) + 16}
         options = {"config": invoke_config}
         if interrupt_after:
             options["interrupt_after"] = interrupt_after

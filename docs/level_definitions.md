@@ -67,13 +67,16 @@ Kết hợp routing và topology adaptation là quyền bình thường của L3
 
 **Định nghĩa:** tập vai trò, thành phần đội nhóm, luồng giao tiếp và chính sách phản hồi được xác định trước. Controller không chọn workflow khác cho từng task.
 
-Ví dụ minh họa với các role lõi của repository:
+Ví dụ với workflow cố định của repository (`max_rounds = 3`, một vòng là một lần Developer tạo/cập nhật patch):
 
 ```text
-Analyst → Planner → Coder → Tester → Reviewer → Kết quả
+Requirement Analyst → Architect → Planner → Developer → Tester → Code Reviewer → Kết quả
+                                              ↑            │            │
+                                              └─ test fail ┘            │
+                                              └──── request changes ────┘
 ```
 
-Nếu baseline có vòng sửa lỗi `Coder → Tester → Coder`, các cạnh, điều kiện lặp và trần vòng phải được định nghĩa trước và dùng nhất quán. Có thể kết thúc sớm theo tiêu chí chung hoặc dừng do guard; không phát sinh agent/topology mới trong run.
+Các cạnh phản hồi (`Tester → Developer`, `Code Reviewer → Developer`), điều kiện lặp, quyền kết thúc sớm khi Code Reviewer chấp thuận và trần vòng (`max_rounds = 3`; vòng cuối bắt buộc qua Code Reviewer trước khi kết thúc) đều được khai báo trước và dùng nhất quán. Có thể kết thúc sớm theo tiêu chí chung hoặc dừng do guard; không phát sinh agent/topology mới trong run.
 
 **Không thuộc L1:** bỏ Planner do task dễ; chọn Debate thay Chain; thêm Security Agent khi phát hiện rủi ro.
 

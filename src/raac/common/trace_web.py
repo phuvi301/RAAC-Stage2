@@ -33,10 +33,12 @@ STOP_REASONS = {
 
 def topology_payload(name):
     """Declared layout only (nodes and edges); progress is derived client-side from the log."""
-    from raac.collaboration.levels.l1_fixed import L1_LINEAR
+    from raac.collaboration.levels.l1_fixed import L1_FIXED_WORKFLOW
     from raac.collaboration.levels.l2_routing import L2_ROUTED_LINEAR
 
-    topology = {"linear": L1_LINEAR, "linear-routed": L2_ROUTED_LINEAR}.get(name)
+    # "linear" is kept so traces recorded before L1 became a fixed workflow still render.
+    topology = {"fixed-workflow": L1_FIXED_WORKFLOW, "linear": L1_FIXED_WORKFLOW,
+                "linear-routed": L2_ROUTED_LINEAR}.get(name)
     if topology is None:
         topology = get_topology(name)
     return {"topology_id": topology.topology_id, "version": topology.version,
