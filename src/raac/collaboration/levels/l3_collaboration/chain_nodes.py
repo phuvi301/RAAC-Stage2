@@ -122,7 +122,7 @@ class ChainNodes:
             "incoming_message": incoming, "artifacts": {"ac_catalog": state["ac_catalog"], **artifacts},
             "repository_changes": state.get("repository_changes", []),
             "environment_report": state.get("environment_report"),
-            "output_format": "unified_diff" if role == "Coder" else "json",
+            "output_format": "json",
             "output_schema": role_output_model(role).model_json_schema(),
         }, role=role)
         events = [self._event(state, node, "agent_started", role=role, round=round_number)]

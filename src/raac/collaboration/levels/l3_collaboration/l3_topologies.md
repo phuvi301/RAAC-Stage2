@@ -138,7 +138,7 @@ AC trong catalog. covered_ac_ids và hợp các steps[].ac_ids đều phải b�
 tập ID trong ac_catalog. interface_contracts chỉ chứa contract mới hoặc
 lựa chọn test command/cwd/env; không chép lại toàn bộ yêu cầu.
 
-**CoderOutput.** Coder trả unified diff đầy đủ, tích lũy so với baseline đầu
+**DeveloperOutput.** Coder trả unified diff đầy đủ, tích lũy so với baseline đầu
 run, kể cả khi retry. Nếu không cần thay đổi, được trả chuỗi rỗng; client
 chỉ bật chấp nhận response rỗng ở adapter Coder và vẫn kiểm tra usage.
 Đây là phần điều chỉnh cho no-op của Chain hiện tại. File đã lưu là nguồn
