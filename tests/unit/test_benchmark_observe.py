@@ -144,3 +144,74 @@ def test_cli_observe_flag_default_and_modes(mode, monkeypatch):
         argv += ["--observe", mode]
     assert raac.cli.main(argv) == 0
     assert seen == [mode or "web"]
+
+
+def test_mas_run_label_and_viewer_failure_keeps_the_run_going(tmp_path, monkeypatch, capsys):
+    """run-chain reuses the observer; its messages name a MAS run, not a benchmark."""
+    def fail(*args, **kwargs):
+        raise OSError("fixture")
+    monkeypatch.setattr("raac.benchmark.observe.create_trace_server", fail)
+    observer = BenchmarkObserver("web", label="MAS run")
+    observer.ready(trace(tmp_path, "a"))
+    err = capsys.readouterr().err
+    assert "MAS run log:" in err and "mas run continues" in err
+    assert observer.mode == "none"
+
+
+def test_run_chain_opens_the_web_viewer_by_default():
+    from raac import mas_cli
+    seen = []
+
+    async def fake_execute(args):
+        seen.append(args.observe)
+        return 0
+
+    original = mas_cli.execute
+    mas_cli.execute = fake_execute
+    try:
+        assert mas_cli.main(["run-chain", "--project-dir", "x"]) == 0
+        assert mas_cli.main(["run-chain", "--project-dir", "x", "--observe", "none"]) == 0
+    finally:
+        mas_cli.execute = original
+    assert seen == ["web", "none"]
+
+
+def test_local_chain_runs_open_in_the_web_viewer(tmp_path, monkeypatch):
+    """run-chain traces live in results/chain-<hex>/; they used to be rejected as 'not a benchmark'."""
+    opened = []
+    monkeypatch.setattr("raac.benchmark.observe.webbrowser.open", lambda url: opened.append(url) or True)
+    path = tmp_path / ("chain-" + "c" * 32) / "llm.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"event": "run_started", "run_id": path.parent.name}) + "\n")
+    observer = BenchmarkObserver("web", label="MAS run")
+    try:
+        observer.ready(path)
+        assert observer.mode == "web" and observer.server is not None and len(opened) == 1
+    finally:
+        observer.close()
+    other = tmp_path / "chain-xyz" / "llm.jsonl"
+    other.parent.mkdir()
+    other.write_text("")
+    with pytest.raises(ValueError):
+        TraceRuns().register(other)  # still only real run IDs
+
+
+def test_local_run_command_takes_a_level_and_only_l3_runs_locally(capsys):
+    from raac import mas_cli
+    seen = []
+
+    async def fake_execute(args):
+        seen.append((args.command, args.level))
+        return 0
+
+    original = mas_cli.execute
+    mas_cli.execute = fake_execute
+    try:
+        assert mas_cli.main(["run", "--project-dir", "x"]) == 0
+        assert mas_cli.main(["run", "--level", "L3", "--project-dir", "x"]) == 0
+        assert mas_cli.main(["run-chain", "--project-dir", "x"]) == 0
+        assert mas_cli.main(["run", "--level", "L1", "--project-dir", "x"]) == 2
+    finally:
+        mas_cli.execute = original
+    assert seen == [("run", "L3"), ("run", "L3"), ("run-chain", "L3")]
+    assert "benchmark run --task-id <task_id> --level L1" in capsys.readouterr().err

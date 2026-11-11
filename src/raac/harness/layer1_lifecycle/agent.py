@@ -67,6 +67,8 @@ class AgentRunner:
         self.auto_approve = auto_approve
         self.checkpoints = CheckpointStore(client.log_path.parent / "lifecycle.sqlite3")
         self._active_states = {}
+        # (run, work, role) -> the role's most recent turn, handed to its next turn as previous_attempt.
+        self._last_transcripts = {}
 
     def role_timeout(self, name, default):
         timeout = self.registry.get(name).spec.timeout_seconds
@@ -84,6 +86,63 @@ class AgentRunner:
             raise RunGuardError("usage_unavailable")
         if self.token_limit is not None and usage["total_tokens"] >= self.token_limit:
             raise RunGuardError("budget_exceeded")
+
+    def _keep_transcript(self, state):
+        """Keep the role's full conversation for its next turn and, with content tracing on, write it to disk."""
+        context, request = state["context"], state["request"]
+        transcript = {
+            "version": 1, "run_id": request["run_id"], "work_id": request.get("work_id"),
+            "role": context["role"], "round": request.get("round", 0),
+            "status": state["status"], "turns": state["turn"], "agent_call_id": context["agent_call_id"],
+            "messages": self.client.trace.redact(deepcopy(state["messages"])),
+        }
+        key = (request["run_id"], request.get("work_id"), context["role"])
+        self._last_transcripts[key] = transcript
+        if not self.client.trace_content:
+            return
+        folder = self.client.log_path.parent / "memory"
+        folder.mkdir(parents=True, exist_ok=True)
+        name = f"{context['role'].lower()}-r{transcript['round']}-{context['agent_call_id'][:12]}.transcript.json"
+        (folder / name).write_text(json.dumps(transcript, ensure_ascii=False, indent=1), encoding="utf-8")
+
+    def _stored_transcript(self, request, role_name):
+        """The newest transcript of this role written for the same run and work, if any."""
+        folder = self.client.log_path.parent / "memory"
+        newest = None
+        for path in folder.glob(f"{role_name.lower()}-r*.transcript.json") if folder.is_dir() else ():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if data.get("run_id") != request["run_id"] or data.get("work_id") != request.get("work_id"):
+                continue
+            rank = (data.get("round", 0), path.stat().st_mtime)
+            if newest is None or rank > newest[0]:
+                newest = (rank, data)
+        return newest[1] if newest else None
+
+    def _previous_attempt(self, request, role_name):
+        """Newest messages of this role's previous turn within the token budget (chars / 4); older ones are counted."""
+        budget = self.memory_policy.previous_attempt_tokens
+        if not budget:
+            return None
+        transcript = self._last_transcripts.get((request["run_id"], request.get("work_id"), role_name))
+        if transcript is None:
+            transcript = self._stored_transcript(request, role_name)  # a fresh runner, e.g. after a resume
+        if transcript is None:
+            return None
+        history = transcript["messages"][2:]  # the system prompt and the task message are sent again anyway
+        kept, used = [], 0
+        for message in reversed(history):
+            size = len(json.dumps(message, ensure_ascii=False)) // 4 + 1
+            if used + size > budget:
+                break
+            kept.append(message)
+            used += size
+        kept.reverse()
+        return {"round": transcript["round"], "status": transcript["status"], "turns": transcript["turns"],
+                "omitted_earlier_messages": len(history) - len(kept), "estimated_tokens": used,
+                "messages": kept}
 
     def _remember(self, context, kind, **data):
         memory = self._memory_sessions.get(context.get("agent_call_id"))
@@ -302,6 +361,10 @@ class AgentRunner:
                     if key in report
                 },
             )
+        if name not in {"Hub", "Environment"} and self.memory_policy.enabled:
+            previous = self._previous_attempt(request, name)
+            if previous is not None:
+                request["previous_attempt"] = previous
         self.client.trace_event(context, "agent_started", request=request)
         try:
             output = await self._run(role, request, context)
@@ -611,7 +674,12 @@ class AgentRunner:
                     pass
             raise
         finally:
-            self._active_states.pop(identifier, None)
+            latest = self._active_states.pop(identifier, None)
+            if latest is not None:
+                try:
+                    self._keep_transcript(latest)
+                except (OSError, TypeError, ValueError):
+                    pass  # The transcript is an aid; it never changes the role's outcome.
 
     def _guard(self, state):
         self._check_budget(state["request"])
@@ -780,7 +848,7 @@ class AgentRunner:
             maximum = self.registry.get(context["role"]).spec.max_llm_calls
             if state["turn"] == maximum or (context["role"] in {"Analyst", "Tester"} and state["turn"] == maximum - 1):
                 raise AgentExecutionError("agent_call_limit")
-            if not isinstance(calls, list) or len(calls) > 4:
+            if not isinstance(calls, list) or len(calls) > 10:
                 raise AgentExecutionError("too_many_tool_calls")
             state["messages"].append(
                 {

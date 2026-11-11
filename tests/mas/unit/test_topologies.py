@@ -43,12 +43,13 @@ class ChainTopologyTests(unittest.TestCase):
 
 
 class ReviewLoopTopologyTests(unittest.TestCase):
-    def test_same_team_as_chain_plus_reviewer_feedback_edge(self):
+    def test_same_team_as_chain_plus_reviewer_to_planner_feedback_edge(self):
         chain, loop = get_topology("chain"), get_topology("chain_review_loop")
         self.assertEqual(loop.steps, chain.steps)
-        self.assertEqual(set(loop.edges) - set(chain.edges), {("reviewer", "coder")})
+        self.assertEqual(set(loop.edges) - set(chain.edges), {("reviewer", "planner")})
         self.assertEqual(set(chain.edges) - set(loop.edges), set())
-        self.assertEqual(loop.incoming_nodes("coder"), ("planner", "limit", "reviewer"))
+        self.assertEqual(loop.incoming_nodes("planner"), ("analyst", "reviewer"))
+        self.assertEqual(loop.incoming_nodes("coder"), ("planner", "limit"))
         self.assertEqual((loop.entry_node, loop.exit_node), (chain.entry_node, chain.exit_node))
 
 

@@ -61,7 +61,7 @@ class ManualTopologyTests(unittest.TestCase):
     def test_topology_is_taken_from_configuration(self):
         decision = coordinate_chain({**self.config, "topology": "chain_review_loop"})
         self.assertEqual((decision.topology, decision.topology_version, decision.max_rounds, decision.source),
-                         ("chain_review_loop", "1", 3, "fixed_default"))
+                         ("chain_review_loop", "2", 3, "fixed_default"))
         self.assertEqual(CoordinatorDecision.model_validate_json(decision.model_dump_json()), decision)
 
     def test_argument_overrides_configuration_without_mutating_it(self):

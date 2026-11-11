@@ -37,7 +37,7 @@ class CoordinatorDecision(StructuredOutput):
     topology: Literal["chain", "chain_review_loop", "star"] = "chain"
     topology_version: str = "5"
     max_rounds: int = Field(ge=1)
-    max_review_rounds: int | None = Field(default=None, ge=0)  # only set for topologies with a Reviewer -> Coder edge
+    max_review_rounds: int | None = Field(default=None, ge=0)  # only set for topologies with a review feedback loop
     hub_mode: Literal["rules", "llm"] | None = None  # only set for star
     max_dispatches: int | None = Field(default=None, ge=1)  # only set for star
     source: Literal["fixed_default"] = "fixed_default"
@@ -50,7 +50,7 @@ def coordinate_chain(config: dict, *, max_rounds: int | None = None, topology: s
     Trả về quyết định của coordinator dựa trên cấu hình đã cho. gồm topology, phiên bản topology, số vòng tối đa và nguồn quyết định.
     Coordinator hiện tại chọn theo cấu hình, không gọi LLM để quyết định.
     `topology`, `max_rounds` và `max_review_rounds` truyền vào (ví dụ từ CLI) ghi đè giá trị trong cấu hình.
-    `max_review_rounds` chỉ có nghĩa với topology có cạnh Reviewer → Coder; các topology khác ghi None.
+    `max_review_rounds` chỉ có nghĩa với topology có vòng phản hồi từ Reviewer; các topology khác ghi None.
     `hub_mode` (rules|llm) và `max_dispatches` chỉ có nghĩa với star.
     """
     settings = CoordinatorConfig.model_validate(config)
@@ -67,7 +67,7 @@ def coordinate_chain(config: dict, *, max_rounds: int | None = None, topology: s
         topology_version=spec.version,
         max_rounds=settings.max_rounds,
         max_review_rounds=(settings.max_review_rounds
-                           if ("reviewer", "coder") in spec.edges or spec.layout == "star" else None),
+                           if any(source == "reviewer" and target != "result" for source, target in spec.edges) else None),
         hub_mode=settings.hub.mode if spec.layout == "star" else None,
         max_dispatches=settings.hub.max_dispatches if spec.layout == "star" else None,
     )

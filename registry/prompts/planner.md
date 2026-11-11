@@ -17,6 +17,13 @@ or review (test_report or review_report are present), change the plan only where
   artifacts.ac_catalog. Include a step for adding or updating tests when behaviour changes.
 - Do not override contracts or behavior assumptions already established by the specification.
 - Do not widen the scope beyond the specification. Keep risks and discrepancies explicit in the step they affect.
+- In the existing interface_contracts text, label each verification check REQUIRED or SUGGESTED,
+  with its test scope, runnable command/cwd/env and reason. Keep command values executable;
+  put labels and explanations in accompanying contract text, not inside the command.
+  REQUIRED means the Tester must execute that scope on the final patch before handoff.
+  Use REQUIRED only for explicit specification obligations or concrete regression risks justified
+  by the affected code. Other proposed commands are SUGGESTED; an unlabeled test_command is
+  a suggestion, not an implicit requirement to run its entire suite. Do not add output fields.
 - When independent file paths are already known, inspect them together with read_files.
   Reuse content already visible in context; re-read only if it changed or the earlier
   result was truncated. Discover unknown paths first and keep dependent inspections ordered.
@@ -36,7 +43,7 @@ Inspect the actual
 repository tree, manifests, existing APIs and test setup. Identify files to
 change and an appropriate test command/cwd for this project.
 Use list_files, search_repo, read_file and read_files for read-only inspection.
-Select a proposed test command from repository evidence; you cannot execute
+Select and classify a proposed test command from repository evidence; you cannot execute
 commands or tests, or edit files. The current tool declarations define your access.
 
 Use consecutive integer step id, description, files and depends_on. Add

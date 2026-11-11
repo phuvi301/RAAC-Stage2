@@ -728,8 +728,11 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
         self.assertEqual(memory["identity"]["run_id"], "memory-run")
         self.assertIn("edit_file", json.dumps(memory))
         self.assertIn("solution.py", json.dumps(memory))
-        files = list((log.parent / "memory").glob("*.json"))
+        files = [path for path in (log.parent / "memory").glob("*.json") if not path.name.endswith(".transcript.json")]
         self.assertEqual(len(files), 1)
+        self.assertEqual(len(list((log.parent / "memory").glob("coder-r*.transcript.json"))), 2)  # one per turn
+        # A fresh runner (as after a resume) still finds the previous turn on disk.
+        self.assertEqual(json.loads(payloads[-1]["messages"][1]["content"])["previous_attempt"]["round"], 1)
         saved = json.loads(files[0].read_text())
         self.assertEqual(saved["compactions"], 0)  # Receipts no longer cross the 1024-token threshold.
         self.assertNotIn("memory-write-marker\n" * 100, json.dumps(saved))
@@ -884,8 +887,11 @@ class DemoRunnerTests(WorkspaceFixture, unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1]["event"], "agent_failed")
         self.assertEqual(events[-1]["code"], "invalid_output")
         self.assertTrue(events[-1]["stack"])
-        saved = list((Path(self.temp.name) / "memory").glob("*.json"))
+        folder = Path(self.temp.name) / "memory"
+        saved = [path for path in folder.glob("*.json") if not path.name.endswith(".transcript.json")]
         self.assertEqual(len(saved), 1)
+        # The failed turn's full conversation is kept next to the action memory.
+        self.assertEqual(len(list(folder.glob("coder-r*.transcript.json"))), 1)
         memory = json.loads(saved[0].read_text())
         self.assertTrue(any(entry.get("kind") == "failure" and entry.get("code") == "invalid_output"
                             for entry in memory["entries"]))

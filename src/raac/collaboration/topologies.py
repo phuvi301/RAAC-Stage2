@@ -56,11 +56,11 @@ CHAIN = TopologySpec(
 )
 
 # Same roles and contracts as CHAIN; only the communication differs: a rejecting
-# Reviewer may send its feedback back to Coder while rounds remain.
+# Reviewer may send its feedback back to Planner while rounds remain.
 CHAIN_REVIEW_LOOP = TopologySpec(
-    topology_id="chain_review_loop", version="1",
+    topology_id="chain_review_loop", version="2",
     steps=CHAIN.steps,
-    edges=CHAIN.edges + (("reviewer", "coder"),),
+    edges=CHAIN.edges + (("reviewer", "planner"),),
     entry_node=CHAIN.entry_node, exit_node=CHAIN.exit_node,
 )
 

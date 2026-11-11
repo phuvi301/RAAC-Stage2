@@ -10,6 +10,7 @@ import uuid
 
 import yaml
 
+from raac.benchmark.observe import BenchmarkObserver
 from raac.collaboration.levels.l3_collaboration import (
     ChainLimits, ChainNodes, WorkItem, build_collaboration_graph, coordinate_chain, initial_chain_state,
 )
@@ -81,6 +82,10 @@ async def execute(args) -> int:
     # Tao một run_id duy nhất cho lần chạy này, chuẩn bị thư mục output và executor.
     run_id = "chain-" + uuid.uuid4().hex
     output_dir = (project / "results" / run_id).resolve()
+    # Thư mục luôn tên chain-*; in rõ level/topology thật để khỏi nhầm.
+    hub = f" (hub {decision.hub_mode})" if decision.topology == "star" else ""
+    print(f"MAS run {run_id}: L3, topology {decision.topology}{hub}, max_rounds {decision.max_rounds}",
+          file=sys.stderr, flush=True)
 
     # Tạo bộ chạy command và test local.
     executor = LocalExecutor(policy) 
@@ -142,11 +147,14 @@ async def execute(args) -> int:
         baseline_ref=workspace.baseline_ref
     )
 
+    # Theo dõi run (web/terminal) ngay khi log có; lỗi của viewer không bao giờ dừng run.
+    observer = BenchmarkObserver(getattr(args, "observe", "none"), label="MAS run")
     try:
         # Dựng graph và thực sự chạy
         trace_context = {"run_id": run_id, "task_id": task_id, "level": "L3"}
         client.trace_event(trace_context, "run_started", decision=decision.model_dump(),
                            workspace=provenance["workspace"])
+        observer.ready(output_dir / "llm.jsonl")
 
         graph = build_collaboration_graph(
             decision, 
@@ -181,8 +189,11 @@ async def execute(args) -> int:
         print(json.dumps({"run_id": run_id, "status": record["status"],
                           "stop_reason": record["stop_reason"], "output": str(output_dir),
                           "workspace": str(workspace.root)}, ensure_ascii=False))
-        return 0 if record["verdict"] == "PASS" else 1
+        code = 0 if record["verdict"] == "PASS" else 1
+        await observer.finish()  # web viewer stays open until Ctrl+C
+        return code
     finally:
+        observer.close()
         await client.aclose()
 
 
@@ -191,7 +202,10 @@ def main(argv=None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="RAAC repository Chain demo via 9router")
-    parser.add_argument("command", choices=["models", "probe-tools", "run-chain", "show-log"])
+    parser.add_argument("command", choices=["models", "probe-tools", "run", "run-chain", "show-log"],
+                        help="run: chạy MAS local theo --level (run-chain là tên cũ, tương đương run --level L3)")
+    parser.add_argument("--level", choices=["L1", "L2", "L3"], default="L3",
+                        help="run: level cần chạy local; hiện chỉ L3 chạy local, L1/L2 dùng benchmark run --level")
     parser.add_argument("--run-id", help="show-log: ID run cần đọc")
     parser.add_argument("--log", help="show-log: đường dẫn llm.jsonl hoặc file JSONL được dán")
     parser.add_argument("--details", action="store_true", help="show-log: mở nội dung trao đổi/tool")
@@ -207,13 +221,15 @@ def main(argv=None) -> int:
     parser.add_argument("--base-url", default=None)
     parser.add_argument("--max-rounds", type=int, default=None)
     parser.add_argument("--max-review-rounds", type=int, default=None,
-                        help="run-chain with chain_review_loop: Reviewer -> Coder feedback loops (default from config)")
+                        help="run-chain with chain_review_loop: Reviewer -> Planner feedback loops (default from config)")
     parser.add_argument("--hub", choices=["rules", "llm"], default=None,
                         help="run-chain with star: how the Hub picks the next role (default from config)")
     parser.add_argument("--max-dispatches", type=int, default=None,
                         help="run-chain with star: maximum Hub dispatches (default from config)")
     parser.add_argument("--topology", choices=["chain", "chain_review_loop", "star"], default=None,
                         help="run-chain: collaboration topology; default is configs/levels/l3_collaboration.yaml")
+    parser.add_argument("--observe", choices=["web", "terminal", "none"], default="web",
+                        help="run-chain: tự mở log của run này trên trình duyệt (web), in ra terminal, hoặc tắt (none)")
     args = parser.parse_args(argv)
 
     # Validate arguments for show-log command
@@ -243,11 +259,18 @@ def main(argv=None) -> int:
             return 2
         return 0
 
-    # Validate arguments for run-chain command
-    if args.command == "run-chain" and not args.project_dir:
-        parser.error("run-chain requires --project-dir PATH (containing repo/ and requirement/user_chat.txt)")
+    # Validate arguments for run / run-chain
+    if args.command in {"run", "run-chain"}:
+        if not args.project_dir:
+            parser.error(f"{args.command} requires --project-dir PATH (containing repo/ and requirement/user_chat.txt)")
+        if args.level != "L3":
+            print(f"{args.level} chưa chạy local được; hiện chỉ L3. Chạy {args.level} qua benchmark: "
+                  f"python -m raac.cli benchmark run --task-id <task_id> --level {args.level}", file=sys.stderr)
+            return 2
     try:
         return asyncio.run(execute(args))
+    except KeyboardInterrupt:
+        return 130
     except (DemoError, LLMError) as exc:
         print(str(exc), file=sys.stderr)
         return 2

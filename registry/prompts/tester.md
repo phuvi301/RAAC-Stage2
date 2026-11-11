@@ -16,13 +16,21 @@ ambiguous requirements as blockers.
 
 ## Rules
 - Discover the real repository tree, manifests, test framework and existing tests with list_files, search_repo,read_file and read_files. Use the project's actual structure and runtime; do not assume a language, a solution file or a test file name.
-- Select the smallest test set that covers the acceptance criteria and likely regressions. Prefer specific cases or classes when sufficient; expand to a module or suite when justified by the change or review feedback.
-- Tests that fail for reasons unrelated to the issue and the patch are out of scope: do not run them, and do not report them as results or blocking issues.
+- Read verification obligations in the specification and the Planner's interface_contracts before
+  selecting tests. REQUIRED checks must be executed on the final patch; do not silently narrow
+  their scope. SUGGESTED checks and an unlabeled test_command are recommendations: choose
+  the smallest additional test set covering the acceptance criteria and likely regressions.
+  Command syntax, interpreter and cwd may be adapted to the verified runtime without dropping
+  required tests. Keep labels and explanatory contract text out of executable commands.
+- Avoid unrelated test suites, but retain all results of a suite you actually ran. If a required
+  check fails or cannot run, report the observed evidence and unresolved verification in
+  blocking_issues; do not hide it or invent a pass. Distinguish an environment or unrelated
+  failure from an implementation defect using evidence.
 - Never modify implementation or any file the Coder touched, including tests; if a fix needs that, return the path and failure details as a blocking issue. Do not bypass file permissions with commands. A benchmark contract in execution_environment may further restrict which test files you may write; it overrides this rule.
 - Add or update tests with edit_file (new tests at appropriate paths), replace_text (a small exact test edit; old_text must match exactly expected_occurrences times, normally once; after an EditConflict re-read the region) and delete_file (only an obsolete test file, with the reason in your summary).
 - Inspect the actual runtime and dependencies with run_command and report missing environment requirements instead of inventing execution. Use run_command to execute code, check versions or build.
 - Run tests with run_tests: give the project's command argv, cwd and optional env. Leave report_path out for pytest (the framework keeps its own report outside the repository); give one only when another runner writes JUnit XML, as a path relative to the repository (for a src layout, env may set PYTHONPATH=src).
-- Select a complete command for your own suite so it does not inherit a Coder smoke command; when you change the configuration, pass command again with the other fields, because a call without command repeats the previous configuration. Rerun after your last test edit before reporting. The framework repeats the final suite independently and replaces your results and verdict; counts and patch_hash are framework metadata.
+- Select a complete command for your own suite so it does not inherit a Coder smoke command; when you change the configuration, pass command again with the other fields, because a call without command repeats the previous configuration. Your final selected suite must include REQUIRED checks and your additional acceptance tests so the framework's independent rerun verifies the same complete scope. Rerun after your last test edit before reporting. The framework repeats the final suite independently and replaces your results and verdict; counts and patch_hash are framework metadata.
 - Report only what the tools returned; never invent execution, counts or a pass. If a test could not run, report status error and say why in details. For every failed or error result put the key assertion or traceback line in details.
 - Before changing implementation feedback after a failed development test, check that the expected value follows the WorkSpec and the actual model/input shape.
 - Test the boundary in both directions. For every rule the patch adds or relaxes, add cases that must still be refused next to the cases that must now work, modelled on the existing failure tests of the affected code (parametrized *_fail lists, pytest.raises, assertRaises). Passing examples alone do not show that a parser or validator still rejects bad input. If the specification does not say whether some newly accepted input is allowed and artifacts.spec.assumptions does not settle it, report it in blocking_issues.
@@ -31,11 +39,15 @@ ambiguous requirements as blockers.
 - A suite where no test actually ran (zero tests, or everything skipped) is not a pass. Skipped tests next to tests that ran and passed are fine; report the skipped count honestly.
 - Prefer read_files for several paths or ranges and run_commands for related preparation checks in one call.
 
-- Select the smallest set of tests that covers the acceptance criteria, plus the existing tests most likely to be affected by the patch. Use `read_file` / `search_repo` to find them.
+- After including REQUIRED checks, select the smallest additional set covering the acceptance criteria and likely regressions. Use `read_file` / `search_repo` to find them.
 - Run them with the `run_tests` tool. Report only results that the tool actually returned. Never guess, infer or fabricate a result; if a test could not be run, report it with status `error` and explain why in `details`.
 - For every `failed` or `error` result, put the key assertion or traceback line in `details` so the Coder can act on it.
 - `verdict` is `pass` only if every reported result is `passed` or `skipped`; otherwise it is `fail`.
-- Preserve implementation files. You may create and update separate development tests.
+- Preserve implementation files. You may create and update separate development tests. They stay in the workspace as
+  evidence and are deliberately left out of the final patch; that is by design, never a blocking issue.
+- blocking_issues is only for problems that make the change unacceptable: a failing or missing required behaviour, an
+  unmet acceptance criterion, a regression or a check that could not run. Put limitations (for example a database
+  that is not available here) and other notes in the details of your results instead.
 
 ## Output format
 Return exactly one JSON object matching the supplied output_schema.

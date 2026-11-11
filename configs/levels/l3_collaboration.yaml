@@ -1,8 +1,8 @@
 version: l3-chain
-# Set by hand: chain | chain_review_loop (Reviewer can send feedback back to Coder) | star (Hub routes every role).
+# Set by hand: chain | chain_review_loop (Reviewer can send feedback back to Planner) | star (Hub routes every role).
 topology: chain
 max_rounds: 3
-# Reviewer -> Coder feedback loops allowed (only used by chain_review_loop); still bounded by max_rounds.
+# Reviewer -> Planner feedback loops allowed (only used by chain_review_loop); still bounded by max_rounds.
 max_review_rounds: 2
 hard_max_rounds: 4
 # Only used by topology star. mode: rules = fixed routing rules, llm = the Hub role chooses among the roles the rules allow.

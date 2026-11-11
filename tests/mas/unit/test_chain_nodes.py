@@ -276,6 +276,17 @@ class ChainNodeTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(output["verdict"], "REJECT")
                 self.assertFalse(output["tests_passed"])
 
+    async def test_an_observed_run_without_test_names_passes_but_skips_alone_do_not(self):
+        """Django's runtests.py reports counts without names; that used to force retries until max_rounds."""
+        for tests_run, passes in ((377, True), (1, False)):  # 1 run, 1 skipped: nothing really executed
+            with self.subTest(tests_run=tests_run):
+                agents = FakeAgents(overrides={
+                    "Tester": lambda output, request: {**output, "tests_run": tests_run, "test_cases": []},
+                })
+                output = await self.run_graph(agents, make_state(rounds=1))
+                self.assertEqual(output["tests_passed"], passes)
+                self.assertEqual(output["verdict"], "PASS" if passes else "REJECT")
+
     async def test_old_patch_test_or_review_is_rejected(self):
         for role, reason in (("Tester", "stale_test_report"), ("Reviewer", "stale_review_report")):
             with self.subTest(role=role):
@@ -433,28 +444,30 @@ class ReviewLoopNodeTests(unittest.IsolatedAsyncioTestCase):
                     "blocking_issues": ["Handle None too"] if rejected else []}
         return override
 
-    async def test_reviewer_rejection_sends_feedback_back_to_coder(self):
+    async def test_reviewer_rejection_sends_feedback_back_to_planner(self):
         agents = FakeAgents(overrides={"Reviewer": self.reject_until(2)})
         output = await self.run_loop(agents)
         self.assertEqual([role for role, _ in agents.calls], [
             "Environment", "Analyst", "Planner", "Coder", "Tester", "Reviewer",
-            "Coder", "Tester", "Reviewer",
+            "Planner", "Coder", "Tester", "Reviewer",
         ])
+        second_planner = [request for role, request in agents.calls if role == "Planner"][1]
+        self.assertEqual(second_planner["incoming_message"]["from"], "Reviewer")
+        self.assertEqual(second_planner["artifacts"]["review_report"]["verdict"], "REJECT")
         second_coder = [request for role, request in agents.calls if role == "Coder"][1]
-        self.assertEqual(second_coder["incoming_message"]["from"], "Reviewer")
-        self.assertEqual(second_coder["artifacts"]["review_report"]["verdict"], "REJECT")
+        self.assertEqual(second_coder["incoming_message"]["from"], "Planner")
         self.assertEqual(output["verdict"], "PASS")
         self.assertEqual(output["rounds_completed"], 2)
         self.assertEqual(output["result"]["topology"], "chain_review_loop")
         sent = [event for event in output["events"] if event["event"] == "review_feedback_sent"]
-        self.assertEqual([(e["target"], e["topology"]) for e in sent], [("coder", "chain_review_loop")])
+        self.assertEqual([(e["target"], e["topology"]) for e in sent], [("planner", "chain_review_loop")])
         self.assertIsNone(output["review_feedback"])
 
     async def test_loop_is_bounded_by_max_rounds(self):
         agents = FakeAgents(verdict="REJECT")
         output = await self.run_loop(agents, rounds=2)
         roles = [role for role, _ in agents.calls]
-        self.assertEqual((roles.count("Coder"), roles.count("Reviewer")), (2, 2))
+        self.assertEqual((roles.count("Planner"), roles.count("Coder"), roles.count("Reviewer")), (2, 2, 2))
         self.assertEqual(output["verdict"], "REJECT")
         self.assertEqual(output["stop_reason"], "reviewer_rejected")
 
@@ -462,7 +475,7 @@ class ReviewLoopNodeTests(unittest.IsolatedAsyncioTestCase):
         agents = FakeAgents(verdict="REJECT")
         output = await self.run_loop(agents, rounds=4, review_rounds=1)
         roles = [role for role, _ in agents.calls]
-        self.assertEqual((roles.count("Coder"), roles.count("Reviewer")), (2, 2))
+        self.assertEqual((roles.count("Planner"), roles.count("Coder"), roles.count("Reviewer")), (2, 2, 2))
         self.assertEqual(output["review_rounds"], 1)
         sent = [e for e in output["events"] if e["event"] == "review_feedback_sent"]
         self.assertEqual([(e["review_round"], e["max_review_rounds"]) for e in sent], [(1, 1)])

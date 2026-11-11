@@ -70,10 +70,11 @@ def present_event(event, identifier):
     if kind == "run_started":
         decision = _mapping(event.get("decision"))
         review = decision.get("max_review_rounds")
+        feedback_target = "Planner" if decision.get("topology") == "chain_review_loop" else "Hub"
         row.update(source="Người dùng", target="MAS", title="Bắt đầu run", topology=decision.get("topology"),
                    max_rounds=decision.get("max_rounds"), max_review_rounds=review,
                    summary=f"Topology {decision.get('topology', '?')} · tối đa {decision.get('max_rounds', '?')} vòng"
-                           + (f" · phản hồi Reviewer → Coder tối đa {review} vòng" if review is not None else ""))
+                           + (f" · phản hồi Reviewer → {feedback_target} tối đa {review} vòng" if review is not None else ""))
         payload("Quyết định điều phối", decision)
         payload("Workspace", event.get("workspace"))
     elif kind == "command_output":
@@ -339,11 +340,12 @@ class TraceRuns:
 
     def register(self, path):
         path = Path(path).resolve(strict=True)
-        if path.name != "llm.jsonl" or not re.fullmatch(r"benchmark-[0-9a-f]{32}", path.parent.name):
-            raise ValueError("Invalid benchmark trace")
+        # Benchmark runs and local MAS runs (run-chain) share the results/ layout.
+        if path.name != "llm.jsonl" or not re.fullmatch(r"(?:benchmark|chain)-[0-9a-f]{32}", path.parent.name):
+            raise ValueError("Invalid run trace")
         with self.lock:
             if self.paths and path.parent.parent != next(iter(self.paths.values())).parent.parent:
-                raise ValueError("Trace outside benchmark results")
+                raise ValueError("Trace outside run results")
             self.paths[path.parent.name] = path
             self.active = path.parent.name
 
