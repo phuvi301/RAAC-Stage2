@@ -15,6 +15,18 @@ from raac.tui.bridge import IDENTITY, RuntimeBridge
 from raac.tui.state import RunState, literal, read_page
 
 
+def test_history_uses_only_codebase_results(monkeypatch):
+    from pathlib import Path
+    from raac.tui import app
+
+    monkeypatch.setenv('LOCALAPPDATA', '/unused-history')
+    screens = []
+    dashboard = app.MASApp()
+    monkeypatch.setattr(dashboard, 'push_screen', lambda screen, callback: screens.append(screen))
+    dashboard.action_history()
+    assert screens[0].roots == [Path(app.__file__).resolve().parents[3] / 'results']
+
+
 def event(sequence, activation='one', **fields):
     return dict(run_id='run', agent_call_id=activation, role='Coder', sequence=sequence,
                 event='lifecycle_transition', to_state='PLANNING', **fields)

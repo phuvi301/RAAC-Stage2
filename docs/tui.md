@@ -88,9 +88,11 @@ headers and borders are reduced. Below 40 columns or 15 rows, a resize hint is
 shown. Ctrl+A and the command palette make hidden controls accessible.
 
 `show-log --tui` is read only and follows appended complete JSONL records. It
-cannot approve, restart or resume a recorded run. History searches both the
-repository's `results/` and `%LOCALAPPDATA%/RAAC/results/` (fallback:
-`~/.local/share/RAAC/results/`). Local run artifacts stay outside the workspace.
+cannot approve, restart or resume a recorded run. History searches only the
+codebase's `results/` directory. All local run artifacts, including L4 mock runs,
+are saved there, relative to the installed source location rather than the working
+directory or user profile. When the workspace is the codebase itself, artifacts
+are inside that workspace. Existing logs in the old user-profile location are not migrated.
 
 ## Integration and limits
 

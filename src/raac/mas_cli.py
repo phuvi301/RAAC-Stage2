@@ -4,7 +4,6 @@ import argparse
 import asyncio
 import hashlib
 import json
-import os
 import sys
 import uuid
 from pathlib import Path
@@ -104,10 +103,8 @@ async def execute(args, *, approval_handler=None, return_record=False, event_han
     # Tao một run_id duy nhất cho lần chạy này, chuẩn bị thư mục output và executor.
     run_id = "chain-" + uuid.uuid4().hex
     local = args.command == "run-local"
-    output_root = Path(os.environ.get("LOCALAPPDATA", Path.home() / ".local/share")) / "RAAC/results" if local else project / "results"
+    output_root = project / "results"
     output_dir = (output_root / run_id).resolve()
-    if local and output_dir.is_relative_to(Path(args.workspace).resolve()):
-        raise DemoError("Run artifacts must be outside the selected workspace")
 
     # Tạo bộ chạy command và test local.
     executor = LocalExecutor(policy) 
@@ -282,11 +279,9 @@ async def run_local(workspace, requirement, topology="chain", approval_handler=N
 async def _mock_local(args, project, *, event_handler=None, run_handler=None):
     """Preview L4 without constructing a client, executor or editable workspace."""
     run_id = "chain-" + uuid.uuid4().hex
-    root = Path(os.environ.get("LOCALAPPDATA", Path.home() / ".local/share")) / "RAAC/results"
+    root = project / "results"
     output = (root / run_id).resolve()
     workspace = Path(args.workspace).resolve()
-    if output.is_relative_to(workspace):
-        raise DemoError("Run artifacts must be outside the selected workspace")
     trace = JSONLTrace(output / "llm.jsonl", subscriber=event_handler)
     metadata = {"run_id": run_id, "level": "L4", "topology": "mock", "mock": True,
                 "workspace": str(workspace), "log": str(trace.path)}

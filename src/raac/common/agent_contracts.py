@@ -697,8 +697,6 @@ def _recover_embedded(model, text: str):
 def parse_role_output(role: str, output: str | dict[str, Any]):
     model = role_output_model(role)
     try:
-        if role.lower() == "coder":
-            return model.model_validate(output)
         return (
             model.model_validate_json(output)
             if isinstance(output, str)
