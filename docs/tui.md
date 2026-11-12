@@ -57,6 +57,18 @@ still checks invocation, revision, operation and argument hash. Decisions cannot
 be reused. Cancellation releases approvals and waits for subprocess cleanup.
 It retains workspace changes; it does not reset Git or undo edits.
 
+Pending approvals turn the Approvals button bright yellow with a request count
+and show a notification. Press **Ctrl+Y** or click the button to review them.
+The dropdown beside Approvals selects **Ask each time** (default) or
+**Auto approve (Full access)**. Auto approve immediately approves pending and
+future approval requests, including commands, tests, batches and environment
+operations. Identity validation and existing tool/workspace permissions still apply;
+this mode does not grant OS administrator rights. Switching back to Ask each time
+affects future requests; operations already approved continue.
+The mode stays selected across runs in this TUI session and resets to Ask each
+time when the app restarts. Use **Ctrl+P → Approval mode** when controls are hidden
+on a small terminal. Read-only log viewers cannot change approval mode.
+
 The overview labels the Hub for L3 topologies. Every runtime activation has
 its own panel even when roles repeat. Status and input/output tokens come from
 runtime events and provider usage; unavailable usage is shown as `—`. There is

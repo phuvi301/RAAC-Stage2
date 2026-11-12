@@ -32,6 +32,7 @@ class RuntimeBridge:
         self.busy = False
         self.cancel_requested = threading.Event()
         self.message = ''
+        self.approval_mode = 'manual'
 
     def event(self, record):
         if record.get('event') == 'approval_requested':
@@ -54,11 +55,23 @@ class RuntimeBridge:
             shown = self.display_requests.pop(request['invocation_id'], None)
             pending = Pending(token, dict(request), shown or redactor().redact(request), future)
             self.pending[token] = pending
+            automatic = self.approval_mode == 'auto'
         try:
+            if automatic:
+                self.resolve(token, request, True)
             return await future
         finally:
             with self.lock:
                 self.pending.pop(token, None)
+
+    def set_approval_mode(self, mode):
+        if mode not in {'manual', 'auto'}:
+            raise ValueError('Unknown approval mode')
+        with self.lock:
+            self.approval_mode = mode
+            pending = [(item.token, dict(item.request)) for item in self.pending.values()] if mode == 'auto' else []
+        for token, request in pending:
+            self.resolve(token, request, True)
 
     def approvals(self):
         with self.lock:
