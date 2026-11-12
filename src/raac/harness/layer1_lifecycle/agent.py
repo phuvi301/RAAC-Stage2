@@ -39,6 +39,7 @@ from raac.harness.layer2_core.memory.short_term import (
 )
 from raac.harness.layer2_core.prompt_hydrator import hydrate_messages
 from raac.llm.client import CompletionFormatError, has_dsml_tool_call
+from raac.registry.output_formats import validate_unified_diff
 
 from .approval import AgentPaused, ApprovalDecision, validate_approval
 from .checkpoint import CheckpointStore, LifecycleError, digest
@@ -992,7 +993,7 @@ class AgentRunner:
             saved_edits = self.tools.workspace.code_edit_count != code_edits_before
             rebuild_reason = None
             try:
-                patch = parse_role_output(name, content).root
+                patch = validate_unified_diff(content)
             except ValueError:
                 claims_diff = looks_like_diff(content)
                 if claims_diff and not saved_edits and not self.tools.workspace.coder_paths:
@@ -1037,12 +1038,18 @@ class AgentRunner:
                     )
                     if not applied["ok"]:
                         raise AgentExecutionError("invalid_coder_patch")
+            stage = "workspace_diff"
             try:
-                patch = parse_role_output(
-                    name, self.tools.workspace.current_patch()
-                ).root
-            except (ValueError, OSError):
-                raise AgentExecutionError("patch_generation_failed") from None
+                patch = self.tools.workspace.current_patch()
+                stage = "diff_validation"
+                if patch:
+                    patch = validate_unified_diff(patch)
+            except (ValueError, OSError) as exc:
+                self.client.trace_event(
+                    call_context, "coder_patch_failed", stage=stage,
+                    error_kind=type(exc).__name__, detail=str(exc),
+                )
+                raise AgentExecutionError("patch_generation_failed") from exc
             final_hash = hashlib.sha256(
                 (self.tools.workspace.baseline_ref + "\0" + patch).encode()
             ).hexdigest()

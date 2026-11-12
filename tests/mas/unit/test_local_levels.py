@@ -1,6 +1,7 @@
 """Local level selection uses existing engines; L4 never constructs a runtime."""
 import json
 import sys
+from pathlib import Path
 
 import httpx
 import pytest
@@ -71,6 +72,8 @@ async def test_local_engine_levels_with_streamed_http_and_real_approved_tests(tm
     monkeypatch.setattr('raac.mas_cli.load_llm_config', lambda *a, **kw: LLMConfig(model='fixture'))
     monkeypatch.setattr('raac.mas_cli.LLMClient', lambda config, *, log_path: LLMClient(config, log_path=log_path, transport=httpx.MockTransport(respond)))
     result = await run_local(workspace, 'Set VALUE to 2', level=level, stream=True, approval_handler=approve, event_handler=events.append)
+    from raac import mas_cli
+    assert (Path(mas_cli.__file__).resolve().parents[2] / 'results' / result['run_id'] / 'result.json').is_file()
     if not approved:
         assert result['status'] == 'aborted' and result['verdict'] != 'PASS'
         assert approvals == ['run_tests'] and not (workspace / 'ran').exists()
@@ -101,6 +104,8 @@ async def test_l4_mock_has_no_client_executor_or_workspace_changes(tmp_path, mon
     monkeypatch.setattr('raac.mas_cli.WorkspaceTools.__init__', forbidden)
     events = []
     result = await run_local(workspace, 'Mock only', level='L4', event_handler=events.append)
+    from raac import mas_cli
+    assert Path(result['log']).parent.parent == Path(mas_cli.__file__).resolve().parents[2] / 'results'
     assert result['status'] == 'mock' and result['mock'] and result['verdict'] is None
     assert result['usage']['calls'] == 0 and result['execution']['mode'] == 'mock'
     assert (workspace / 'keep.txt').read_text() == 'unchanged'

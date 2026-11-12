@@ -330,3 +330,71 @@ async def test_l1_fixed_runs_three_sample_tasks_through_llm_client_and_saves_log
                        for line in engine_log.read_text(encoding="utf-8").splitlines())
         finally:
             await client.aclose()
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('existing', [False, True])
+async def test_workspace_handoff_from_tool_edits_reaches_tester_and_reviewer(tmp_path, existing):
+    workspace_dir = tmp_path / 'workspace'
+    workspace_dir.mkdir()
+    if existing:
+        (workspace_dir / 'app.py').write_text('VALUE = 0\n', encoding='utf-8')
+    workspace = WorkspaceTools(workspace_dir, LocalExecutor(LocalExecutionPolicy()), requirement='Create app')
+    assert bool(workspace.baseline_files) == existing
+    edits = {
+        'app.py': 'VALUE = 1',
+        'tests/test_app.py': 'import unittest\nfrom app import VALUE\nclass AppTest(unittest.TestCase):\n def test_value(self):\n  self.assertEqual(VALUE, 1)\n',
+        'empty.txt': '',
+    }
+    workspace.test_spec = {'command': [sys.executable, '-m', 'unittest', 'discover', '-s', 'tests'],
+                           'cwd': '.', 'env': {}, 'report_path': None}
+    sent = []
+    pending = list(edits.items())
+    outputs = {
+        'analyst': {'product_goal': 'Create app', 'target_users': ['User'],
+                    'user_flows': [{'id': 'UF1', 'title': 'Read value', 'actor': 'User', 'steps': ['Read VALUE']}],
+                    'functional_requirements': [{'id': 'FR1', 'description': 'Expose VALUE = 1'}],
+                    'acceptance_criteria': ['VALUE equals 1']},
+        'architect': {'summary': 'One module', 'project_structure': list(edits),
+                      'components': [{'id': 'COMP1', 'name': 'App', 'path': 'app.py', 'action': 'create',
+                                      'responsibilities': 'Expose value', 'satisfies_requirements': ['FR1']}]},
+        'planner': {**_payload('planner'), 'test_strategy': {'test_framework': 'unittest',
+                    'test_command': 'python -m unittest discover -s tests'}},
+        'tester': _payload('tester'),
+        'reviewer': {**_payload('reviewer'), 'stop': True, 'completion_status': 'completed'},
+    }
+
+    def handler(request):
+        body = json.loads(request.content)
+        handoff = json.loads(body['messages'][1]['content'])
+        props = handoff.get('output_schema', {}).get('properties', {})
+        role = next((role for key, role in [('product_goal', 'analyst'), ('components', 'architect'),
+                    ('steps', 'planner'), ('tests_to_run', 'tester'), ('decision', 'reviewer')]
+                    if key in props), 'coder')
+        sent.append(role)
+        if role == 'coder' and pending:
+            path, content = pending.pop(0)
+            message = {'tool_calls': [{'id': f'edit-{len(pending)}', 'type': 'function', 'function': {
+                'name': 'edit_file', 'arguments': json.dumps({'path': path, 'content': content})}}]}
+        else:
+            output = {'summary': 'Workspace saved', 'created_files': list(edits)} if role == 'coder' else outputs[role]
+            message = {'content': json.dumps(output)}
+        return httpx.Response(200, json={'choices': [{'message': message}],
+                                       'usage': {'prompt_tokens': 10, 'completion_tokens': 5}})
+
+    client = LLMClient(LLMConfig(model='fixture'), log_path=tmp_path / 'logs/llm.jsonl',
+                       transport=httpx.MockTransport(handler))
+    engine = Engine.from_runtime(registry=load_registry(ROOT / 'registry'), client=client,
+                                 tools=ToolOrchestrator(workspace), provenance={})
+    try:
+        result = await engine.run(run_id='greenfield', task={'task_id': 'new-app', 'requirement': 'Create app'},
+                                  level=L1Fixed(), config={})
+        assert result.result['verdict'] == 'PASS', result.state.get('error')
+        assert sent[-2:] == ['tester', 'reviewer']
+        assert '/dev/null' in result.state['patch'] and 'empty.txt' in result.state['patch']
+        assert result.state['test_results']['verdict'] == 'pass'
+        assert len(result.state['test_results']['results']) == 1
+        assert result.state['test_results']['results'][0]['status'] == 'passed'
+        for path, content in edits.items():
+            assert (workspace_dir / path).read_text(encoding='utf-8') == content
+    finally:
+        await client.aclose()

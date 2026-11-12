@@ -1,6 +1,5 @@
 """Local MAS dashboard. All widget mutations happen on the Textual thread."""
 import asyncio
-import os
 import queue
 from datetime import UTC, datetime
 from pathlib import Path
@@ -629,8 +628,7 @@ class MASApp(App):
             self.view_positions = {p: value for p, value in self.view_positions.items() if p in self.sources}
 
     def action_history(self):
-        roots = [Path(__file__).resolve().parents[3] / 'results',
-                 Path(os.environ.get('LOCALAPPDATA', Path.home() / '.local/share')) / 'RAAC/results']
+        roots = [Path(__file__).resolve().parents[3] / 'results']
         self.push_screen(History(roots), self.switch_view)
 
     async def action_current(self):
