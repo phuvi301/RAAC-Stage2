@@ -28,6 +28,7 @@ from .bridge import RuntimeBridge
 from .state import RunState, display_event, history, literal, read_page
 
 LEVEL_CHOICES = [('L1 Fixed', 'L1'), ('L2 Routing', 'L2'), ('L3 Collaboration', 'L3'), ('L4 Mock', 'L4')]
+APPROVAL_MODES = [('Ask each time', 'manual'), ('Auto approve (Full access)', 'auto')]
 
 
 class PromptEditor(ModalScreen):
@@ -329,8 +330,12 @@ class MASApp(App):
     #workspace { height: 1; color: #8993BC; }
     #prompt { height: 5; max-height: 5; background: #1D1F2A; border: solid #41465B; }
     #controls { height: 3; }
+    #approval-mode { width: 30; }
+    #approvals.pending, #approvals.pending:hover, #approvals.pending:focus {
+        background: #FFE066; color: #191A23; text-style: bold; border: tall #FFE066;
+    }
     #expanded-prompt { height: 1fr; }
-    Select { width: 1fr; }
+    Select { width: 1fr; height: 3; }
     Button { min-width: 8; width: auto; margin-right: 1; }
     #overview { height: 3; border: solid #41465B; background: #222435; }
     #dashboard { height: 1fr; }
@@ -374,6 +379,7 @@ class MASApp(App):
         self.polling = False
         self.view_lock = asyncio.Lock()
         self.notice = ''
+        self.notified_approvals = set()
         if self.current_path:
             self.sources[self.current_path] = [RunState(), 0]
 
@@ -393,6 +399,8 @@ class MASApp(App):
             yield Select([(label, label) for label in ('chain', 'chain_review_loop', 'star')], value=self.topology, allow_blank=False, id='topology', disabled=self.read_only or self.level != 'L3', tooltip='Topology applies to L3 only')
             yield Button('Run', id='run', disabled=self.read_only)
             yield Button('Approvals', id='approvals')
+            yield Select(APPROVAL_MODES, value='manual', allow_blank=False, id='approval-mode',
+                         disabled=self.read_only, tooltip='Auto approve immediately allows pending and future operations for this TUI session')
         yield Static('Run overview — Ready', id='overview', markup=False)
         yield Static('Increase terminal to at least 40 columns × 15 rows', id='resize-hint', markup=False)
         with VerticalScroll(id='dashboard'):
@@ -420,6 +428,7 @@ class MASApp(App):
             ('Run history', 'Browse saved JSONL runs', self.action_history),
             ('Current run', 'Return from history', self.action_current),
             ('Pending approvals', 'Approve once, deny or inspect', self.action_approval),
+            ('Approval mode', 'Ask each time or auto approve (Full access)', self.action_approval_mode),
             ('Change level', 'Select L1, L2, L3 or L4 Mock for the next run', self.action_level),
             ('Change topology', 'Choose the next run topology', self.action_topology),
             ('Expand prompt', 'Read or edit the full request', self.action_prompt),
@@ -469,6 +478,8 @@ class MASApp(App):
             self.notify('Enter a prompt first')
             return
         self.bridge = RuntimeBridge()
+        self.bridge.set_approval_mode(self.dashboard.query_one('#approval-mode', Select).value)
+        self.notified_approvals.clear()
         self.bridge.busy = True
         self.notice = ''
         self.dashboard.query_one('#run', Button).disabled = True
@@ -484,6 +495,19 @@ class MASApp(App):
     @on(Button.Pressed, '#approvals')
     def approval_button(self):
         self.action_approval()
+
+    @on(Select.Changed, '#approval-mode')
+    def approval_mode_changed(self, event):
+        if not self.read_only:
+            self.bridge.set_approval_mode(event.value)
+
+    def action_approval_mode(self):
+        if not self.read_only:
+            self.push_screen(Picker('Approval mode', APPROVAL_MODES), self.set_approval_mode)
+
+    def set_approval_mode(self, mode):
+        if mode and not self.read_only:
+            self.dashboard.query_one('#approval-mode', Select).value = mode
 
     async def poll(self):
         if self.polling:
@@ -524,13 +548,21 @@ class MASApp(App):
             count = len(approvals)
             if isinstance(self.screen, ApprovalDialog) and self.screen.token not in {token for token, _ in approvals}:
                 self.screen.dismiss(None)
-            self.dashboard.query_one('#approvals', Button).label = f'Approvals ({count})'
+            button = self.dashboard.query_one('#approvals', Button)
+            button.label = f'Approve ({count})' if count else 'Approvals'
+            button.set_class(bool(count), 'pending')
+            tokens = {token for token, _ in approvals}
+            if tokens - self.notified_approvals:
+                self.notify(f'{count} approval request(s) waiting — press Ctrl+Y to review',
+                            title='Approval required', severity='warning', timeout=8)
+            self.notified_approvals = tokens
             viewing = 'CURRENT' if self.view_path == self.current_path else 'HISTORY — Ctrl+R returns to current run'
             chosen = self.dashboard.query_one('#level', Select).value
             next_run = 'L4 MOCK: no model/tools' if chosen == 'L4' else chosen
             self.dashboard.query_one('#overview', Static).update(literal(f'{"Hub / " if self.state.level == "L3" else ""}Run overview | {self.state.level} {self.state.status} | {self.state.run_id or "No run"} | Next: {next_run}'))
             self.update_level_controls()
-            self.dashboard.query_one('#status', Static).update(literal(f'{viewing} | Pending {count} | {self.notice or self.bridge.message}'))
+            mode = 'AUTO APPROVE / FULL ACCESS' if self.bridge.approval_mode == 'auto' else 'Ask each time'
+            self.dashboard.query_one('#status', Static).update(literal(f'{viewing} | {mode} | Pending {count} | {self.notice or self.bridge.message}'))
             if not self.bridge.busy:
                 self.dashboard.query_one('#run', Button).disabled = self.read_only
                 self.dashboard.query_one(TextArea).read_only = self.read_only
