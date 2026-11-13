@@ -14,7 +14,7 @@ Cách dùng file này
 - Chữ trong ngoặc cuối dòng là người phụ trách, Vũ, Vinh hoặc Tuấn, đổi lại nếu hoán đổi việc.
 - Ghi ngày cập nhật cuối mỗi khi sửa file, và ghi vấn đề phát sinh vào mục nhật ký cuối file.
 
-Cập nhật gần nhất ngày 2026-11-12
+Cập nhật gần nhất ngày 2026-11-13
 
 ---
 
@@ -236,7 +236,7 @@ Thư mục `src/raac/harness/layer4_connectors/`.
 
 ### L1 Fixed (`levels/l1_fixed.py`)
 
-- [x] Dựng graph tuyến tính Phân tích, Lập kế hoạch, Lập trình, Kiểm thử, Rà soát — nâng cấp ngày 2026-11-08 theo `docs/l1_fixed_workflow.md` thành fixed workflow 6 role (`Requirement Analyst -> Architect -> Planner -> Developer ⇄ Tester ⇄ Code Reviewer -> finish`, `configs/levels/l1_fixed.yaml` `l1-fixed-v2`, `topology: fixed-workflow`, `max_rounds = 3`, một vòng là một lần Developer tạo/cập nhật patch). Có cạnh phản hồi khai báo trước `Tester -> Developer` khi test fail, `Code Reviewer -> Developer` khi yêu cầu sửa, kết thúc sớm khi Code Reviewer chấp thuận và bắt buộc qua Code Reviewer ở vòng cuối (`completed_with_failures`/`REJECT`/`max_rounds_reached` nếu vẫn còn test fail), giữ `iterations` bất biến theo vòng.
+- [x] Dựng graph tuyến tính Phân tích, Lập kế hoạch, Lập trình, Kiểm thử, Rà soát — nâng cấp ngày 2026-11-08 theo `docs/l1_fixed_workflow.md` thành fixed workflow 6 role (`Requirement Analyst -> Architect -> Planner -> Developer ⇄ Tester ⇄ Code Reviewer -> finish`, `configs/levels/l1_fixed.yaml` `l1-fixed-v3`, `topology: fixed-workflow`, `max_rounds = 3`, một vòng là một lần Developer tạo/cập nhật patch). Có cạnh phản hồi khai báo trước `Tester -> Developer` khi test fail thuộc implementation/coverage, lỗi `generated_test`/`test_harness` không chuyển nhầm sang Developer và được Reviewer ghi nhận nếu Tester không tự xử lý; `Code Reviewer -> Developer` khi yêu cầu sửa, kết thúc sớm khi Code Reviewer chấp thuận và bắt buộc qua Code Reviewer ở vòng cuối (`completed_with_failures`/`REJECT`/`max_rounds_reached` nếu vẫn còn test fail), giữ `iterations` bất biến theo vòng.
   - 2026-10-26 | Agent hỗ trợ Vũ: `src/raac/collaboration/levels/l1_fixed.py`, `src/raac/collaboration/levels/__init__.py`, `configs/levels/l1_fixed.yaml`, `tests/unit/collaboration/test_l1_fixed.py`; `.venv/bin/python -m pytest tests/unit/collaboration/ -q` → 10 passed (15,59s).
   - 2026-11-08 | Agent hỗ trợ Vũ: `src/raac/collaboration/levels/l1_fixed.py`, `src/raac/collaboration/state.py`, `configs/levels/l1_fixed.yaml`, `registry/roles/core/architect.yaml`, `registry/prompts/architect.md`, `src/raac/common/agent_contracts.py` (`ArchitectOutput`, Registry `0.20.0`), `tests/unit/collaboration/test_l1_fixed.py`; `.venv/bin/python -m pytest tests/unit/collaboration/test_l1_fixed.py -q` → 12 passed (21,22s).
 - [x] Mỗi node lấy agent từ registry và gọi qua LLM client — `L1Fixed.build_graph` kiểm tra đủ 6 role qua `L1_REGISTRY_ROLES` (`Analyst`, `Architect`, `Planner`, `Coder`, `Tester`, `Reviewer`) trong `registry` và mỗi node gọi `engine.invoke_agent(...)` đi qua `AgentRunner` + `LLMClient` + `ToolOrchestrator`, truyền handoff dựa trên artifact (`spec`, `architecture`, `plan`, `previous_patch`, `test_report`, `review_report`).
@@ -907,3 +907,5 @@ Ghi mỗi dòng theo dạng ngày, vấn đề hoặc quyết định, người 
 - 2026-11-12 | Theo yêu cầu người dùng, thêm TUI approval nổi bật và dropdown Auto approve (Full access) cho phiên; giữ identity validation và role/workspace policy, không nâng quyền OS. | Agent hỗ trợ | 20 test qua; hai lỗi integration đã đối chứng có sẵn. Không gọi model thật, không commit/push; chi tiết tại ghi chú A0/A3 và docs/tui.md.
 
 - 2026-11-12 | Theo yêu cầu người dùng tăng budget mặc định configs/harness.yaml từ 1.000.000 lên 5.000.000 token cho mỗi run. | Agent hỗ trợ | Self-check đọc YAML xác nhận token_limit=5000000; giữ nguyên preset thí nghiệm, timeout và call cap. Chỉ áp dụng cho run mới; không gọi model thật, không commit/push.
+
+- 2026-11-13 | Điều chỉnh workflow L1 greenfield: local test runner nhận Node TAP cả dạng `#` và informational `\u2139`, không yêu cầu Subtest name; Tester có `failure_scope`, prompt yêu cầu tự sửa generated test/test harness trong activation, và L1 không chuyển các failure scope này sang Developer; giữ `max_rounds = 3`, topology `fixed-workflow` v3. | Agent hỗ trợ | Test parser `19 passed`; smoke contract/route pass; bộ L1 async đầy đủ bị timeout trong môi trường pytest hiện tại và chưa được coi là pass. Không gọi model thật, không sửa workspace game, không commit/push.

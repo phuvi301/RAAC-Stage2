@@ -185,3 +185,13 @@ def test_unittest_summary_parser_never_invents_counts():
     assert parse("Ran 5 tests in 0.1s\n") is None
     assert parse("Ran 127 tests in 9s\n\nFAILED (failures=3, skipped=23)\n")["failed"] == 3
     assert parse("Ran 3 tests in 1s\n\nFAILED (errors=1, expected failures=1)\n")["expected_failures"] == 1
+
+def test_node_tap_report_accepts_plain_and_informational_summaries():
+    parse = local_test_runner.node_tap_report
+    plain = "# tests 4\n# pass 4\n# fail 0\n# skipped 0\n"
+    informational = "\u2139 tests 4\n\u2139 pass 4\n\u2139 fail 0\n\u2139 skipped 0\n"
+    for text in (plain, informational):
+        report = parse(text)
+        assert report["tests_run"] == 4
+        assert report["failed"] == 0
+        assert report["test_cases"] == ["<node:test suite>"]

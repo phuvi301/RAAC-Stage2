@@ -19,6 +19,7 @@ from raac.collaboration.levels import (
     L1Fixed,
     validate_l1_config,
 )
+from raac.collaboration.levels.l1_fixed import route_after_reviewer, route_after_tester
 from raac.harness.layer3_execution.local_executor import (
     LocalExecutionPolicy,
     LocalExecutor,
@@ -33,7 +34,7 @@ ROOT = Path(__file__).resolve().parents[3]
 PREPARATION = ["Analyst", "Architect", "Planner"]
 
 
-def _payload(role_id: str, *, test_pass: bool = True, approve: bool = True):
+def _payload(role_id: str, *, test_pass: bool = True, approve: bool = True, failure_scope: str = "unknown"):
     if role_id == "analyst":
         return {"summary": "Analyzed task requirement",
                 "requirements": [{"id": "R1", "description": "Fix target behavior", "priority": "high"}],
@@ -57,7 +58,8 @@ def _payload(role_id: str, *, test_pass: bool = True, approve: bool = True):
                 "results": [{"test": "tests/test_app.py::test_value", "status": status,
                              "details": "" if test_pass else "AssertionError: 0 != 1"}],
                 "verdict": "pass" if test_pass else "fail",
-                "covered_ac_ids": ["AC1"], "blocking_issues": []}
+                "covered_ac_ids": ["AC1"], "blocking_issues": [],
+                "failure_scope": failure_scope}
     if role_id == "reviewer":
         if approve:
             return {"decision": "approve", "summary": "Patch satisfies AC1.", "comments": [],
@@ -110,7 +112,7 @@ def _loop_cycle(*roles):
 def test_l1_config_fixes_six_roles_and_caps_feedback_rounds_at_three():
     raw = yaml.safe_load((ROOT / "configs/levels/l1_fixed.yaml").read_text(encoding="utf-8-sig"))
     cfg = validate_l1_config(raw)
-    assert cfg.version == "l1-fixed-v2" and cfg.level == "L1" and cfg.topology == "fixed-workflow"
+    assert cfg.version == "l1-fixed-v3" and cfg.level == "L1" and cfg.topology == "fixed-workflow"
     assert cfg.roles == L1_ROLES == ("Requirement Analyst", "Architect", "Planner",
                                      "Developer", "Tester", "Code Reviewer")
     assert cfg.max_rounds == 3 and cfg.hard_max_rounds == 3
@@ -133,6 +135,13 @@ def test_l1_topology_declares_only_fixed_feedback_edges_to_the_developer():
         assert set(targets.values()) <= declared, source
     assert [L1_REGISTRY_ROLES[label] for label in L1_ROLES] == [
         "Analyst", "Architect", "Planner", "Coder", "Tester", "Reviewer"]
+
+def test_test_side_failure_never_routes_to_developer():
+    state = {"test_results": {"verdict": "fail", "results": [{"status": "failed"}],
+                              "failure_scope": "generated_test"}, "rounds": 1}
+    settings = validate_l1_config({})
+    assert route_after_tester(state, settings) == "code_reviewer"
+    assert route_after_reviewer({**state, "review": {"decision": "reject"}}, settings) == "finish"
 
 
 @pytest.mark.asyncio
