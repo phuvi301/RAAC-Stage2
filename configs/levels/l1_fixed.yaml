@@ -1,11 +1,14 @@
-version: l1-fixed-v1
+version: l1-fixed-v3
 level: L1
-topology: linear
+topology: fixed-workflow
+# Labels of the fixed workflow; each runs a Registry role (Developer=Coder, Code Reviewer=Reviewer).
 roles:
-  - Analyst
+  - Requirement Analyst
+  - Architect
   - Planner
-  - Coder
+  - Developer
   - Tester
-  - Reviewer
-max_rounds: 1
-hard_max_rounds: 1
+  - Code Reviewer
+# A round is one Developer patch; Tester/Code Reviewer feedback may loop back until this cap.
+max_rounds: 3
+hard_max_rounds: 3

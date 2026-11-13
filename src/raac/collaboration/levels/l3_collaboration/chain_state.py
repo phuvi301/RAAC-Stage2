@@ -12,13 +12,15 @@ from typing import Annotated, Any, Literal
 from pydantic import Field, model_validator
 from typing_extensions import TypedDict
 
+from raac.collaboration.topologies import get_topology
+
 # Preserve existing collaboration imports after extracting shared wire contracts.
 from raac.common.agent_contracts import (  # noqa: F401
     JSON_OUTPUT_MODELS,
     ROLE_OUTPUT_MODELS,
     AcceptanceCriterion,
     AnalystOutput,
-    CoderOutput,
+    DeveloperOutput,
     EnvironmentOutput,
     OutputFormatError,
     PlannerOutput,
@@ -150,6 +152,9 @@ class ChainState(TypedDict):
     patch_hash: str | None
     coder_evidence: list[dict[str, Any]]
     repository_changes: list[dict[str, Any]]
+    workspace_changes: list[dict[str, Any]]
+    patch_status: str | None
+    developer_report: dict[str, Any] | None
     coder_summary: str | None
     coder_report: dict[str, Any] | None
     test_report: dict[str, Any] | None
@@ -180,10 +185,11 @@ def initial_chain_state(work: WorkItem, limits: ChainLimits, topology_id: str = 
         "round_number": 0, "rounds_completed": 0, "ac_catalog": {},
         "spec": None, "plan": None, "patch": None, "patch_hash": None,
         "coder_evidence": [], "coder_summary": None, "coder_report": None, "repository_changes": [],
+        "workspace_changes": [], "patch_status": None, "developer_report": None,
         "test_report": None, "review_report": None, "review_feedback": None, "review_rounds": 0,
         "hub_mode": hub_mode, "hub_dispatches": 0, "hub_note": "", "plan_changed": False, "spec_changed": False,
         "topology_id": topology_id, "tests_passed": False,
         "verdict": None, "stop_reason": None, "error": None,
         "environment_report": None,
-        "next_node": "analyst", "events": [], "result": None,
+        "next_node": get_topology(topology_id).entry_node, "events": [], "result": None,
     }

@@ -13,7 +13,7 @@ export function topologyForRun(events, level = null) {
   const declared = [...events].reverse().find(event => event.event === "run_started" && event.topology);
   if (declared) return declared.topology;
   const observedLevel = [...events].reverse().find(event => event.level)?.level || level;
-  if (observedLevel) return {L1: "linear", L2: "linear-routed", L3: "chain"}[observedLevel] || null;
+  if (observedLevel) return {L1: "fixed-workflow", L2: "linear-routed", L3: "chain"}[observedLevel] || null;
   return events.length ? "chain" : null;
 }
 

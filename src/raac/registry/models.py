@@ -84,7 +84,8 @@ class RoleSpec(_Strict):
     @property
     def output_format(self):
         """Derived runtime format; YAML has no second format declaration."""
-        return OutputFormat.UNIFIED_DIFF if self.id == "coder" else OutputFormat.JSON
+        # The Coder hands off a JSON report; its file changes are derived from the workspace.
+        return OutputFormat.JSON
 
 
 class ToolCatalog(_Strict):

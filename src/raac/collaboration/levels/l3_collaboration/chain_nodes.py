@@ -8,17 +8,28 @@ operations directly, and never treat a model's unstructured text as a report.
 import asyncio
 import hashlib
 import time
+from collections.abc import Callable
 from copy import deepcopy
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 from raac.collaboration.topologies import get_topology
-from raac.common.errors import AgentExecutionError, RunGuardError, WorkspaceSnapshotError
+from raac.common.errors import (
+    AgentExecutionError,
+    RunGuardError,
+    WorkspaceSnapshotError,
+)
 
 from .chain_handoff import prepare_role_request
-from .hub_policy import SPOKES, hub_options, hub_summary
 from .chain_state import (
-    ChainState, CodeOutput, ReviewReport, RoleHandoff, execution_report, parse_role_output, role_output_model,
+    ChainState,
+    CodeOutput,
+    ReviewReport,
+    RoleHandoff,
+    execution_report,
+    parse_role_output,
+    role_output_model,
 )
+from .hub_policy import hub_options, hub_summary
 
 
 class AgentRunner(Protocol):
@@ -94,7 +105,7 @@ class ChainNodes:
         if self.budget_guard is not None:
             try:
                 allowed = self.budget_guard(deepcopy(state))
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 -- isolate injected runner/guard errors without payloads
                 return self._abort(state, node, "guard_error", error_kind=type(exc).__name__)
             if allowed is not True:
                 return self._abort(state, node, "budget_exceeded")
@@ -113,7 +124,7 @@ class ChainNodes:
             "incoming_message": incoming, "artifacts": {"ac_catalog": state["ac_catalog"], **artifacts},
             "repository_changes": state.get("repository_changes", []),
             "environment_report": state.get("environment_report"),
-            "output_format": "unified_diff" if role == "Coder" else "json",
+            "output_format": "json",
             "output_schema": role_output_model(role).model_json_schema(),
         }, role=role)
         events = [self._event(state, node, "agent_started", role=role, round=round_number)]
@@ -145,7 +156,7 @@ class ChainNodes:
             return None, self._abort(state, node, exc.code, events=events), []
         except (ValueError, TypeError):
             return None, self._abort(state, node, "invalid_output", events=events), []
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 -- isolate injected runner/guard errors without payloads
             # Do not copy exception messages/raw model output into logs: an
             # adapter might include credentials or sensitive task content.
             return None, self._abort(
@@ -164,7 +175,7 @@ class ChainNodes:
         rework = state.get("spec") is not None
         output, failure, events = await self._call(
             state, "analyst", "Analyst",
-            {"from": "Hub" if rework else "caller", "requirement": state["work"]["requirement"]},
+            {"from": "Hub", "requirement": state["work"]["requirement"]},
             ({"previous_spec": state["spec"], "test_report": state["test_report"],
               "review_report": state.get("review_feedback"),
               **({"hub_note": state["hub_note"]} if state.get("hub_note") else {})} if rework else {}),
@@ -176,8 +187,12 @@ class ChainNodes:
         criteria = set(output["acceptance_criteria"])
         if any(item["description"] not in criteria for item in inherited):
             return self._abort(state, "analyst", "changed_acceptance_criteria", events=events)
-        if not set(state["work"]["constraints"]).issubset(output["constraints"]):
-            return self._abort(state, "analyst", "changed_constraints", events=events)
+        inherited_constraints = state["work"]["constraints"]
+        if inherited_constraints:
+            # The spec contract renamed constraints to non_functional_requirements; accept either.
+            kept = output.get("constraints", output.get("non_functional_requirements", []))
+            if not set(inherited_constraints).issubset(kept):
+                return self._abort(state, "analyst", "changed_constraints", events=events)
         catalog = {item["id"]: item["description"] for item in inherited}
         index = 1
         for description in output["acceptance_criteria"]:
@@ -233,9 +248,10 @@ class ChainNodes:
         if output.output["status"] != "ready" or output.runtime.get("verified") is not True:
             return {**self._abort(state, "environment", "environment_setup_failed", events=events),
                     "environment_report": report}
-        return {"environment_report": report, "next_node": self._next(state, "analyst"),
+        # Every topology enters the team through the Hub; in chain it only passes the run on to the Analyst.
+        return {"environment_report": report, "next_node": "hub",
                 "deadline_at": output.runtime.get("deadline_at", state["deadline_at"]),
-                "events": [*events, self._event(state, "environment", "environment_verified", target="analyst")]}
+                "events": [*events, self._event(state, "environment", "environment_verified", target="hub")]}
 
     async def coder(self, state: ChainState) -> dict:
         if state["round_number"] >= state["limits"]["max_rounds"]:
@@ -311,7 +327,7 @@ class ChainNodes:
         return update
 
     async def hub(self, state: ChainState) -> dict:
-        """Star routing: rules always bound the choice; an LLM Hub may pick among the allowed roles."""
+        """Enter through Analyst; star routing may revisit the Hub after each role."""
         passed = _tests_pass(state)
         options, default = hub_options(state, passed)
         limits = state["limits"]

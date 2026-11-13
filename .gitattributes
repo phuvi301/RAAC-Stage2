@@ -1,2 +1,4 @@
 Makefile text eol=lf
 scripts/*.sh text eol=lf
+# SSE frames end with a blank line, including the terminal frame.
+tests/mas/unit/fixtures/*.sse text eol=lf whitespace=-blank-at-eof

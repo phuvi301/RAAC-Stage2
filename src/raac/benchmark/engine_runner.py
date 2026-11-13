@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 
 from raac.collaboration import Engine
-from raac.collaboration.levels.l1_fixed import L1_ROLES, L1Fixed, validate_l1_config
+from raac.collaboration.levels.l1_fixed import L1Fixed, validate_l1_config
 from raac.collaboration.levels.l2_routing import L2Routing, validate_l2_config
 from raac.common.provenance import collect_provenance
 from raac.harness.layer2_core.context_manager import RoleContextPolicy
@@ -58,7 +58,8 @@ async def _run_engine_level(
     tools = ToolOrchestrator(workspace, timeout_seconds=workspace.executor.policy.timeout_seconds + 15,
                              trace=trace_tool)
     def trace_routing(event):
-        if event.get("event") in {"routing_decided", "routing_fallback", "agent_skipped"}:
+        if event.get("event") in {"routing_decided", "routing_fallback", "agent_skipped",
+                                  "feedback_loop", "workflow_finished"}:
             client.trace.emit(context, **event)
 
     engine = Engine.from_runtime(registry=registry, client=client, tools=tools, provenance=provenance,
@@ -68,8 +69,8 @@ async def _run_engine_level(
         memory_policy=ShortTermMemoryPolicy.model_validate(harness.get("memory", {})))
     record = {"status": "error", "events": [], "provenance": provenance}
     try:
-        client.trace.emit(context, event="run_started", roles=list(L1_ROLES),
-                          decision={"topology": level_config.get("topology", "linear"),
+        client.trace.emit(context, event="run_started", roles=list(level.roles),
+                          decision={"topology": level_config.get("topology", level.topology.topology_id),
                                     "max_rounds": level_config.get("max_rounds", 1)},
                           workspace={"mode": "docker", "repo_dir": "/workspace"})
         result = await engine.run(run_id=run_id, level=level, config=level_config,

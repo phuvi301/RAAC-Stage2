@@ -216,7 +216,7 @@ class EnvironmentTests(unittest.IsolatedAsyncioTestCase):
         current["deadline_at"] = time.time() + 0.04
         original = deepcopy(current)
         update = await ChainNodes(slow).environment(current)
-        self.assertEqual(update["next_node"], "analyst")
+        self.assertEqual(update["next_node"], "hub")  # every topology enters the team through the Hub
         self.assertGreater(update["deadline_at"], time.time())
         self.assertEqual(current, original)
         async def failed(role, request):
@@ -229,6 +229,18 @@ class EnvironmentTests(unittest.IsolatedAsyncioTestCase):
             return READY
         update = await ChainNodes(claimed).environment(state())
         self.assertEqual(update["stop_reason"], "environment_setup_failed")
+
+    async def test_analyst_obeys_the_run_deadline_it_is_given(self):
+        async def slow(role, request):
+            self.assertEqual(role, "Analyst")
+            await asyncio.sleep(0.08)
+        current = state()
+        current["deadline_at"] = time.time() + 0.04
+        original = deepcopy(current)
+        update = await ChainNodes(slow).analyst(current)
+        self.assertEqual(update["next_node"], "result")
+        self.assertEqual(update["stop_reason"], "timeout")
+        self.assertEqual(current, original)
 
     async def test_output_and_timeout_config_are_strict(self):
         for output in ({**READY, "blocking_issues": ["still missing"]},

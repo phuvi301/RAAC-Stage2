@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from raac.collaboration.levels.base import BaseLevel, LevelGraph
 from raac.collaboration.levels.l1_fixed import (
-    L1_ROLES,
     _require_engine,
     _review_passed,
     _tests_passed,
@@ -22,6 +21,8 @@ from raac.common.agent_contracts import (
     parse_role_output,
 )
 
+# L2 routes over its own fixed five-role catalog; L1 now uses a separate fixed workflow.
+L2_CATALOG: tuple[str, ...] = ("Analyst", "Planner", "Coder", "Tester", "Reviewer")
 L2_REQUIRED_ROLES: tuple[str, ...] = ("Coder", "Tester")
 L2_OPTIONAL_ROLES: tuple[str, ...] = ("Analyst", "Planner", "Reviewer")
 
@@ -63,7 +64,7 @@ class L2Config(BaseModel):
     level: Literal["L2"] = "L2"
     topology: Literal["linear-routed"] = "linear-routed"
     router_role: Literal["Router"] = "Router"
-    roles: tuple[str, ...] = L1_ROLES
+    roles: tuple[str, ...] = L2_CATALOG
     required_roles: tuple[str, ...] = L2_REQUIRED_ROLES
     optional_roles: tuple[str, ...] = L2_OPTIONAL_ROLES
     fallback: Literal["L1"] = "L1"
@@ -83,8 +84,8 @@ class L2Config(BaseModel):
 
     @model_validator(mode="after")
     def _validate_l2_rules(self) -> L2Config:
-        if self.roles != L1_ROLES:
-            raise ValueError(f"L2 catalog is fixed to {list(L1_ROLES)}; got {list(self.roles)}")
+        if self.roles != L2_CATALOG:
+            raise ValueError(f"L2 catalog is fixed to {list(L2_CATALOG)}; got {list(self.roles)}")
         if not set(L2_REQUIRED_ROLES).issubset(self.required_roles):
             raise ValueError("L2 required_roles must always include Coder and Tester")
         if not set(self.required_roles).issubset(self.roles):
@@ -134,13 +135,13 @@ def _next_node_after(current_role: str | None, state: CollaborationState) -> str
     if state.get("status") == "failed" or state.get("error"):
         return "finish"
     routing = state.get("routing") or {}
-    selected = routing.get("selected_roles") or list(L1_ROLES)
-    order = [role for role in L1_ROLES if role in selected]
+    selected = routing.get("selected_roles") or list(L2_CATALOG)
+    order = [role for role in L2_CATALOG if role in selected]
     if current_role is None:
         return order[0].lower() if order else "finish"
     if current_role not in order:
-        idx_in_catalog = L1_ROLES.index(current_role)
-        remaining = [r for r in L1_ROLES[idx_in_catalog + 1 :] if r in selected]
+        idx_in_catalog = L2_CATALOG.index(current_role)
+        remaining = [r for r in L2_CATALOG[idx_in_catalog + 1 :] if r in selected]
         return remaining[0].lower() if remaining else "finish"
     idx = order.index(current_role)
     return order[idx + 1].lower() if idx + 1 < len(order) else "finish"
@@ -151,7 +152,7 @@ class L2Routing(BaseLevel):
 
     name = "L2"
     topology = L2_ROUTED_LINEAR
-    roles = L1_ROLES
+    roles = L2_CATALOG
 
     def build_graph(self, task: Any, registry: Any, config: Mapping[str, Any]) -> LevelGraph:
         if task is None:

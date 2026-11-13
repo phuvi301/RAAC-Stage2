@@ -33,9 +33,10 @@ class TopologySpec:
 
 
 CHAIN = TopologySpec(
-    topology_id="chain", version="5",
+    topology_id="chain", version="7",
     steps=(
         TopologyStep("environment", "Environment"),
+        TopologyStep("hub", "Hub"),
         TopologyStep("analyst", "Analyst"),
         TopologyStep("planner", "Planner"),
         TopologyStep("coder", "Coder"),
@@ -46,7 +47,7 @@ CHAIN = TopologySpec(
         TopologyStep("result", None),
     ),
     edges=(
-        ("environment", "analyst"), ("analyst", "planner"),
+        ("environment", "hub"), ("hub", "analyst"), ("analyst", "planner"),
         ("planner", "coder"), ("coder", "tester"), ("tester", "check"),
         ("check", "reviewer"), ("check", "limit"),
         ("limit", "coder"), ("limit", "reviewer"),
@@ -58,7 +59,7 @@ CHAIN = TopologySpec(
 # Same roles and contracts as CHAIN; only the communication differs: a rejecting
 # Reviewer may send its feedback back to Planner while rounds remain.
 CHAIN_REVIEW_LOOP = TopologySpec(
-    topology_id="chain_review_loop", version="2",
+    topology_id="chain_review_loop", version="3",
     steps=CHAIN.steps,
     edges=CHAIN.edges + (("reviewer", "planner"),),
     entry_node=CHAIN.entry_node, exit_node=CHAIN.exit_node,
@@ -66,10 +67,10 @@ CHAIN_REVIEW_LOOP = TopologySpec(
 
 _SPOKES = ("analyst", "planner", "coder", "tester", "reviewer")
 
-# Star: every role reports to the Hub, which chooses the next role. Same five-role team plus
-# Environment; check/limit are folded into the Hub's routing rules.
+# Star: every role reports to the Hub; check/limit are folded into its routing rules.
+# Environment runs once before the Hub, exactly as in Chain.
 STAR = TopologySpec(
-    topology_id="star", version="1",
+    topology_id="star", version="3",
     steps=(
         TopologyStep("environment", "Environment"),
         TopologyStep("hub", "Hub"),

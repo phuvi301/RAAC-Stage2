@@ -35,7 +35,7 @@ class CoordinatorConfig(StructuredOutput):
 
 class CoordinatorDecision(StructuredOutput):
     topology: Literal["chain", "chain_review_loop", "star"] = "chain"
-    topology_version: str = "5"
+    topology_version: str = "6"
     max_rounds: int = Field(ge=1)
     max_review_rounds: int | None = Field(default=None, ge=0)  # only set for topologies with a review feedback loop
     hub_mode: Literal["rules", "llm"] | None = None  # only set for star

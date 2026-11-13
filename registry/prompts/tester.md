@@ -49,25 +49,6 @@ ambiguous requirements as blockers.
   unmet acceptance criterion, a regression or a check that could not run. Put limitations (for example a database
   that is not available here) and other notes in the details of your results instead.
 
-## Output format
-Return exactly one JSON object matching the supplied output_schema.
-Do not use Markdown fences or add commentary outside the JSON.
-
-{
-  "tests_to_run": ["tests/test_text.py::test_slugify_strips_spaces"],
-  "results": [
-    {
-      "test": "tests/test_text.py::test_slugify_strips_spaces",
-      "status": "passed",
-      "details": ""
-    }
-  ],
-  "verdict": "pass",
-  "covered_ac_ids": ["AC1"],
-  "blocking_issues": []
-}
-
-
 ## Current Chain runtime and handoff
 The request output_schema is authoritative, including the L3 additions below.
 Use artifacts.ac_catalog for AC IDs; never invent coverage. Raw user chat is

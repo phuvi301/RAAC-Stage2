@@ -162,7 +162,7 @@ def test_run_chain_opens_the_web_viewer_by_default():
     from raac import mas_cli
     seen = []
 
-    async def fake_execute(args):
+    async def fake_execute(args, **kwargs):
         seen.append(args.observe)
         return 0
 
@@ -196,11 +196,11 @@ def test_local_chain_runs_open_in_the_web_viewer(tmp_path, monkeypatch):
         TraceRuns().register(other)  # still only real run IDs
 
 
-def test_local_run_command_takes_a_level_and_only_l3_runs_locally(capsys):
+def test_run_and_run_chain_are_l3_only_and_run_local_takes_the_level(capsys, tmp_path):
     from raac import mas_cli
     seen = []
 
-    async def fake_execute(args):
+    async def fake_execute(args, **kwargs):
         seen.append((args.command, args.level))
         return 0
 
@@ -208,10 +208,10 @@ def test_local_run_command_takes_a_level_and_only_l3_runs_locally(capsys):
     mas_cli.execute = fake_execute
     try:
         assert mas_cli.main(["run", "--project-dir", "x"]) == 0
-        assert mas_cli.main(["run", "--level", "L3", "--project-dir", "x"]) == 0
         assert mas_cli.main(["run-chain", "--project-dir", "x"]) == 0
-        assert mas_cli.main(["run", "--level", "L1", "--project-dir", "x"]) == 2
+        assert mas_cli.main(["run-chain", "--level", "L1", "--project-dir", "x"]) == 2  # L1/L2 go through run-local
+        assert mas_cli.main(["run-local", "--level", "L2", "--workspace", str(tmp_path), "--prompt", "do it"]) == 0
     finally:
         mas_cli.execute = original
-    assert seen == [("run", "L3"), ("run", "L3"), ("run-chain", "L3")]
-    assert "benchmark run --task-id <task_id> --level L1" in capsys.readouterr().err
+    assert seen == [("run", "L3"), ("run-chain", "L3"), ("run-local", "L2")]
+    assert "run-local --workspace <thư mục code> --prompt-file <file> --level L1" in capsys.readouterr().err
