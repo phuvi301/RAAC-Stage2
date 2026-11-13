@@ -26,6 +26,7 @@ Trong đó:
 
 - Requirement Analyst, Architect và Planner chạy ở giai đoạn chuẩn bị.
 - Developer → Tester → Code Reviewer tạo thành một chu kỳ.
+- Nếu Tester phát hiện lỗi ở generated test hoặc test harness, Tester tự sửa và chạy lại trong cùng workflow trước khi chuyển tiếp; lỗi này không được gắn nhãn là lỗi implementation của Developer.
 - Tester có thể gửi trực tiếp feedback về Developer.
 - Code Reviewer có thể yêu cầu Developer chỉnh sửa.
 - Reviewer có quyền kết thúc sớm khi đạt điều kiện.

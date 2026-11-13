@@ -36,7 +36,7 @@ L1_MAX_ROUNDS = 3
 
 L1_FIXED_WORKFLOW = TopologySpec(
     topology_id="fixed-workflow",
-    version="2",
+    version="3",
     steps=(
         TopologyStep("requirement_analyst", "Analyst"),
         TopologyStep("architect", "Architect"),
@@ -68,7 +68,7 @@ class L1Config(BaseModel):
 
     model_config = ConfigDict(strict=True, extra="forbid")
 
-    version: str = Field(default="l1-fixed-v2", min_length=1)
+    version: str = Field(default="l1-fixed-v3", min_length=1)
     level: Literal["L1"] = "L1"
     topology: Literal["fixed-workflow"] = "fixed-workflow"
     roles: tuple[str, ...] = L1_ROLES
@@ -118,6 +118,11 @@ def _tests_passed(test_results: Any) -> bool:
         for item in results
     )
     return verdict == "pass" and not any_failed and not test_results.get("blocking_issues")
+
+def _failure_scope(test_results: Any) -> str:
+    if not isinstance(test_results, Mapping):
+        return "unknown"
+    return str(test_results.get("failure_scope", "unknown"))
 
 
 def _review_passed(review: Any) -> tuple[str, str]:
@@ -191,6 +196,11 @@ def route_after_tester(state: CollaborationState, settings: L1Config) -> str:
         return "finish"
     if _tests_passed(state.get("test_results")):
         return "code_reviewer"
+    if _failure_scope(state.get("test_results")) in {"generated_test", "test_harness"}:
+        # Let the Reviewer record the unresolved test-side failure, but never
+        # mislabel it as an implementation defect for the Developer. The Tester
+        # must repair generated tests and rerun them in its own activation.
+        return "code_reviewer"
     # Failing tests retry the Developer; the final round must still be reviewed.
     return "developer" if state.get("rounds", 0) < settings.max_rounds else "code_reviewer"
 
@@ -202,6 +212,8 @@ def route_after_reviewer(state: CollaborationState, settings: L1Config) -> str:
     approved = _review_passed(state.get("review"))[0] == "PASS"
     if tests_ok and approved:
         return "finish"  # early stop: the Code Reviewer accepted a passing patch
+    if _failure_scope(state.get("test_results")) in {"generated_test", "test_harness"}:
+        return "finish"
     return "developer" if state.get("rounds", 0) < settings.max_rounds else "finish"
 
 
@@ -306,7 +318,8 @@ class L1Fixed(BaseLevel):
             update["iterations"] = [{"round": state.get("rounds", 0), "stage": "tester",
                                      "tests_passed": passed, "test_report": compact_test_report(report)}]
             next_state = {**state, **update}
-            if route_after_tester(next_state, settings) == "developer":
+            next_route = route_after_tester(next_state, settings)
+            if next_route == "developer":
                 update["feedback"] = {"from": "Tester", "reason": "tests_failed", "content": report}
                 log(state, "feedback_loop", source="Tester", target="Developer", reason="tests_failed")
             return update

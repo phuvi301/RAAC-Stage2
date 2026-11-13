@@ -438,6 +438,16 @@ class TesterOutput(StructuredOutput):
     )
     verdict: Literal["pass", "fail"]
 
+    failure_scope: Literal[
+        "product", "generated_test", "test_harness", "coverage", "unknown"
+    ] = Field(
+        default="unknown",
+        description=(
+            "Owner of unresolved failure evidence: product implementation, a Tester-generated test, "
+            "the test adapter/harness, missing acceptance coverage, or unknown."
+        ),
+    )
+
     # 2. Three-Tier Evidence Breakdown (SDLC / Greenfield Extensions)
     generated_tests: list[Text] = Field(
         default_factory=list,

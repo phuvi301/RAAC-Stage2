@@ -113,6 +113,33 @@ def unittest_text_report(text):
     return {"tests_run": int(ran[-1]), "failed": failed, "skipped": counts.get("skipped", 0),
             "expected_failures": counts.get("expected failures", 0), "test_cases": list(dict.fromkeys(names))}
 
+def node_tap_report(text):
+    """Read summary counts from Node's TAP reporter across supported formats.
+
+    Node versions differ between the plain ``#`` TAP diagnostics and the
+    informational ``\u2139`` diagnostics. Counts are authoritative; subtest names
+    are useful evidence but are not required for a valid non-empty report.
+    """
+    def values(label):
+        pattern = rf"^(?:#|\u2139)\s+{label}\s+(\d+)\s*$"
+        return re.findall(pattern, text, re.M)
+
+    tests = values("tests")
+    if not tests:
+        return None
+    fails = values("fail")
+    skips = values("skipped")
+    todos = values("todo")
+    names = re.findall(r"^\s*# Subtest: (.+)$", text, re.M)
+    return {
+        "tests_run": int(tests[-1]),
+        "failed": int(fails[-1]) if fails else 0,
+        "skipped": int(skips[-1]) if skips else 0,
+        "expected_failures": 0,
+        "test_cases": names or ["<node:test suite>"],
+        "todo": int(todos[-1]) if todos else 0,
+    }
+
 
 def emit_report(report, config):
     destination = config.get("observed_report_path")
@@ -193,15 +220,7 @@ def main():
         stats = junit_report(report) if report else None
         if stats is None:
             # Node's TAP reporter. Other runners need JUnit; do not invent counts.
-            tests = re.findall(r"^# tests (\d+)\s*$", text, re.M)
-            fails = re.findall(r"^# fail (\d+)\s*$", text, re.M)
-            skips = re.findall(r"^# skipped (\d+)\s*$", text, re.M)
-            names = re.findall(r"^\s*# Subtest: (.+)$", text, re.M)
-            if tests and names:
-                stats = {"tests_run": int(tests[-1]), "failed": int(fails[-1]) if fails else 0,
-                         "skipped": int(skips[-1]) if skips else 0, "test_cases": names}
-            else:
-                stats = unittest_text_report(text)
+            stats = node_tap_report(text) or unittest_text_report(text)
     if not stats or stats["tests_run"] <= 0:
         report = {"status": "error", "tests_run": 0, "failed": 0, "test_cases": [],
                   "summary": "No reliable test report. Select unittest, pytest, Node TAP or a JUnit report_path.\n" + text[-14000:]}
