@@ -24,5 +24,6 @@ data/evaluation/*
 currentProject/*
 results/*
 docs/plan/*
+software-flow/
 fix.patch
 merge-resolution-backup.patch
