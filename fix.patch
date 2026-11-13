@@ -1,198 +1,79 @@
-diff --git a/configs/llm.yaml b/configs/llm.yaml
-index 89c3c28..3647614 100644
---- a/configs/llm.yaml
-+++ b/configs/llm.yaml
-@@ -2,9 +2,9 @@ version: llm-v4
- base_url: http://127.0.0.1:20128/v1
- # Shared model for all roles using ref: default; CLI/LLM_MODEL can override it.
- # Do not put API keys here.
--model: "cx/gpt-6-astra"
-+model: "cc/claude-opus-5-5"
- temperature: 0.0
--max_tokens: 4096
-+max_tokens: 16384
- timeout_seconds: 400.0
- max_retries: 2
- backoff_seconds: 0.5
-@@ -12,16 +12,18 @@ backoff_seconds: 0.5
- # The reserved ref "default" uses top-level model/temperature/max_tokens.
- profiles:
-   environment:
--    model: "cx/gpt-6-astra"
-+    model: "cc/claude-opus-5-5"
-   analyst:
--    model: "cx/gpt-6-astra"
-+    model: "cc/claude-opus-5-5"
-   planner:
--    model: "cx/gpt-6-astra"
-+    model: "cc/claude-opus-5-5"
-   coder:
--    model: "cx/gpt-6-astra"
-+    model: "cc/claude-opus-5-5"
-   tester:
--    model: "cx/gpt-6-astra"
-+    model: "cc/claude-opus-5-5"
-   reviewer:
--    model: "cx/gpt-6-astra"
-+    model: "cc/claude-opus-5-5"
- #cx/gpt-6-astra
--#cc/claude-opus-5-5
-\ No newline at end of file
-+#cc/claude-opus-5-5
-+#ds/deepseek-v4-pro-max
-+#ds/deepseek-v4-pro
-\ No newline at end of file
-diff --git a/docs/implementation_checklist.md b/docs/implementation_checklist.md
-index 894fb01..251169b 100644
---- a/docs/implementation_checklist.md
-+++ b/docs/implementation_checklist.md
-@@ -24,6 +24,8 @@ Thư mục liên quan là `src/raac/harness/`, `src/raac/llm/`, `src/raac/regist
+diff --git a/sklearn/feature_selection/_base.py b/sklearn/feature_selection/_base.py
+index da2185eac3..28fc513b34 100644
+--- a/sklearn/feature_selection/_base.py
++++ b/sklearn/feature_selection/_base.py
+@@ -18,6 +18,7 @@ from ..utils import (
+     safe_sqr,
+ )
+ from ..utils._tags import _safe_tags
++from ..utils._set_output import _get_output_config
+ from ..utils.validation import _check_feature_names_in, check_is_fitted
  
- ## A0 - Nền tảng dùng chung
  
-+- 2026-11-02 | Đối chiếu Phần B → Vũ → Tuần 8 → prompt template: thống nhất Planner/Tester/Reviewer về kiểm tra REQUIRED và SUGGESTED trong interface_contracts hiện có. Tester giữ phạm vi bắt buộc trong suite cuối; Reviewer nêu nguồn nghĩa vụ hoặc rủi ro cụ thể khi yêu cầu thêm test. Không đổi schema/runtime. | Agent hỗ trợ Vũ | 103 test +27 subtest registry/RegistryAndPatchTests qua (5,92s); chưa kiểm chứng hành vi bằng model thật, giữ mốc nghiệm thu hiện có.
+@@ -78,6 +79,11 @@ class SelectorMixin(TransformerMixin, metaclass=ABCMeta):
+         X_r : array of shape [n_samples, n_selected_features]
+             The input samples with only the selected features.
+         """
++        # Preserve X when X is a dataframe and the output is configured to
++        # be pandas.
++        output_config_dense = _get_output_config("transform", estimator=self)["dense"]
++        preserve_X = hasattr(X, "iloc") and output_config_dense == "pandas"
 +
- - [x] Tạo repo với cấu trúc thư mục đã chốt, gồm `registry`, `llm`, `harness`, `collaboration`, `benchmark`, `configs`, `docker`, `tests` (Vinh)
- - [x] Ghim version thư viện bằng `requirements.lock`, gồm LangGraph, Docker SDK, pytest, pydantic (Vinh) — khóa 52 dependency runtime/dev/build với marker nền tảng; kiểm chứng môi trường sạch Windows/Python 3.11, cài editable không resolve lại dependency và `uv pip check` qua.
- - [x] Tạo `.env.example` và đảm bảo API key không bị commit (Vinh)
-@@ -525,6 +527,8 @@ Ghi chú tuần 9
+         # note: we use _safe_tags instead of _get_tags because this is a
+         # public Mixin.
+         X = self._validate_data(
+@@ -85,6 +91,7 @@ class SelectorMixin(TransformerMixin, metaclass=ABCMeta):
+             dtype=None,
+             accept_sparse="csr",
+             force_all_finite=not _safe_tags(self, key="allow_nan"),
++            cast_to_ndarray=not preserve_X,
+             reset=False,
+         )
+         return self._transform(X)
+@@ -98,9 +105,13 @@ class SelectorMixin(TransformerMixin, metaclass=ABCMeta):
+                 " too noisy or the selection test too strict.",
+                 UserWarning,
+             )
++            if hasattr(X, "iloc"):
++                return X.iloc[:, :0]
+             return np.empty(0, dtype=X.dtype).reshape((X.shape[0], 0))
+         if len(mask) != X.shape[1]:
+             raise ValueError("X has a different shape than during fitting.")
++        if hasattr(X, "iloc"):
++            return X.iloc[:, safe_mask(X, mask)]
+         return X[:, safe_mask(X, mask)]
  
- # Nhật ký vấn đề và quyết định
+     def inverse_transform(self, X):
+diff --git a/sklearn/utils/validation.py b/sklearn/utils/validation.py
+index dd0c007602..bee87a8e0a 100644
+--- a/sklearn/utils/validation.py
++++ b/sklearn/utils/validation.py
+@@ -641,6 +641,7 @@ def check_array(
+     ensure_min_features=1,
+     estimator=None,
+     input_name="",
++    cast_to_ndarray=True,
+ ):
  
-+- 2026-11-02 | Theo yêu cầu sửa prompt sau run benchmark-fe235bb0c2754c65a12c78c55bde9069: Planner phân loại REQUIRED/SUGGESTED; test_command không nhãn là đề xuất. Tester không bỏ kiểm tra bắt buộc hoặc che kết quả suite đã chạy. Reviewer không tự coi đề xuất là nghĩa vụ chạy toàn suite; yêu cầu bổ sung phải có căn cứ. | Agent hỗ trợ Vũ | Chỉ sửa ba prompt và checklist; `python -m pytest tests/unit/registry tests/mas/unit/test_demo_support.py::RegistryAndPatchTests -q --capture=sys --tb=short --show-capture=no` qua 103 test +27 subtest. Chưa chạy lại benchmark/model thật, không đổi schema/runtime, không commit/push.
+     """Input validation on an array, list, sparse matrix or similar.
+@@ -728,6 +729,11 @@ def check_array(
+ 
+         .. versionadded:: 1.1.0
+ 
++    cast_to_ndarray : bool, default=True
++        Internal option. If False, all validation checks are still run but
++        the original input object is returned unchanged instead of the
++        converted array (e.g. to keep the dtypes of a pandas DataFrame).
 +
- - 2026-11-02 | Sau lượt chỉ resolve conflict, người dùng cho phép sửa các lỗi test đã phân tích. Đồng bộ bàn giao Coder/prompt, số role/version và các kỳ vọng cấu hình cũ; giữ các thay đổi viewer trước đó và cấu hình chạy hiện tại. | Agent hỗ trợ | Hoàn tất phạm vi lỗi pytest: 699 test +185 subtest qua trong bộ registry/MAS unit/integration; chưa thay thế nghiệm thu model/Docker thật hoặc A5, không commit/push.
+     Returns
+     -------
+     array_converted : object
+@@ -956,7 +962,7 @@ def check_array(
+                 array, dtype=dtype, order=order, copy=True, xp=xp
+             )
  
- - 2026-11-02 | Theo người dùng, giới hạn công việc ở resolve HEAD/origin/main; hoàn tác sửa prompt/runtime/test tự mở rộng sau khi chạy test, giữ phần sửa viewer trước đó. | Agent hỗ trợ | Đã đối chiếu 4 file prompt/runtime/test hoàn tác không còn diff; các lỗi hành vi phát hiện qua test được để riêng, không tự sửa trong lượt resolve.
-diff --git a/registry/prompts/planner.md b/registry/prompts/planner.md
-index 11e0490..f241bc1 100644
---- a/registry/prompts/planner.md
-+++ b/registry/prompts/planner.md
-@@ -17,6 +17,13 @@ or review (test_report or review_report are present), change the plan only where
-   artifacts.ac_catalog. Include a step for adding or updating tests when behaviour changes.
- - Do not override contracts or behavior assumptions already established by the specification.
- - Do not widen the scope beyond the specification. Keep risks and discrepancies explicit in the step they affect.
-+- In the existing interface_contracts text, label each verification check REQUIRED or SUGGESTED,
-+  with its test scope, runnable command/cwd/env and reason. Keep command values executable;
-+  put labels and explanations in accompanying contract text, not inside the command.
-+  REQUIRED means the Tester must execute that scope on the final patch before handoff.
-+  Use REQUIRED only for explicit specification obligations or concrete regression risks justified
-+  by the affected code. Other proposed commands are SUGGESTED; an unlabeled test_command is
-+  a suggestion, not an implicit requirement to run its entire suite. Do not add output fields.
- - When independent file paths are already known, inspect them together with read_files.
-   Reuse content already visible in context; re-read only if it changed or the earlier
-   result was truncated. Discover unknown paths first and keep dependent inspections ordered.
-@@ -36,7 +43,7 @@ Inspect the actual
- repository tree, manifests, existing APIs and test setup. Identify files to
- change and an appropriate test command/cwd for this project.
- Use list_files, search_repo, read_file and read_files for read-only inspection.
--Select a proposed test command from repository evidence; you cannot execute
-+Select and classify a proposed test command from repository evidence; you cannot execute
- commands or tests, or edit files. The current tool declarations define your access.
+-    return array
++    return array if cast_to_ndarray else array_orig
  
- Use consecutive integer step id, description, files and depends_on. Add
-diff --git a/registry/prompts/reviewer.md b/registry/prompts/reviewer.md
-index 37f13cb..2bb787d 100644
---- a/registry/prompts/reviewer.md
-+++ b/registry/prompts/reviewer.md
-@@ -17,7 +17,8 @@ unsupported coverage.
  
- ## Rules
- - Review the actual patch with list_files, search_repo, read_file and read_files (read-only) against every requirement,
--  every acceptance criterion and the observed test report. Report missing checks as blockers.
-+  every acceptance criterion and the observed test report. Identify missing required verification
-+  or concrete uncovered behavior; do not equate a different test command with missing coverage.
- - Look for correctness bugs, algorithmic complexity, interface compatibility, unexplored edge cases, unrelated changes,
-   broken style or conventions, security problems (injection, unsafe input handling, leaked secrets) and missing tests.
-   Passing tests do not prove that the requirements are met.
-@@ -31,4 +32,12 @@ unsupported coverage.
-   artifacts.ac_catalog, those you actually reviewed) and there is no blocker. Otherwise reject, with at least one comment
-   that explains why. An approval with no comments is valid when the patch is good. Do not invent problems to look
-   thorough.
-+- Mandatory tests are verification obligations in the specification and checks explicitly labeled
-+  REQUIRED in the Planner's interface_contracts. SUGGESTED checks and an unlabeled test_command
-+  are recommendations; do not promote them to mandatory full-suite runs during review.
-+  Compare the executed test scope and current-patch evidence, not literal command spelling.
-+  If required verification is missing, name its source, the missing scope and the needed check.
-+  If additional tests are needed beyond those obligations, identify the concrete requirement,
-+  defect risk or uncovered behavior that warrants them. Missing verification is not proof of a
-+  code defect: ask for the missing evidence rather than speculative implementation changes.
- - Prefer one batched call over many small ones: gather everything you need in a single call when the tools allow it, and combine related steps into one command.
-diff --git a/registry/prompts/tester.md b/registry/prompts/tester.md
-index 95bb0a5..be101fc 100644
---- a/registry/prompts/tester.md
-+++ b/registry/prompts/tester.md
-@@ -16,13 +16,21 @@ ambiguous requirements as blockers.
- 
- ## Rules
- - Discover the real repository tree, manifests, test framework and existing tests with list_files, search_repo,read_file and read_files. Use the project's actual structure and runtime; do not assume a language, a solution file or a test file name.
--- Select the smallest test set that covers the acceptance criteria and likely regressions. Prefer specific cases or classes when sufficient; expand to a module or suite when justified by the change or review feedback.
--- Tests that fail for reasons unrelated to the issue and the patch are out of scope: do not run them, and do not report them as results or blocking issues.
-+- Read verification obligations in the specification and the Planner's interface_contracts before
-+  selecting tests. REQUIRED checks must be executed on the final patch; do not silently narrow
-+  their scope. SUGGESTED checks and an unlabeled test_command are recommendations: choose
-+  the smallest additional test set covering the acceptance criteria and likely regressions.
-+  Command syntax, interpreter and cwd may be adapted to the verified runtime without dropping
-+  required tests. Keep labels and explanatory contract text out of executable commands.
-+- Avoid unrelated test suites, but retain all results of a suite you actually ran. If a required
-+  check fails or cannot run, report the observed evidence and unresolved verification in
-+  blocking_issues; do not hide it or invent a pass. Distinguish an environment or unrelated
-+  failure from an implementation defect using evidence.
- - Never modify implementation or any file the Coder touched, including tests; if a fix needs that, return the path and failure details as a blocking issue. Do not bypass file permissions with commands. A benchmark contract in execution_environment may further restrict which test files you may write; it overrides this rule.
- - Add or update tests with edit_file (new tests at appropriate paths), replace_text (a small exact test edit; old_text must match exactly expected_occurrences times, normally once; after an EditConflict re-read the region) and delete_file (only an obsolete test file, with the reason in your summary).
- - Inspect the actual runtime and dependencies with run_command and report missing environment requirements instead of inventing execution. Use run_command to execute code, check versions or build.
- - Run tests with run_tests: give the project's command argv, cwd and optional env. Leave report_path out for pytest (the framework keeps its own report outside the repository); give one only when another runner writes JUnit XML, as a path relative to the repository (for a src layout, env may set PYTHONPATH=src).
--- Select a complete command for your own suite so it does not inherit a Coder smoke command; when you change the configuration, pass command again with the other fields, because a call without command repeats the previous configuration. Rerun after your last test edit before reporting. The framework repeats the final suite independently and replaces your results and verdict; counts and patch_hash are framework metadata.
-+- Select a complete command for your own suite so it does not inherit a Coder smoke command; when you change the configuration, pass command again with the other fields, because a call without command repeats the previous configuration. Your final selected suite must include REQUIRED checks and your additional acceptance tests so the framework's independent rerun verifies the same complete scope. Rerun after your last test edit before reporting. The framework repeats the final suite independently and replaces your results and verdict; counts and patch_hash are framework metadata.
- - Report only what the tools returned; never invent execution, counts or a pass. If a test could not run, report status error and say why in details. For every failed or error result put the key assertion or traceback line in details.
- - Before changing implementation feedback after a failed development test, check that the expected value follows the WorkSpec and the actual model/input shape.
- - Test the boundary in both directions. For every rule the patch adds or relaxes, add cases that must still be refused next to the cases that must now work, modelled on the existing failure tests of the affected code (parametrized *_fail lists, pytest.raises, assertRaises). Passing examples alone do not show that a parser or validator still rejects bad input. If the specification does not say whether some newly accepted input is allowed and artifacts.spec.assumptions does not settle it, report it in blocking_issues.
-@@ -31,7 +39,7 @@ ambiguous requirements as blockers.
- - A suite where no test actually ran (zero tests, or everything skipped) is not a pass. Skipped tests next to tests that ran and passed are fine; report the skipped count honestly.
- - Prefer read_files for several paths or ranges and run_commands for related preparation checks in one call.
- 
--- Select the smallest set of tests that covers the acceptance criteria, plus the existing tests most likely to be affected by the patch. Use `read_file` / `search_repo` to find them.
-+- After including REQUIRED checks, select the smallest additional set covering the acceptance criteria and likely regressions. Use `read_file` / `search_repo` to find them.
- - Run them with the `run_tests` tool. Report only results that the tool actually returned. Never guess, infer or fabricate a result; if a test could not be run, report it with status `error` and explain why in `details`.
- - For every `failed` or `error` result, put the key assertion or traceback line in `details` so the Coder can act on it.
- - `verdict` is `pass` only if every reported result is `passed` or `skipped`; otherwise it is `fail`.
-@@ -133,4 +141,4 @@ shape. Correct your own wrong oracle with an explanation; never weaken valid
- criteria to obtain PASS. Stop exploration early enough to run corrected tests.
- The penultimate call is a handoff without tools, reserving the final call only
- for output repair. Return truthful JSON with observed failures and unfinished
--work; never write DSML or attempt edits after tools become unavailable.
-\ No newline at end of file
-+work; never write DSML or attempt edits after tools become unavailable.
-diff --git a/registry/roles/core/hub.yaml b/registry/roles/core/hub.yaml
-index 6dfcb3f..da8c721 100644
---- a/registry/roles/core/hub.yaml
-+++ b/registry/roles/core/hub.yaml
-@@ -7,4 +7,4 @@ tools: []
- model:
-   ref: default
- cost_weight: 1.0  # TODO: calibrate cost weight (default 1.0 until pilot data exists)
--max_llm_calls: 2
-+max_llm_calls: 6
-diff --git a/registry/roles/core/reviewer.yaml b/registry/roles/core/reviewer.yaml
-index 2a69917..8d2f592 100644
---- a/registry/roles/core/reviewer.yaml
-+++ b/registry/roles/core/reviewer.yaml
-@@ -12,4 +12,4 @@ tools:
- model:
-   ref: default
- cost_weight: 1.0  # TODO: calibrate cost weight (default 1.0 until pilot data exists)
--max_llm_calls: 6
-+max_llm_calls: 20
-diff --git a/src/raac/harness/layer1_lifecycle/agent.py b/src/raac/harness/layer1_lifecycle/agent.py
-index 572b484..5eed450 100644
---- a/src/raac/harness/layer1_lifecycle/agent.py
-+++ b/src/raac/harness/layer1_lifecycle/agent.py
-@@ -780,7 +780,7 @@ class AgentRunner:
-             maximum = self.registry.get(context["role"]).spec.max_llm_calls
-             if state["turn"] == maximum or (context["role"] in {"Analyst", "Tester"} and state["turn"] == maximum - 1):
-                 raise AgentExecutionError("agent_call_limit")
--            if not isinstance(calls, list) or len(calls) > 4:
-+            if not isinstance(calls, list) or len(calls) > 10:
-                 raise AgentExecutionError("too_many_tool_calls")
-             state["messages"].append(
-                 {
+ def _check_large_sparse(X, accept_large_sparse=False):
