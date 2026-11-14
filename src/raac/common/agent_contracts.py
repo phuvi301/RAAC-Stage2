@@ -683,6 +683,14 @@ JSON_OUTPUT_MODELS = {
 ROLE_OUTPUT_MODELS = {**JSON_OUTPUT_MODELS, "coder": CoderOutput}
 
 
+def register_output_model(role: str, model) -> None:
+    """Đăng ký schema đầu ra cho role ngoài bộ lõi (ví dụ role của raac.pre_executor); không ghi đè role lõi."""
+    key = role.lower()
+    if key in JSON_OUTPUT_MODELS or key == "coder":
+        raise ValueError(f"Cannot replace the output contract of core role {role!r}")
+    ROLE_OUTPUT_MODELS[key] = model
+
+
 def role_output_model(role: str):
     if not isinstance(role, str) or role.lower() not in ROLE_OUTPUT_MODELS:
         raise OutputFormatError("No Chain output contract registered for role")

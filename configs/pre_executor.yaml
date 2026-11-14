@@ -1,0 +1,14 @@
+version: pre-executor-v1
+# Số lần cho role chạy lại khi đầu ra sai schema hoặc luật kiểm bằng code.
+max_flow_retries: 2
+# Số vòng hỏi lại tối đa của flow clarify.
+max_clarify_rounds: 5
+# Model của từng flow; để trống = model mặc định trong configs/llm.yaml. Cờ --model ghi đè tất cả.
+# Ví dụ: "cc/claude-opus-5-5", "ds/deepseek-v4-pro".
+models:
+  clarify: ""
+  requirements: ""
+  tech_select: ""
+  architecture: ""
+  environment: ""
+  task_decomposer: ""

@@ -21,6 +21,7 @@ class _Strict(BaseModel):
 class RoleGroup(str, Enum):
     CORE = "core"
     EXTENDED = "extended"
+    PRE_EXECUTOR = "pre_executor"  # role của raac.pre_executor (các flow trước khi chạy MAS)
 
 
 class OutputFormat(str, Enum):
