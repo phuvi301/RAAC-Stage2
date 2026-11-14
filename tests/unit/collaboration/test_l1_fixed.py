@@ -407,3 +407,25 @@ async def test_workspace_handoff_from_tool_edits_reaches_tester_and_reviewer(tmp
             assert (workspace_dir / path).read_text(encoding='utf-8') == content
     finally:
         await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_handoff_sends_each_artifact_once_and_summarises_earlier_rounds():
+    runner = ScriptedRunner(tests=(False, False, True))
+    await _run(runner)
+    requests = {}
+    for role, request in runner.requests:
+        requests.setdefault(role, []).append(request)
+    for role, request in runner.requests:
+        assert "collaboration_state" not in request["artifacts"], role
+    # A payload already carried as an artifact is referenced, never repeated.
+    assert requests["Architect"][0]["incoming_message"] == {"from": "Requirement Analyst", "content_ref": "artifacts.spec"}
+    assert requests["Coder"][0]["incoming_message"] == {"from": "Planner", "content_ref": "artifacts.plan"}
+    assert requests["Tester"][0]["incoming_message"] == {"from": "Developer", "patch_ref": "artifacts.patch"}
+    # Same role visibility as L3: only the Analyst, Architect and Reviewer read the raw request.
+    assert "requirement" not in requests["Coder"][0] and "requirement" not in requests["Tester"][0]
+    assert requests["Reviewer"][0]["requirement"] == "fix bug"
+    assert set(requests["Tester"][0]["artifacts"]["plan"]) == {"interface_contracts"}
+    assert "earlier_rounds" not in requests["Coder"][1]["artifacts"]
+    earlier = requests["Coder"][2]["artifacts"]["earlier_rounds"]
+    assert [(entry["round"], entry["stage"], entry["tests_passed"]) for entry in earlier] == [(1, "tester", False)]

@@ -1,0 +1,143 @@
+Dưới đây là các prompt greenfield phù hợp để kiểm tra năng lực L1. Nên chạy mỗi prompt trên một workspace mới để tránh artifact từ task trước ảnh hưởng kết quả.
+
+1. Pomodoro Timer
+
+Build a complete Pomodoro timer as a static browser application using vanilla HTML, CSS, and JavaScript.
+
+Requirements:
+- 25-minute work, 5-minute short break, and 15-minute long break modes.
+- Start, pause, resume, reset, and skip controls.
+- Show the current mode, remaining time, completed session count, and progress indicator.
+- Automatically transition from work to break and from break to work.
+- Preserve timer state while the page remains open.
+- Provide responsive UI for desktop and mobile.
+- Add deterministic tests for timer transitions, pause/resume, reset, mode changes, and invalid actions.
+- Include a README with setup, test, and usage instructions.
+- The project must run locally without a backend or external API.
+
+Kiểm tra state machine, timer logic, UI synchronization và test reliability.
+
+2. Kanban Board
+
+Build a complete Kanban board as a static browser application.
+
+Requirements:
+- Columns: Todo, In Progress, Done.
+- Create, edit, delete, and move cards between columns.
+- Each card has a title, description, priority, and creation timestamp.
+- Support drag-and-drop and keyboard-accessible move controls.
+- Persist the board in localStorage.
+- Restore the board after page reload.
+- Provide empty-state, validation, and error feedback.
+- Add tests covering CRUD operations, movement, persistence, reload behavior, and invalid input.
+- Include a README and a single command that runs the full test suite.
+- Do not use a backend or external service.
+
+Kiểm tra CRUD, persistence, DOM interaction, accessibility và edge cases.
+
+3. Expense Tracker
+
+Build a complete personal expense tracker as a static browser application.
+
+Requirements:
+- Add, edit, delete, and filter expense records.
+- Each record includes date, category, description, and amount.
+- Show total spending, current-month spending, and category breakdown.
+- Support sorting by date and amount.
+- Validate dates, amounts, and required fields.
+- Persist data in localStorage.
+- Provide a clear empty state and a reset-all-data action with confirmation.
+- Add deterministic tests for calculations, filtering, sorting, validation, persistence, and reset behavior.
+- Include setup, usage, and test instructions in README.md.
+- The application must work without a backend or external API.
+
+Kiểm tra dữ liệu, tính toán, validation, filter/sort và persistence.
+
+4. Markdown Notes App
+
+Build a complete Markdown notes application as a static browser application.
+
+Requirements:
+- Create, rename, select, edit, and delete notes.
+- Provide a markdown editor and a rendered preview.
+- Support headings, bold, italic, links, unordered lists, and code blocks.
+- Search notes by title and content.
+- Persist notes in localStorage.
+- Warn the user before deleting a note.
+- Handle empty notes and malformed markdown safely without executing arbitrary HTML or scripts.
+- Add tests for note CRUD, search, persistence, markdown rendering, escaping, and delete confirmation.
+- Include a README and a single full-suite test command.
+- Do not use a backend.
+
+Kiểm tra security boundary, parsing, escaping, CRUD và state synchronization.
+
+5. Inventory Management Dashboard
+
+Build a complete inventory management dashboard as a static browser application.
+
+Requirements:
+- Manage products with SKU, name, category, quantity, reorder threshold, and unit price.
+- Add, edit, delete, and search products.
+- Show low-stock and out-of-stock indicators.
+- Calculate total inventory value.
+- Support sorting and category filtering.
+- Reject duplicate SKUs and invalid numeric values.
+- Persist data in localStorage and support import/export as JSON.
+- Add tests for validation, calculations, filtering, sorting, persistence, import, export, and duplicate detection.
+- Include sample seed data and README documentation.
+- The application must run without a backend or external API.
+
+Kiểm tra business rules, import/export, validation và nhiều acceptance criteria.
+
+6. CLI Task Manager
+
+Build a complete command-line task manager using Python.
+
+Requirements:
+- Commands: add, list, complete, edit, delete, and clear-completed.
+- Store tasks in a local JSON file.
+- Each task has an ID, title, status, priority, and creation timestamp.
+- Support filtering by status and priority.
+- Display helpful errors for invalid commands, missing IDs, malformed storage, and invalid input.
+- Keep command logic separate from storage and presentation.
+- Add unit and integration tests for every command and failure path.
+- Provide a README with installation, examples, and test instructions.
+- The tool must work offline and must not require a database or external service.
+
+Kiểm tra khả năng thiết kế module, CLI parsing, file persistence và error handling.
+
+7. Recipe Planner
+
+Build a complete weekly meal planner as a static browser application.
+
+Requirements:
+- Create, edit, delete, and search recipes.
+- Each recipe has a name, ingredients, preparation steps, tags, and servings.
+- Assign recipes to days of a seven-day weekly calendar.
+- Generate a consolidated shopping list from the planned recipes.
+- Allow changing serving counts and recalculate ingredient quantities.
+- Persist recipes and the weekly plan in localStorage.
+- Add tests for recipe CRUD, scheduling, serving calculations, shopping-list aggregation, persistence, and empty states.
+- Include responsive UI, README documentation, and a full test command.
+- Do not use a backend or external API.
+
+Kiểm tra domain logic, aggregation, quantity calculations và UI state.
+
+8. Prompt kiểm tra khả năng tự phát hiện thiếu coverage
+
+Build a complete habit-tracking application as a static browser application.
+
+The product must allow users to:
+- Create, rename, archive, and delete habits.
+- Mark a habit complete for a selected date.
+- Display current streak, longest streak, weekly completion rate, and monthly history.
+- Edit historical completion records.
+- Persist all data in localStorage.
+- Handle timezone-independent date calculations consistently.
+- Provide accessible keyboard controls and responsive mobile layout.
+
+Before implementation, derive a complete acceptance-criteria catalog. Then implement the product, create independent tests for every acceptance criterion, run the complete final suite, and document the public data model and test command in README.md.
+
+The application must run without a backend, external API, or build service.
+
+Prompt này hữu ích để kiểm tra L1 có tự tạo đủ test và coverage hay chỉ làm happy path.

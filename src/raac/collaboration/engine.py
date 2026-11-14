@@ -11,6 +11,7 @@ from raac.common.agent_contracts import ROLE_OUTPUT_MODELS, role_output_model
 from raac.harness.layer1_lifecycle import AgentRunner
 
 from .graph_builder import build_graph
+from .levels.l3_collaboration.chain_handoff import prepare_role_request
 from .state import CollaborationState, initial_state
 
 
@@ -102,14 +103,9 @@ class Engine:
         patch_hash = hashlib.sha256(patch_text.encode("utf-8")).hexdigest()
         analysis = state.get("analysis")
         ac_catalog = self._derive_ac_catalog(analysis)
+        # Graph state stays in LangGraph. Roles receive only the artifacts their level
+        # selects; a copy of the whole state repeated every handoff on every model turn.
         merged_artifacts: dict[str, Any] = {
-            "collaboration_state": {
-                "requirement": state.get("requirement"),
-                "plan": state.get("plan"),
-                "patch": state.get("patch"),
-                "test_results": state.get("test_results"),
-                "messages": state.get("messages", []),
-            },
             "patch_hash": patch_hash,
             "ac_catalog": ac_catalog,
         }
@@ -131,6 +127,9 @@ class Engine:
         }
         if role.lower() in ROLE_OUTPUT_MODELS:
             request["output_schema"] = role_output_model(role).model_json_schema()
+        # Same handoff view as L3. Without a spec (L2 may skip the Analyst) the raw
+        # requirement is the only task statement, so it must stay visible.
+        request = prepare_role_request(request, role=role, keep_requirement=analysis is None)
         self._log({"event": "agent_call_started", "agent_id": role, "run_id": state["run_id"],
                    "level": state.get("level")})
         try:
