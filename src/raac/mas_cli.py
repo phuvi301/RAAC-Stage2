@@ -131,7 +131,7 @@ async def execute(args, *, approval_handler=None, return_record=False, event_han
                  "chain_limits": limits.model_dump(),
                  "coordinator_decision": engine_config or decision.model_dump(),
                  "trace_content": harness["trace_content"],
-                 "stream": local and getattr(args, "stream", False),
+                 "stream": getattr(args, "stream", True),
                  "execution": policy.model_dump(), "context": context_policy.model_dump(),
                  "token_limit": harness["token_limit"], "memory": memory_policy.model_dump()}
     provenance = collect_provenance(project, registry, [llm_path, harness_path, level_path], effective)
@@ -142,7 +142,7 @@ async def execute(args, *, approval_handler=None, return_record=False, event_han
 
     # Tạo HTTP client, bộ đếm token và logger.
     client = LLMClient(llm_config, log_path=output_dir / "llm.jsonl")
-    client.stream = local and getattr(args, "stream", False)
+    client.stream = getattr(args, "stream", True)
     client.trace.subscriber = event_handler
     executor.trace = client.trace
     if type(harness["trace_content"]) is not bool:
