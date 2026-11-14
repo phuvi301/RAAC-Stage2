@@ -352,6 +352,17 @@ class IssueResolutionRecord(StructuredOutput):
         description="How the issue was fixed, or why it remains unfixed"
     )
 
+class CoderOutput(RootModel[str]):
+    """Unified diff on the wire; empty text explicitly represents a no-op."""
+
+    model_config = ConfigDict(strict=True)
+
+    @field_validator("root")
+    @classmethod
+    def valid_patch(cls, value):
+        return validate_unified_diff(value) if value.strip() else ""
+
+
 class DeveloperOutput(StructuredOutput):
     # 1. High-Level Summary & Artifact Inventory
     summary: Text = Field(
@@ -669,7 +680,7 @@ JSON_OUTPUT_MODELS = {
     "hub": HubOutput,
     "router": RouterOutput,
 }
-ROLE_OUTPUT_MODELS = {**JSON_OUTPUT_MODELS, "coder": DeveloperOutput}
+ROLE_OUTPUT_MODELS = {**JSON_OUTPUT_MODELS, "coder": CoderOutput}
 
 
 def role_output_model(role: str):
@@ -707,6 +718,8 @@ def _recover_embedded(model, text: str):
 def parse_role_output(role: str, output: str | dict[str, Any]):
     model = role_output_model(role)
     try:
+        if role.lower() == "coder":
+            return model.model_validate(output)
         return (
             model.model_validate_json(output)
             if isinstance(output, str)
