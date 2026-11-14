@@ -148,7 +148,7 @@ DESCRIPTIONS = {
     "search_repo": "Search repository text files recursively for a literal substring.",
     "edit_file": "Create or replace a repository text file; parent directories are created. Tester may add tests or update existing tests, not implementation.",
     "delete_file": "Delete one repository file within this role's write permissions.",
-    "apply_patch": "Apply a multi-file unified diff to current repository files, including creation/deletion. Use base=baseline only for a cumulative diff against the initial run snapshot.",
+    "apply_patch": "Apply a multi-file unified diff ('--- a/path' or '--- /dev/null', '+++ b/path', '@@' hunks) to current repository files, including creation/deletion; nothing is written unless every file applies. Use base=baseline only for a cumulative diff against the initial run snapshot.",
     "run_tests": "Run tests directly on the laptop in the real repo, with command argv, repository-relative cwd and optional env. Inspect project before choosing command. Omitting arguments repeats the selected command.",
     "run_command": "Run code, build, inspect installed runtime or other development commands directly on the laptop. Provide command as argv, repository-relative cwd and optional env/timeout_seconds. Returns actual stdout, stderr and exit_code. Commands can modify the real workspace; use only changes needed by the task. Use run_tests for a structured test report.",
 }

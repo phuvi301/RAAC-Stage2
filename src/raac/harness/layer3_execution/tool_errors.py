@@ -6,7 +6,7 @@ exception text is never forwarded, because it can carry host paths or file conte
 
 import errno
 
-from raac.common.errors import RejectedEditError, SourceModifiedError
+from raac.common.errors import PatchFormatError, RejectedEditError, SourceModifiedError
 
 
 
@@ -75,4 +75,10 @@ def describe_tool_error(exc: BaseException) -> dict:
     for needles, (kind, text) in _VALUE_ERRORS:
         if any(needle in lowered for needle in needles):
             return {"error": text, "error_kind": kind}
+    if isinstance(exc, PatchFormatError):
+        return {"error": f"No file was written: the patch was rejected ({message[:200]}). Send a unified diff: per file "
+                         "'--- a/path' (or '--- /dev/null' for a new file) and '+++ b/path', then '@@ -start,count "
+                         "+start,count @@' hunks whose lines start with ' ', '+' or '-' and match the current file "
+                         "exactly. To create or fully rewrite a file, edit_file is simpler.",
+                "error_kind": "InvalidPatch"}
     return {"error": GENERIC[1], "error_kind": GENERIC[0]}

@@ -108,9 +108,9 @@ class RunState:
             agent.public_summary = literal(event.get('text', 'Summary unavailable'))[:65536]
             agent.version += 1
             return key
-        if kind == 'llm_output_delta':
+        if kind in {'llm_output_delta', 'llm_tool_call_delta'}:
             agent.waiting_since = ''
-            tag = f'Output [{call}]\n'
+            tag = f"{'Output' if kind == 'llm_output_delta' else 'Tool call'} [{call}]\n"
             delta = literal(event.get('text', ''))
             for index, (seq, entry) in enumerate(agent.entries):
                 if entry.startswith(tag):
@@ -119,7 +119,7 @@ class RunState:
                     break
             else:
                 agent.entries.append((agent.version + 1, tag + delta[-65536:]))
-                if call not in agent.streamed_calls:
+                if kind == 'llm_output_delta' and call not in agent.streamed_calls:
                     agent.streamed_calls.append(call)
             agent.version += 1
             return key

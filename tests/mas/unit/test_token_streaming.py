@@ -472,3 +472,50 @@ async def test_pilot_sees_live_output_preserves_scroll_and_replays_once(tmp_path
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
         await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_tool_arguments_stream_as_progress_and_deltas_omit_provenance(tmp_path):
+    body = wire(event({'tool_calls': [{'index': 0, 'id': 'call-1', 'type': 'function',
+        'function': {'name': 'edit_file', 'arguments': '{"path":'}}]}),
+        event({'tool_calls': [{'index': 0, 'function': {'arguments': '"value.py"}'}}]}, 'tool_calls'),
+        {'choices': [], 'usage': USAGE})
+    client, _, _ = client_for(tmp_path, body)
+    seen = []
+    client.trace.subscriber = seen.append
+    try:
+        result = await client.complete([], context={**call_context(), 'provenance': {'snapshot': 'x' * 100}},
+                                       tools=[{'type': 'function', 'function': {'name': 'edit_file', 'parameters': {'type': 'object'}}}])
+        deltas = [e for e in seen if e['event'] == 'llm_tool_call_delta']
+        # Trace redaction re-serialises complete JSON fragments, so spacing is not significant.
+        assert ''.join(e['text'] for e in deltas).replace(' ', '') == 'edit_file{"path":"value.py"}'
+        assert all('provenance' not in e and e['llm_call_id'] == result.call_id for e in deltas)
+        assert not any(e['event'] == 'llm_output_delta' for e in seen)
+        assert any(e['event'] == 'llm_attempt_started' and e['provenance'] for e in seen)
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_deltas_are_batched_without_losing_text(tmp_path, monkeypatch):
+    monkeypatch.setattr('raac.llm.client.DELTA_INTERVAL_SECONDS', 3600)
+    body = wire(*(event({'content': piece}) for piece in '123456'), event(finish='stop'), {'choices': [], 'usage': USAGE})
+    client, _, _ = client_for(tmp_path, body)
+    seen = []
+    client.trace.subscriber = seen.append
+    try:
+        await client.complete([], context=call_context())
+        # First delta is immediate, the rest arrive in the closing flush.
+        assert [e['text'] for e in seen if e['event'] == 'llm_output_delta'] == ['1', '23456']
+    finally:
+        await client.aclose()
+
+
+def test_tool_call_progress_is_one_entry_separate_from_output():
+    state = RunState()
+    base = {'run_id': 'run', 'agent_call_id': 'activation', 'llm_call_id': 'call', 'agent_id': 'coder'}
+    for i, (kind, text) in enumerate([('llm_tool_call_delta', 'edit_file '), ('llm_tool_call_delta', '{"path":1}'),
+                                      ('llm_output_delta', 'done')]):
+        state.apply({**base, 'sequence': i + 1, 'event': kind, 'text': text})
+    entries = [entry for _, entry in state.agents[('run', 'activation')].entries]
+    assert entries == ['Tool call [call]\nedit_file {"path":1}', 'Output [call]\ndone']
