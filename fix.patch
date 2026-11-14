@@ -1,8 +1,16 @@
 diff --git a/sklearn/feature_selection/_base.py b/sklearn/feature_selection/_base.py
-index da2185eac3..28fc513b34 100644
+index da2185eac3..673ae14c84 100644
 --- a/sklearn/feature_selection/_base.py
 +++ b/sklearn/feature_selection/_base.py
-@@ -18,6 +18,7 @@ from ..utils import (
+@@ -3,6 +3,7 @@
+ # Authors: G. Varoquaux, A. Gramfort, L. Buitinck, J. Nothman
+ # License: BSD 3 clause
+ 
++import sys
+ import warnings
+ from abc import ABCMeta, abstractmethod
+ from operator import attrgetter
+@@ -18,9 +19,18 @@ from ..utils import (
      safe_sqr,
  )
  from ..utils._tags import _safe_tags
@@ -10,70 +18,54 @@ index da2185eac3..28fc513b34 100644
  from ..utils.validation import _check_feature_names_in, check_is_fitted
  
  
-@@ -78,6 +79,11 @@ class SelectorMixin(TransformerMixin, metaclass=ABCMeta):
-         X_r : array of shape [n_samples, n_selected_features]
-             The input samples with only the selected features.
-         """
-+        # Preserve X when X is a dataframe and the output is configured to
-+        # be pandas.
-+        output_config_dense = _get_output_config("transform", estimator=self)["dense"]
-+        preserve_X = hasattr(X, "iloc") and output_config_dense == "pandas"
++def _is_pandas_df(X):
++    """Return True if X is a pandas DataFrame, without importing pandas."""
++    if not (hasattr(X, "iloc") and hasattr(X, "dtypes")):
++        return False
++    pd = sys.modules.get("pandas")
++    return pd is not None and isinstance(X, pd.DataFrame)
 +
++
+ class SelectorMixin(TransformerMixin, metaclass=ABCMeta):
+     """
+     Transformer mixin that performs feature selection given a support mask
+@@ -80,27 +90,37 @@ class SelectorMixin(TransformerMixin, metaclass=ABCMeta):
+         """
          # note: we use _safe_tags instead of _get_tags because this is a
          # public Mixin.
-         X = self._validate_data(
-@@ -85,6 +91,7 @@ class SelectorMixin(TransformerMixin, metaclass=ABCMeta):
+-        X = self._validate_data(
++        # Keep the input DataFrame (and thus the dtypes of the selected
++        # columns) when pandas output is requested.
++        output_config_dense = _get_output_config("transform", estimator=self)["dense"]
++        preserve_X = output_config_dense != "default" and _is_pandas_df(X)
++
++        X_validated = self._validate_data(
+             X,
              dtype=None,
              accept_sparse="csr",
              force_all_finite=not _safe_tags(self, key="allow_nan"),
-+            cast_to_ndarray=not preserve_X,
              reset=False,
          )
-         return self._transform(X)
-@@ -98,9 +105,13 @@ class SelectorMixin(TransformerMixin, metaclass=ABCMeta):
+-        return self._transform(X)
++        return self._transform(X if preserve_X else X_validated)
+ 
+     def _transform(self, X):
+         """Reduce X to the selected features."""
+         mask = self.get_support()
++        is_df = _is_pandas_df(X)
+         if not mask.any():
+             warnings.warn(
+                 "No features were selected: either the data is"
                  " too noisy or the selection test too strict.",
                  UserWarning,
              )
-+            if hasattr(X, "iloc"):
++            if is_df:
 +                return X.iloc[:, :0]
              return np.empty(0, dtype=X.dtype).reshape((X.shape[0], 0))
          if len(mask) != X.shape[1]:
              raise ValueError("X has a different shape than during fitting.")
-+        if hasattr(X, "iloc"):
++        if is_df:
 +            return X.iloc[:, safe_mask(X, mask)]
          return X[:, safe_mask(X, mask)]
  
      def inverse_transform(self, X):
-diff --git a/sklearn/utils/validation.py b/sklearn/utils/validation.py
-index dd0c007602..bee87a8e0a 100644
---- a/sklearn/utils/validation.py
-+++ b/sklearn/utils/validation.py
-@@ -641,6 +641,7 @@ def check_array(
-     ensure_min_features=1,
-     estimator=None,
-     input_name="",
-+    cast_to_ndarray=True,
- ):
- 
-     """Input validation on an array, list, sparse matrix or similar.
-@@ -728,6 +729,11 @@ def check_array(
- 
-         .. versionadded:: 1.1.0
- 
-+    cast_to_ndarray : bool, default=True
-+        Internal option. If False, all validation checks are still run but
-+        the original input object is returned unchanged instead of the
-+        converted array (e.g. to keep the dtypes of a pandas DataFrame).
-+
-     Returns
-     -------
-     array_converted : object
-@@ -956,7 +962,7 @@ def check_array(
-                 array, dtype=dtype, order=order, copy=True, xp=xp
-             )
- 
--    return array
-+    return array if cast_to_ndarray else array_orig
- 
- 
- def _check_large_sparse(X, accept_large_sparse=False):

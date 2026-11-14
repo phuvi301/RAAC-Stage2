@@ -13,7 +13,6 @@ from copy import deepcopy
 from typing import Any, Protocol
 
 from raac.collaboration.topologies import get_topology
-from raac.registry.output_formats import validate_unified_diff
 from raac.common.errors import (
     AgentExecutionError,
     RunGuardError,
@@ -146,12 +145,7 @@ class ChainNodes:
                 state = {**state, "deadline_at": state["deadline_at"] + deadline_extension}
             runtime = deepcopy(raw.runtime) if isinstance(raw, RoleHandoff) else {}
             payload = raw.output if isinstance(raw, RoleHandoff) else raw
-            if role == "Coder" and isinstance(payload, str):
-                # The runner hands the Coder's work over as a unified diff built from the workspace,
-                # not as the JSON report the model wrote; the report travels in `runtime`.
-                output = RoleHandoff(validate_unified_diff(payload) if payload.strip() else "", runtime)
-            else:
-                output = RoleHandoff(parse_role_output(role, payload).model_dump(), runtime)
+            output = RoleHandoff(parse_role_output(role, payload).model_dump(), runtime)
         except RunGuardError as exc:
             return None, self._abort(state, node, exc.reason, events=events), []
         except AgentExecutionError as exc:

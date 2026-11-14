@@ -20,7 +20,7 @@ from raac.common.agent_contracts import (  # noqa: F401
     ROLE_OUTPUT_MODELS,
     AcceptanceCriterion,
     AnalystOutput,
-    DeveloperOutput,
+    CoderOutput,
     EnvironmentOutput,
     OutputFormatError,
     PlannerOutput,
