@@ -29,9 +29,12 @@ def _select_task_input(request, *, role=None):
     return result
 
 
-def prepare_role_request(request: dict, *, role: str) -> dict:
-    """Select the Chain handoff before the runner receives it, independent of compaction."""
-    result = _select_task_input(request, role=role)
+def prepare_role_request(request: dict, *, role: str, keep_requirement: bool = False) -> dict:
+    """Select the Chain handoff before the runner receives it, independent of compaction.
+
+    ``keep_requirement`` is for callers whose role has no spec to fall back on.
+    """
+    result = deepcopy(request) if keep_requirement else _select_task_input(request, role=role)
     incoming = result.get("incoming_message")
     artifacts = result.get("artifacts", {})
     if isinstance(incoming, dict):

@@ -51,6 +51,13 @@ class SourceModifiedError(PermissionError):
         super().__init__(message)
 
 
+class PatchFormatError(ValueError):
+    """apply_patch could not parse or place the patch; nothing was written.
+
+    The message is one of the patch parser's static sentences, never file content.
+    """
+
+
 class RejectedEditError(ValueError):
     """A write that would leave a file worse than before; nothing was written."""
 

@@ -18,6 +18,8 @@ from .protocol import normalize_message
 from .streaming import PublicText, StreamFormatError, assemble
 from .usage import UsageTracker, logged_usage
 
+DELTA_INTERVAL_SECONDS = 0.04
+
 
 class LLMError(RuntimeError):
     """Safe error without response bodies, auth headers or provider credentials."""
@@ -67,17 +69,29 @@ class LLMClient:
         await self._http.aclose()
 
     async def _stream_response(self, payload, context, attempt):
-        text = PublicText(self.trace)
+        text, tool_text = PublicText(self.trace), PublicText(self.trace)
         chunk = 1
         completed = False
+        # Deltas are the hot path: join them to the attempt by llm_call_id instead of
+        # repeating the provenance snapshot (~7 KB) on every few characters.
+        slim = {key: value for key, value in context.items() if key not in ('provenance', 'model_settings')}
+        pending = {'llm_output_delta': '', 'llm_tool_call_delta': ''}
+        flushed = float('-inf')
 
-        def publish(delta='', *, final=False):
-            nonlocal chunk
-            if self.trace_content:
-                safe = text.feed(delta, final=final)
+        def publish(delta='', *, final=False, tool=False):
+            nonlocal chunk, flushed
+            if not self.trace_content:
+                return
+            pending['llm_tool_call_delta' if tool else 'llm_output_delta'] += (tool_text if tool else text).feed(delta, final=final)
+            # The first delta goes out at once; later ones are batched per interval.
+            if not final and time.monotonic() - flushed < DELTA_INTERVAL_SECONDS:
+                return
+            for event, safe in pending.items():
                 if safe:
                     chunk += 1
-                    self.trace_event(context, 'llm_output_delta', attempt=attempt, chunk=chunk, text=safe)
+                    self.trace_event(slim, event, attempt=attempt, chunk=chunk, text=safe)
+                    pending[event] = ''
+                    flushed = time.monotonic()
 
         self._log(context, event='llm_stream_started', attempt=attempt, chunk=chunk)
         chunk += 1
@@ -89,6 +103,7 @@ class LLMClient:
                                          **({'timeout': None} if context.get('unlimited_timeout') else {})) as response:
                 response.raise_for_status()
                 data = await assemble(response, publish)
+                publish(final=True, tool=True)
                 publish(final=True)
                 completed = True
                 return httpx.Response(response.status_code, json=data, request=response.request)

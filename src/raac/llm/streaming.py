@@ -125,6 +125,8 @@ async def assemble(response, publish):
                 index = part['index']
                 if type(index) is not int or not 0 <= index < 128:
                     raise ValueError
+                if index not in calls and calls:
+                    publish('\n', tool=True)
                 call = calls.setdefault(index, {'id': '', 'type': 'function', 'function': {'name': '', 'arguments': ''}})
                 if part.get('type', 'function') != 'function':
                     raise ValueError
@@ -138,6 +140,9 @@ async def assemble(response, publish):
                     value = part.get('function', {}).get(key, '')
                     if not isinstance(value, str):
                         raise TypeError
+                    if value:
+                        # Progress only; the validated call is still built from the final message.
+                        publish((' ' if key == 'arguments' and not call['function'][key] else '') + value, tool=True)
                     call['function'][key] += value
             finish = choice.get('finish_reason')
             if finish is not None and finish not in {'stop', 'tool_calls', 'length', 'content_filter'}:
