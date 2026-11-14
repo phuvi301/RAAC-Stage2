@@ -14,7 +14,7 @@ import httpx
 from pydantic import ValidationError
 
 from raac.collaboration.levels.l3_collaboration import ChainNodes, ChainLimits, WorkItem, initial_chain_state
-from raac.collaboration.levels.l3_collaboration.chain_state import parse_role_output
+from raac.collaboration.levels.l3_collaboration.chain_state import RoleHandoff, parse_role_output
 from raac.collaboration.levels.l3_collaboration.chain_handoff import prepare_role_request
 from raac.harness.layer1_lifecycle import AgentRunner
 from raac.harness.layer3_execution.local_executor import LocalExecutor, LocalExecutionPolicy
@@ -207,7 +207,30 @@ class EnvironmentTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await client.aclose()
 
-    async def test_entry_analyst_obeys_run_deadline_without_environment_extension(self):
+    async def test_environment_clock_pauses_run_deadline_and_failures_stop_handoff(self):
+        async def slow(role, request):
+            self.assertEqual(role, "Environment")
+            await asyncio.sleep(0.08)
+            return RoleHandoff(READY, {"verified": True, "configuration": {"cwd": "."}})
+        current = state()
+        current["deadline_at"] = time.time() + 0.04
+        original = deepcopy(current)
+        update = await ChainNodes(slow).environment(current)
+        self.assertEqual(update["next_node"], "hub")  # every topology enters the team through the Hub
+        self.assertGreater(update["deadline_at"], time.time())
+        self.assertEqual(current, original)
+        async def failed(role, request):
+            return RoleHandoff({"status": "blocked", "summary": "Missing dependency",
+                                "blocking_issues": ["No compatible interpreter"]}, {"verified": False})
+        update = await ChainNodes(failed).environment(state())
+        self.assertEqual(update["next_node"], "result")
+        self.assertEqual(update["stop_reason"], "environment_setup_failed")
+        async def claimed(role, request):
+            return READY
+        update = await ChainNodes(claimed).environment(state())
+        self.assertEqual(update["stop_reason"], "environment_setup_failed")
+
+    async def test_analyst_obeys_the_run_deadline_it_is_given(self):
         async def slow(role, request):
             self.assertEqual(role, "Analyst")
             await asyncio.sleep(0.08)
@@ -218,7 +241,6 @@ class EnvironmentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(update["next_node"], "result")
         self.assertEqual(update["stop_reason"], "timeout")
         self.assertEqual(current, original)
-        self.assertFalse(hasattr(ChainNodes, "environment"))
 
     async def test_output_and_timeout_config_are_strict(self):
         for output in ({**READY, "blocking_issues": ["still missing"]},

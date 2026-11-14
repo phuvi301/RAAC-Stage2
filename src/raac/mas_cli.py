@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import yaml
 
+from raac.benchmark.observe import BenchmarkObserver
 from raac.collaboration.levels.l3_collaboration import (
     ChainLimits,
     ChainNodes,
@@ -105,6 +106,12 @@ async def execute(args, *, approval_handler=None, return_record=False, event_han
     local = args.command == "run-local"
     output_root = project / "results"
     output_dir = (output_root / run_id).resolve()
+    # Thư mục luôn tên chain-*; in rõ level/topology thật để khỏi nhầm.
+    shape = ""
+    if decision is not None:  # chỉ L3 có decision
+        hub = f" (hub {decision.hub_mode})" if decision.topology == "star" else ""
+        shape = f", topology {decision.topology}{hub}, max_rounds {decision.max_rounds}"
+    print(f"MAS run {run_id}: {selected_level}{shape}", file=sys.stderr, flush=True)
 
     # Tạo bộ chạy command và test local.
     executor = LocalExecutor(policy) 
@@ -124,7 +131,7 @@ async def execute(args, *, approval_handler=None, return_record=False, event_han
                  "chain_limits": limits.model_dump(),
                  "coordinator_decision": engine_config or decision.model_dump(),
                  "trace_content": harness["trace_content"],
-                 "stream": local and getattr(args, "stream", False),
+                 "stream": getattr(args, "stream", True),
                  "execution": policy.model_dump(), "context": context_policy.model_dump(),
                  "token_limit": harness["token_limit"], "memory": memory_policy.model_dump()}
     provenance = collect_provenance(project, registry, [llm_path, harness_path, level_path], effective)
@@ -135,7 +142,7 @@ async def execute(args, *, approval_handler=None, return_record=False, event_han
 
     # Tạo HTTP client, bộ đếm token và logger.
     client = LLMClient(llm_config, log_path=output_dir / "llm.jsonl")
-    client.stream = local and getattr(args, "stream", False)
+    client.stream = getattr(args, "stream", True)
     client.trace.subscriber = event_handler
     executor.trace = client.trace
     if type(harness["trace_content"]) is not bool:
@@ -185,12 +192,15 @@ async def execute(args, *, approval_handler=None, return_record=False, event_han
         baseline_ref=workspace.baseline_ref
     )
 
+    # Theo dõi run (web/terminal) ngay khi log có; lỗi của viewer không bao giờ dừng run.
+    observer = BenchmarkObserver(getattr(args, "observe", "none"), label="MAS run")
     try:
         # Dựng graph và thực sự chạy
         trace_context = {"run_id": run_id, "task_id": task_id, "level": selected_level}
         selected_decision = engine_config or decision.model_dump()
         client.trace.emit(trace_context, event="run_started", decision=selected_decision,
                            workspace=provenance["workspace"])
+        observer.ready(output_dir / "llm.jsonl")
 
         if selected_level == "L3":
             graph = build_collaboration_graph(decision, ChainNodes(runner, budget_guard=runner.budget_guard))
@@ -242,7 +252,9 @@ async def execute(args, *, approval_handler=None, return_record=False, event_han
         print(json.dumps({"run_id": run_id, "status": record["status"],
                           "stop_reason": record["stop_reason"], "output": str(output_dir),
                           "workspace": str(workspace.root)}, ensure_ascii=False))
-        return 0 if record["verdict"] == "PASS" else 1
+        code = 0 if record["verdict"] == "PASS" else 1
+        await observer.finish()  # web viewer stays open until Ctrl+C
+        return code
     except asyncio.CancelledError:
         client.trace.emit(trace_context, event="run_cancelled", status="cancelled")
         raise
@@ -250,6 +262,7 @@ async def execute(args, *, approval_handler=None, return_record=False, event_han
         client.trace.emit(trace_context, event="run_failed", status="failed")
         raise
     finally:
+        observer.close()
         await client.aclose()
 
 
@@ -308,7 +321,11 @@ def main(argv=None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="RAAC repository Chain demo via 9router")
-    parser.add_argument("command", choices=["models", "probe-tools", "run-chain", "run-local", "show-log", "tui"])
+    parser.add_argument("command", choices=["models", "probe-tools", "run", "run-chain", "run-local", "show-log", "tui"],
+                        help="run/run-chain: L3 trên --project-dir (repo/ + requirement/); "
+                             "run-local: chạy trên --workspace với --prompt/--prompt-file, chọn --level")
+    parser.add_argument("--level", choices=["L1", "L2", "L3", "L4"], default="L3",
+                        help="run-local: level cần chạy (L4 hiện chỉ là bản xem thử); run/run-chain luôn là L3")
     parser.add_argument("--tui", action="store_true", help="show-log: read-only Textual viewer")
     parser.add_argument("--workspace", help="run-local: directory to edit directly")
     prompts = parser.add_mutually_exclusive_group()
@@ -329,13 +346,15 @@ def main(argv=None) -> int:
     parser.add_argument("--base-url", default=None)
     parser.add_argument("--max-rounds", type=int, default=None)
     parser.add_argument("--max-review-rounds", type=int, default=None,
-                        help="run-chain with chain_review_loop: Reviewer -> Coder feedback loops (default from config)")
+                        help="run-chain with chain_review_loop: Reviewer -> Planner feedback loops (default from config)")
     parser.add_argument("--hub", choices=["rules", "llm"], default=None,
                         help="run-chain with star: how the Hub picks the next role (default from config)")
     parser.add_argument("--max-dispatches", type=int, default=None,
                         help="run-chain with star: maximum Hub dispatches (default from config)")
     parser.add_argument("--topology", choices=["chain", "chain_review_loop", "star"], default=None,
                         help="run-chain: collaboration topology; default is configs/levels/l3_collaboration.yaml")
+    parser.add_argument("--observe", choices=["web", "terminal", "none"], default="web",
+                        help="run-chain: tự mở log của run này trên trình duyệt (web), in ra terminal, hoặc tắt (none)")
     args = parser.parse_args(argv)
 
     # Validate arguments for show-log command
@@ -367,9 +386,14 @@ def main(argv=None) -> int:
             return 2
         return 0
 
-    # Validate arguments for run-chain command
-    if args.command == "run-chain" and not args.project_dir:
-        parser.error("run-chain requires --project-dir PATH (containing repo/ and requirement/user_chat.txt)")
+    # Validate arguments for run / run-chain (cấu trúc project-dir, chỉ L3)
+    if args.command in {"run", "run-chain"}:
+        if not args.project_dir:
+            parser.error(f"{args.command} requires --project-dir PATH (containing repo/ and requirement/user_chat.txt)")
+        if args.level != "L3":
+            print(f"{args.level} không chạy bằng {args.command}. Dùng: python -m raac.mas_cli run-local "
+                  f"--workspace <thư mục code> --prompt-file <file> --level {args.level}", file=sys.stderr)
+            return 2
     if args.command in {"run-local", "tui"}:
         if not args.workspace or (args.command == "run-local" and args.prompt is None and args.prompt_file is None):
             parser.error("run-local requires --workspace and exactly one of --prompt or --prompt-file")
@@ -388,6 +412,8 @@ def main(argv=None) -> int:
             return launch_tui(workspace=Path(args.workspace).resolve(), prompt=args.prompt or "", topology=args.topology)
     try:
         return asyncio.run(execute(args, approval_handler=terminal_approval if args.command == "run-local" else None))
+    except KeyboardInterrupt:
+        return 130
     except (DemoError, LLMError) as exc:
         print(str(exc), file=sys.stderr)
         return 2

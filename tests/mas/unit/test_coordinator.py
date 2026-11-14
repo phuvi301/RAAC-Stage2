@@ -22,7 +22,7 @@ class CoordinatorTests(unittest.TestCase):
         self.config.pop("topology")
         decision = coordinate_chain(self.config)
         self.assertEqual(json.loads(decision.model_dump_json()), {
-            "topology": "chain", "topology_version": "6", "max_rounds": 3,
+            "topology": "chain", "topology_version": "7", "max_rounds": 3,
             "max_review_rounds": None, "hub_mode": None, "max_dispatches": None,
             "source": "fixed_default",
         })
@@ -63,7 +63,7 @@ class ManualTopologyTests(unittest.TestCase):
     def test_topology_is_taken_from_configuration(self):
         decision = coordinate_chain({**self.config, "topology": "chain_review_loop"})
         self.assertEqual((decision.topology, decision.topology_version, decision.max_rounds, decision.source),
-                         ("chain_review_loop", "2", 3, "fixed_default"))
+                         ("chain_review_loop", "3", 3, "fixed_default"))
         self.assertEqual(CoordinatorDecision.model_validate_json(decision.model_dump_json()), decision)
 
     def test_argument_overrides_configuration_without_mutating_it(self):
@@ -113,7 +113,7 @@ class StarCoordinatorTests(unittest.TestCase):
 
     def test_star_decision_carries_hub_settings(self):
         decision = coordinate_chain(self.config)
-        self.assertEqual((decision.topology, decision.topology_version), ("star", "2"))
+        self.assertEqual((decision.topology, decision.topology_version), ("star", "3"))
         self.assertEqual((decision.hub_mode, decision.max_dispatches, decision.max_review_rounds), ("llm", 12, 2))
 
     def test_arguments_override_the_hub_configuration(self):

@@ -10,12 +10,13 @@ class ChainTopologyTests(unittest.TestCase):
         topology = get_topology("chain")
         self.assertEqual(
             [step.role for step in topology.steps if step.role is not None],
-            ["Hub", "Analyst", "Planner", "Coder", "Tester", "Reviewer"],
+            ["Environment", "Hub", "Analyst", "Planner", "Coder", "Tester", "Reviewer"],
         )
         self.assertEqual(topology.incoming_nodes("coder"), ("planner", "limit"))
         self.assertEqual(topology.incoming_nodes("limit"), ("check",))
         self.assertEqual(topology.incoming_nodes("check"), ("tester",))
-        self.assertEqual(topology.incoming_nodes("hub"), ())
+        self.assertEqual(topology.incoming_nodes("environment"), ())
+        self.assertEqual(topology.incoming_nodes("hub"), ("environment",))
         self.assertNotIn(("reviewer", "coder"), topology.edges)
         self.assertEqual(topology.exit_node, "result")
 
@@ -42,12 +43,13 @@ class ChainTopologyTests(unittest.TestCase):
 
 
 class ReviewLoopTopologyTests(unittest.TestCase):
-    def test_same_team_as_chain_plus_reviewer_feedback_edge(self):
+    def test_same_team_as_chain_plus_reviewer_to_planner_feedback_edge(self):
         chain, loop = get_topology("chain"), get_topology("chain_review_loop")
         self.assertEqual(loop.steps, chain.steps)
-        self.assertEqual(set(loop.edges) - set(chain.edges), {("reviewer", "coder")})
+        self.assertEqual(set(loop.edges) - set(chain.edges), {("reviewer", "planner")})
         self.assertEqual(set(chain.edges) - set(loop.edges), set())
-        self.assertEqual(loop.incoming_nodes("coder"), ("planner", "limit", "reviewer"))
+        self.assertEqual(loop.incoming_nodes("planner"), ("analyst", "reviewer"))
+        self.assertEqual(loop.incoming_nodes("coder"), ("planner", "limit"))
         self.assertEqual((loop.entry_node, loop.exit_node), (chain.entry_node, chain.exit_node))
 
 
@@ -56,8 +58,8 @@ class StarTopologyTests(unittest.TestCase):
         star = get_topology("star")
         self.assertEqual(star.layout, "star")
         self.assertEqual([step.role for step in star.steps if step.role is not None],
-                         ["Hub", "Analyst", "Planner", "Coder", "Tester", "Reviewer"])
-        self.assertEqual(star.incoming_nodes("hub"), ("analyst", "planner", "coder", "tester", "reviewer"))
+                         ["Environment", "Hub", "Analyst", "Planner", "Coder", "Tester", "Reviewer"])
+        self.assertEqual(star.incoming_nodes("hub"), ("environment", "analyst", "planner", "coder", "tester", "reviewer"))
         for node in ("analyst", "planner", "coder", "tester", "reviewer"):
             self.assertEqual(star.incoming_nodes(node), ("hub",))
             self.assertIn((node, "hub"), star.edges)
@@ -68,15 +70,15 @@ class StarTopologyTests(unittest.TestCase):
         self.assertEqual({get_topology(name).layout for name in ("chain", "chain_review_loop")}, {"chain"})
 
 class EntryTopologyTests(unittest.TestCase):
-    def test_l1_enters_analyst_and_all_l3_topologies_enter_hub_without_environment(self):
+    def test_l1_enters_analyst_and_all_l3_topologies_enter_through_environment_then_hub(self):
         from raac.collaboration.levels.l1_fixed import L1_LINEAR
         from raac.collaboration.levels.l2_routing import L2_ROUTED_LINEAR
-        self.assertEqual(L1_LINEAR.entry_node, 'analyst')
+        self.assertEqual(L1_LINEAR.entry_node, 'requirement_analyst')
         self.assertEqual(L2_ROUTED_LINEAR.entry_node, 'router')
         for name in ('chain', 'chain_review_loop', 'star'):
             with self.subTest(topology=name):
                 topology = get_topology(name)
-                self.assertEqual(topology.entry_node, 'hub')
-                self.assertNotIn('environment', {step.node_id for step in topology.steps})
-                self.assertNotIn('Environment', {step.role for step in topology.steps})
-                self.assertTrue(all('environment' not in edge for edge in topology.edges))
+                self.assertEqual(topology.entry_node, 'environment')
+                self.assertEqual(topology.incoming_nodes('environment'), ())
+                self.assertIn(('environment', 'hub'), topology.edges)
+                self.assertEqual(topology.incoming_nodes('analyst'), ('hub',))

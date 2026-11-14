@@ -1,7 +1,7 @@
 # Các mẫu topology L3
 
 Hai mẫu dưới đây dùng chung năm role Analyst, Planner, Coder, Tester và
-Reviewer, với Hub làm entry của mọi topology L3. Environment không còn nằm trong graph. Chain đã có node/graph và adapter demo cho Registry, client 9router,
+Reviewer. Environment chạy một lần ở đầu mọi topology L3, rồi Hub đưa run vào đội. Chain đã có node/graph và adapter demo cho Registry, client 9router,
 file tool và lệnh chạy local; Subtask Chain còn ở mức định nghĩa. Coordinator hiện cố định chọn Chain; chưa chọn topology thích ứng
 hoặc tích hợp Engine/harness benchmark đầy đủ. Xem
 [hướng dẫn chạy demo](../../../../../docs/chain_demo.md).
@@ -45,7 +45,8 @@ flowchart TD
 | --- | --- | --- | --- | --- |
 | `analyst` | Analyst | Task/subtask từ bên gọi | Phân tích requirement, user story, Business Rules, ràng buộc và AC. Khi nhận subtask, làm rõ AC cục bộ và giữ nhất quán với Spec toàn task. | Work Spec, AC có mã định danh, giả định và thông tin còn thiếu. |
 | `planner` | Planner | `analyst` | Từ Spec và AC, chọn giải pháp, thiết kế cấu trúc dữ liệu/API Contract, xác định file/module cần sửa, thứ tự thao tác và cách tích hợp. Chain này không tự mở thêm Chain con. | Technical Plan, API/Data Schema Spec và ánh xạ bước thực hiện tới AC. |
-| `hub` | Hub | Task từ bên gọi (entry) | Chain/review-loop chuyển sang Analyst bằng rules; star điều phối giữa các role. Không tự chuẩn bị runtime. | Quyết định dispatch. |
+| `environment` | Environment | Task từ bên gọi (entry) | Chạy một lần trước Analyst: xác minh/cài runtime từ requirement gốc và repo; có đồng hồ riêng, thời gian cài đặt không trừ vào hạn của run. | `environment_report`, hoặc dừng với `environment_setup_failed`. |
+| `hub` | Hub | `environment` | Chain/review-loop chuyển sang Analyst bằng rules; star điều phối giữa các role. Không tự chuẩn bị runtime. | Quyết định dispatch. |
 | `coder` | Coder | `planner` ở lượt đầu; qua `limit` từ report của `tester` khi sửa lỗi | Hiện thực theo kế hoạch hoặc sửa lỗi Tester báo; tự kiểm tra sơ bộ trước khi bàn giao. Không tự hạ AC hay bỏ test để được pass. | Source Code Patch / Build có version, kết quả tự kiểm tra và mô tả thay đổi. |
 | `tester` | Tester | `coder` | Đọc Spec/AC/contract của Analyst và contract mới từ Planner để viết test độc lập; chạy trên đúng patch/build hiện tại và kiểm tra hồi quy liên quan. | Test Case, Test Execution Report, lỗi tái hiện được, AC chưa đạt và vấn đề chặn đã biết. |
 | `check` | Không — node điều khiển | `tester` | Kiểm tra toàn bộ test bắt buộc đã pass và không còn vấn đề chặn trên đúng code version. Không coi thiếu test hoặc test chưa chạy là pass. | Đạt: chuyển `reviewer`; chưa đạt: chuyển `limit` cùng report. |
@@ -57,11 +58,11 @@ Spec, Plan, AC, patch và test report là artifact dùng chung có version.
 Tester/Reviewer đọc phần liên quan dù không có cạnh message trực tiếp từ
 mọi role trước đó; không mặc định nhận toàn bộ lịch sử hội thoại.
 
-Chain v6 và review-loop v2 bắt đầu Hub → Analyst → Planner → Coder;
-star v2 bắt đầu tại Hub. L1 vẫn bắt đầu tại Analyst, L2 tại Router.
-Chuẩn bị interpreter/dependency trước khi chạy; Tester chọn suite bằng run_tests.
-Không còn lượt Environment hoặc cơ chế kéo dài deadline theo role này.
-`environment_report` giữ giá trị null để tương thích định dạng result hiện có.
+Chain v7 và review-loop v3 bắt đầu Environment → Hub → Analyst → Planner → Coder;
+star v3 bắt đầu Environment → Hub. L1 vẫn bắt đầu tại Requirement Analyst, L2 tại Router.
+Environment chuẩn bị interpreter/dependency một lần; Tester chọn suite bằng run_tests.
+Environment không giới hạn thời gian theo role và kéo dài hạn của run đúng bằng thời gian nó dùng.
+`environment_report` được chuyển cho các role sau.
 
 ## Hợp đồng dùng lại Chain
 
@@ -279,12 +280,13 @@ Reviewer approve, đủ AC và không blocker. ChainState vẫn quản lý colla
 của một Chain, tách khỏi lifecycle agent Layer 1. Contract đã đổi; resume
 checkpoint cũ cần Engine kiểm tra version, chưa nghiệm thu resume toàn harness.
 
-# Chain review loop — Chain có phản hồi Reviewer → Coder
+# Chain review loop — Chain có phản hồi Reviewer → Planner
 
-`chain_review_loop` (phiên bản 1) dùng đúng các node và hợp đồng của Chain; khác duy nhất là cạnh
-`reviewer → coder`. Khi test đã đạt nhưng Reviewer từ chối (không có `stop_reason` trước đó) và
-`rounds_completed < max_rounds` và chưa dùng hết `max_review_rounds` (mặc định 2, đếm riêng số lần Reviewer gửi phản hồi), Reviewer phát `review_feedback_sent`, ghi `review_feedback`, rồi Coder
-nhận `incoming_message.from = "Reviewer"` cùng `artifacts.review_report` và trả patch tích lũy mới;
+`chain_review_loop` (phiên bản 2) dùng đúng các node và hợp đồng của Chain; khác duy nhất là cạnh
+`reviewer → planner`. Khi test đã đạt nhưng Reviewer từ chối (không có `stop_reason` trước đó) và
+`rounds_completed < max_rounds` và chưa dùng hết `max_review_rounds` (mặc định 2, đếm riêng số lần Reviewer gửi phản hồi), Reviewer phát `review_feedback_sent`, ghi `review_feedback`; Coder
+không nhận phản hồi trực tiếp. Planner nhận `incoming_message.from = "Reviewer"` cùng
+`artifacts.review_report`, lập plan thay thế, rồi Coder nhận plan đó và trả patch tích lũy mới.
 Tester và Reviewer chạy lại trên patch đó. Test fail vẫn đi qua `limit` như Chain. Hết vòng thì dừng
 với `reviewer_rejected`. Template này được chọn bằng tay (`topology` trong `configs/levels/l3_collaboration.yaml`
 hoặc `--topology chain_review_loop` của `raac-mas run-chain`); Chain thường không có cạnh này.

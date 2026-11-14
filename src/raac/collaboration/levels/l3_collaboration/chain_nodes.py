@@ -49,7 +49,9 @@ def _tests_pass(state: ChainState) -> bool:
         and report["patch_hash"] == state["patch_hash"]
         and report["status"] == "passed" and report["verdict"] == "pass"
         and report["tests_run"] > 0 and report["failed"] == 0
-        and report["test_cases"] and not report["blocking_issues"]
+        # At least one test really ran (not only skips). Test names are not required: a runner such as
+        # Django's runtests.py reports counts without names unless run verbosely.
+        and report["tests_run"] > report.get("skipped", 0) and not report["blocking_issues"]
         and set(report["covered_ac_ids"]) == _ac_ids(state)
     )
 
@@ -126,13 +128,21 @@ class ChainNodes:
             "output_schema": role_output_model(role).model_json_schema(),
         }, role=role)
         events = [self._event(state, node, "agent_started", role=role, round=round_number)]
+        started_at = time.time()
+        deadline_extension = 0.0
         try:
-            default = state["limits"]["agent_timeout_seconds"]
+            default = None if role == "Environment" else state["limits"]["agent_timeout_seconds"]
             resolver = getattr(self.runner, "role_timeout", None)
             timeout = resolver(role, default) if resolver else default
-            remaining = max(0, state["deadline_at"] - time.time())
-            timeout = remaining if timeout is None else min(timeout, remaining)
+            if role != "Environment":
+                remaining = max(0, state["deadline_at"] - time.time())
+                timeout = remaining if timeout is None else min(timeout, remaining)
             raw = await asyncio.wait_for(self.runner(role, request), timeout=timeout)
+            if role == "Environment":
+                # Environment preparation has its own clock. Preserve the time
+                # remaining for development even after a long dependency install.
+                deadline_extension = time.time() - started_at
+                state = {**state, "deadline_at": state["deadline_at"] + deadline_extension}
             runtime = deepcopy(raw.runtime) if isinstance(raw, RoleHandoff) else {}
             payload = raw.output if isinstance(raw, RoleHandoff) else raw
             output = RoleHandoff(parse_role_output(role, payload).model_dump(), runtime)
@@ -157,6 +167,8 @@ class ChainNodes:
             interrupted["events"] = events + interrupted["events"]
             return None, interrupted, []
         events.append(self._event(state, node, "agent_completed", role=role, round=round_number))
+        if deadline_extension:
+            output = RoleHandoff(output.output, {**output.runtime, "deadline_at": state["deadline_at"]})
         return output, None, events
 
     async def analyst(self, state: ChainState) -> dict:
@@ -175,8 +187,12 @@ class ChainNodes:
         criteria = set(output["acceptance_criteria"])
         if any(item["description"] not in criteria for item in inherited):
             return self._abort(state, "analyst", "changed_acceptance_criteria", events=events)
-        if not set(state["work"]["constraints"]).issubset(output["constraints"]):
-            return self._abort(state, "analyst", "changed_constraints", events=events)
+        inherited_constraints = state["work"]["constraints"]
+        if inherited_constraints:
+            # The spec contract renamed constraints to non_functional_requirements; accept either.
+            kept = output.get("constraints", output.get("non_functional_requirements", []))
+            if not set(inherited_constraints).issubset(kept):
+                return self._abort(state, "analyst", "changed_constraints", events=events)
         catalog = {item["id"]: item["description"] for item in inherited}
         index = 1
         for description in output["acceptance_criteria"]:
@@ -194,11 +210,12 @@ class ChainNodes:
 
     async def planner(self, state: ChainState) -> dict:
         rework = state.get("patch") is not None
+        review_feedback = state.get("review_feedback")
         output, failure, events = await self._call(
             state, "planner", "Planner",
-            {"from": "Hub" if rework else "Analyst", "content": state["spec"]},
+            {"from": "Reviewer" if review_feedback else "Hub" if rework else "Analyst", "content": state["spec"]},
             {"spec": state["spec"],
-             **({"test_report": state["test_report"], "review_report": state.get("review_feedback")} if rework else {}),
+             **({"test_report": state["test_report"], "review_report": review_feedback} if rework else {}),
              **({"hub_note": state["hub_note"]} if state.get("hub_note") else {})},
         )
         if failure:
@@ -212,8 +229,29 @@ class ChainNodes:
         if rework:
             # A new plan makes the earlier tests/review stale; the patch stays as the Coder's baseline.
             update.update(plan_changed=True, test_report=None, review_report=None, tests_passed=False,
-                          verdict=None, stop_reason=None)
+                          review_feedback=None, verdict=None, stop_reason=None)
         return update
+
+    async def environment(self, state: ChainState) -> dict:
+        # First node: verify the runtime before spending Analyst/Planner tokens.
+        # No spec/plan exists yet, so it selects the suite from the raw requirement and repository.
+        output, failure, events = await self._call(
+            state, "environment", "Environment",
+            {"from": "caller", "requirement": state["work"]["requirement"]}, {},
+        )
+        if failure:
+            return failure
+        report = {**output.output, "configuration": output.runtime.get("configuration"),
+                  "verification": output.runtime.get("verification", []),
+                  "smoke_report": output.runtime.get("smoke_report"),
+                  "observation_ref": output.runtime.get("observation_ref")}
+        if output.output["status"] != "ready" or output.runtime.get("verified") is not True:
+            return {**self._abort(state, "environment", "environment_setup_failed", events=events),
+                    "environment_report": report}
+        # Every topology enters the team through the Hub; in chain it only passes the run on to the Analyst.
+        return {"environment_report": report, "next_node": "hub",
+                "deadline_at": output.runtime.get("deadline_at", state["deadline_at"]),
+                "events": [*events, self._event(state, "environment", "environment_verified", target="hub")]}
 
     async def coder(self, state: ChainState) -> dict:
         if state["round_number"] >= state["limits"]["max_rounds"]:
@@ -375,15 +413,19 @@ class ChainNodes:
         reason = "tests_and_review_passed" if passed else (
             state["stop_reason"] or "reviewer_rejected"
         )
+        topology = get_topology(state.get("topology_id", "chain"))
+        feedback_targets = tuple(target for source, target in topology.edges if source == "reviewer" and target != "result")
         if (not passed and state["stop_reason"] is None
-                and ("reviewer", "coder") in get_topology(state.get("topology_id", "chain")).edges
+                and topology.topology_id == "chain_review_loop"
+                and feedback_targets == ("planner",)
                 and state["rounds_completed"] < state["limits"]["max_rounds"]
                 and state.get("review_rounds", 0) < state["limits"].get("max_review_rounds", 0)):
+            target = feedback_targets[0]
             return {
                 "review_report": output, "review_feedback": output, "verdict": None,
                 "review_rounds": state.get("review_rounds", 0) + 1,
-                "stop_reason": None, "next_node": "coder", "events": [*events, self._event(
-                    state, "reviewer", "review_feedback_sent", target="coder", reason="reviewer_rejected",
+                "stop_reason": None, "next_node": target, "events": [*events, self._event(
+                    state, "reviewer", "review_feedback_sent", target=target, reason="reviewer_rejected",
                     rounds_completed=state["rounds_completed"], max_rounds=state["limits"]["max_rounds"],
                     review_round=state.get("review_rounds", 0) + 1,
                     max_review_rounds=state["limits"]["max_review_rounds"],

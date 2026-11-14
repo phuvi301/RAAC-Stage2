@@ -22,6 +22,8 @@ class ShortTermMemoryPolicy(BaseModel):
     enabled: bool = True
     max_tokens: int = Field(default=6000, ge=1024, le=64000)
     target_tokens: int = Field(default=4000, ge=512, le=64000)
+    # The newest messages of a role's previous turn in the run, passed to its next turn; 0 disables.
+    previous_attempt_tokens: int = Field(default=15000, ge=0, le=64000)
 
     @model_validator(mode="after")
     def valid_target(self):

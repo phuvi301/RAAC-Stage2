@@ -301,7 +301,7 @@ function renderFlowDetail(summary, id) {
 }
 function edgeLabel(edge) {
   const start = state.events.find(event => event.event === "run_started") || {};
-  if (edge.from === "reviewer" && edge.to === "coder")
+  if (edge.from === "reviewer" && edge.to === "planner")
     return Number.isInteger(start.max_review_rounds) ? `Reviewer từ chối · tối đa ${start.max_review_rounds} vòng` : "Reviewer từ chối";
   if (edge.from === "limit" && edge.to === "coder")
     return Number.isInteger(start.max_rounds) ? `Test chưa đạt · tối đa ${start.max_rounds} vòng` : "Test chưa đạt";

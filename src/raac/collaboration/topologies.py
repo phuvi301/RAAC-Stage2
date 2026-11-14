@@ -33,8 +33,9 @@ class TopologySpec:
 
 
 CHAIN = TopologySpec(
-    topology_id="chain", version="6",
+    topology_id="chain", version="7",
     steps=(
+        TopologyStep("environment", "Environment"),
         TopologyStep("hub", "Hub"),
         TopologyStep("analyst", "Analyst"),
         TopologyStep("planner", "Planner"),
@@ -46,37 +47,40 @@ CHAIN = TopologySpec(
         TopologyStep("result", None),
     ),
     edges=(
-        ("hub", "analyst"), ("analyst", "planner"),
+        ("environment", "hub"), ("hub", "analyst"), ("analyst", "planner"),
         ("planner", "coder"), ("coder", "tester"), ("tester", "check"),
         ("check", "reviewer"), ("check", "limit"),
         ("limit", "coder"), ("limit", "reviewer"),
         ("reviewer", "result"),
     ),
-    entry_node="hub", exit_node="result",
+    entry_node="environment", exit_node="result",
 )
 
 # Same roles and contracts as CHAIN; only the communication differs: a rejecting
-# Reviewer may send its feedback back to Coder while rounds remain.
+# Reviewer may send its feedback back to Planner while rounds remain.
 CHAIN_REVIEW_LOOP = TopologySpec(
-    topology_id="chain_review_loop", version="2",
+    topology_id="chain_review_loop", version="3",
     steps=CHAIN.steps,
-    edges=CHAIN.edges + (("reviewer", "coder"),),
+    edges=CHAIN.edges + (("reviewer", "planner"),),
     entry_node=CHAIN.entry_node, exit_node=CHAIN.exit_node,
 )
 
 _SPOKES = ("analyst", "planner", "coder", "tester", "reviewer")
 
 # Star: every role reports to the Hub; check/limit are folded into its routing rules.
+# Environment runs once before the Hub, exactly as in Chain.
 STAR = TopologySpec(
-    topology_id="star", version="2",
+    topology_id="star", version="3",
     steps=(
+        TopologyStep("environment", "Environment"),
         TopologyStep("hub", "Hub"),
         *(TopologyStep(node, node.capitalize()) for node in _SPOKES),
         TopologyStep("result", None),
     ),
-    edges=(*(edge for node in _SPOKES for edge in (("hub", node), (node, "hub"))),
+    edges=(("environment", "hub"),
+           *(edge for node in _SPOKES for edge in (("hub", node), (node, "hub"))),
            ("hub", "result")),
-    entry_node="hub", exit_node="result", layout="star",
+    entry_node="environment", exit_node="result", layout="star",
 )
 
 TOPOLOGIES = MappingProxyType({spec.topology_id: spec for spec in (CHAIN, CHAIN_REVIEW_LOOP, STAR)})

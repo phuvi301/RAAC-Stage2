@@ -304,7 +304,7 @@ class StarHubTests(unittest.IsolatedAsyncioTestCase):
                            choices=BEFORE_TEST_RESULT + [{"next": "planner", "reason": "x"}])
         output = await self.run_star(agents)
         self.assertLessEqual({d["next"] for d in self.decisions(output)} - {"finish"}, CATALOG)
-        self.assertLessEqual(set(self.roles(agents)), {role.capitalize() for role in CATALOG})
+        self.assertLessEqual(set(self.roles(agents)), {role.capitalize() for role in CATALOG} | {"Environment"})  # Environment runs once, before the Hub
 
 
 class HubPolicyTests(unittest.TestCase):

@@ -98,7 +98,7 @@ console.log(JSON.stringify(out));
     def test_layout_keeps_main_path_in_a_row_and_hangs_limit_below_it(self):
         result = self.run_node({})["layout"]
         nodes = result["nodes"]
-        main = ["hub", "analyst", "planner", "coder", "tester", "check", "reviewer", "result"]
+        main = ["environment", "hub", "analyst", "planner", "coder", "tester", "check", "reviewer", "result"]
         main = main[main.index(CHAIN.entry_node):]
         self.assertEqual({nodes[i]["row"] for i in main}, {0})
         self.assertEqual([nodes[i]["x"] for i in main], sorted(nodes[i]["x"] for i in main))
@@ -152,9 +152,9 @@ class ReviewLoopGraphTests(unittest.TestCase):
         row = present_event({"event": "run_started", "decision": {
             "topology": "chain_review_loop", "max_rounds": 3, "max_review_rounds": 2}}, 1)
         self.assertEqual((row["max_rounds"], row["max_review_rounds"]), (3, 2))
-        self.assertIn("Reviewer → Coder tối đa 2 vòng", row["summary"])
+        self.assertIn("Reviewer → Planner tối đa 2 vòng", row["summary"])
         plain = present_event({"event": "run_started", "decision": {"topology": "chain", "max_rounds": 3}}, 1)
-        self.assertNotIn("Reviewer → Coder", plain["summary"])
+        self.assertNotIn("Reviewer → Planner", plain["summary"])
 
     @unittest.skipUnless(shutil.which("node"), "node is needed to run the graph module")
     def test_review_edge_arcs_over_the_main_row_and_limit_edge_stays_below(self):
@@ -172,8 +172,8 @@ class ReviewLoopGraphTests(unittest.TestCase):
         done = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, timeout=30)
         self.assertEqual(done.returncode, 0, done.stderr)
         data = json.loads(done.stdout)
-        self.assertEqual(data["top"], ["reviewer>coder"])
-        self.assertEqual(data["back"], ["limit>coder", "reviewer>coder"])
+        self.assertEqual(data["top"], ["reviewer>planner"])
+        self.assertEqual(data["back"], ["limit>coder", "reviewer>planner"])
         self.assertGreater(data["coderY"], 64)  # room reserved above the row for the arc
         self.assertGreater(data["limitY"], data["coderY"])
 
@@ -198,7 +198,7 @@ class StarGraphTests(unittest.TestCase):
         data = json.loads(done.stdout)
         self.assertEqual(data["back"], [])
         at = data["at"]
-        self.assertNotIn("environment", at)
+        self.assertLess(at["environment"][0], at["hub"][0])  # Environment enters the star before the Hub
         self.assertLess(at["hub"][0], at["result"][0])
         spokes = [at[name] for name in ("analyst", "planner", "coder", "tester", "reviewer")]
         self.assertEqual(len({tuple(point) for point in spokes}), 5)

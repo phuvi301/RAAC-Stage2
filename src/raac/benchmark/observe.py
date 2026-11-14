@@ -10,8 +10,9 @@ from raac.common.trace_web import TraceRuns, create_trace_server
 
 
 class BenchmarkObserver:
-    def __init__(self, mode):
+    def __init__(self, mode, label="Benchmark"):
         self.mode = mode
+        self.label = label
         self.runs = TraceRuns()
         self.server = None
         self.thread = None
@@ -22,7 +23,7 @@ class BenchmarkObserver:
         print(message, file=sys.stderr, flush=True)
 
     def ready(self, path):
-        self.emit(f"Benchmark log: {path}")
+        self.emit(f"{self.label} log: {path}")
         if self.mode == "none":
             return
         try:
@@ -48,7 +49,7 @@ class BenchmarkObserver:
                 self.thread = threading.Thread(target=self._terminal, args=(path,), daemon=True)
                 self.thread.start()
         except Exception as exc:  # noqa: BLE001 -- observation must never stop a benchmark.
-            self.emit(f"Observe unavailable ({type(exc).__name__}); benchmark continues. Log: {path}")
+            self.emit(f"Observe unavailable ({type(exc).__name__}); {self.label.lower()} continues. Log: {path}")
             self.close()
             self.mode = "none"
 
@@ -60,7 +61,7 @@ class BenchmarkObserver:
 
     async def finish(self):
         if self.server is not None:
-            self.emit("Benchmark đã kết thúc. Web vẫn mở; Ctrl+C để đóng viewer.")
+            self.emit(f"{self.label} đã kết thúc. Web vẫn mở; Ctrl+C để đóng viewer.")
             try:
                 while True:
                     await asyncio.sleep(0.25)

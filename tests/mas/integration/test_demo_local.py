@@ -413,7 +413,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(record["execution"]["mode"], "local")
         self.assertNotIn("evaluation", record)
         self.assertNotIn("sandbox_image_id", record)
-        self.assertEqual(record["provenance"]["registry_version"], "0.19.5")
+        self.assertEqual(record["provenance"]["registry_version"], "0.19.6")
         declaration = record["provenance"]["registry_snapshot"]["roles"]["planner"]
         self.assertEqual(declaration["role"], "Planner")
         self.assertEqual(declaration["model"], {"ref": "default"})

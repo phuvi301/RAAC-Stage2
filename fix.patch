@@ -1,0 +1,79 @@
+diff --git a/sklearn/feature_selection/_base.py b/sklearn/feature_selection/_base.py
+index da2185eac3..28fc513b34 100644
+--- a/sklearn/feature_selection/_base.py
++++ b/sklearn/feature_selection/_base.py
+@@ -18,6 +18,7 @@ from ..utils import (
+     safe_sqr,
+ )
+ from ..utils._tags import _safe_tags
++from ..utils._set_output import _get_output_config
+ from ..utils.validation import _check_feature_names_in, check_is_fitted
+ 
+ 
+@@ -78,6 +79,11 @@ class SelectorMixin(TransformerMixin, metaclass=ABCMeta):
+         X_r : array of shape [n_samples, n_selected_features]
+             The input samples with only the selected features.
+         """
++        # Preserve X when X is a dataframe and the output is configured to
++        # be pandas.
++        output_config_dense = _get_output_config("transform", estimator=self)["dense"]
++        preserve_X = hasattr(X, "iloc") and output_config_dense == "pandas"
++
+         # note: we use _safe_tags instead of _get_tags because this is a
+         # public Mixin.
+         X = self._validate_data(
+@@ -85,6 +91,7 @@ class SelectorMixin(TransformerMixin, metaclass=ABCMeta):
+             dtype=None,
+             accept_sparse="csr",
+             force_all_finite=not _safe_tags(self, key="allow_nan"),
++            cast_to_ndarray=not preserve_X,
+             reset=False,
+         )
+         return self._transform(X)
+@@ -98,9 +105,13 @@ class SelectorMixin(TransformerMixin, metaclass=ABCMeta):
+                 " too noisy or the selection test too strict.",
+                 UserWarning,
+             )
++            if hasattr(X, "iloc"):
++                return X.iloc[:, :0]
+             return np.empty(0, dtype=X.dtype).reshape((X.shape[0], 0))
+         if len(mask) != X.shape[1]:
+             raise ValueError("X has a different shape than during fitting.")
++        if hasattr(X, "iloc"):
++            return X.iloc[:, safe_mask(X, mask)]
+         return X[:, safe_mask(X, mask)]
+ 
+     def inverse_transform(self, X):
+diff --git a/sklearn/utils/validation.py b/sklearn/utils/validation.py
+index dd0c007602..bee87a8e0a 100644
+--- a/sklearn/utils/validation.py
++++ b/sklearn/utils/validation.py
+@@ -641,6 +641,7 @@ def check_array(
+     ensure_min_features=1,
+     estimator=None,
+     input_name="",
++    cast_to_ndarray=True,
+ ):
+ 
+     """Input validation on an array, list, sparse matrix or similar.
+@@ -728,6 +729,11 @@ def check_array(
+ 
+         .. versionadded:: 1.1.0
+ 
++    cast_to_ndarray : bool, default=True
++        Internal option. If False, all validation checks are still run but
++        the original input object is returned unchanged instead of the
++        converted array (e.g. to keep the dtypes of a pandas DataFrame).
++
+     Returns
+     -------
+     array_converted : object
+@@ -956,7 +962,7 @@ def check_array(
+                 array, dtype=dtype, order=order, copy=True, xp=xp
+             )
+ 
+-    return array
++    return array if cast_to_ndarray else array_orig
+ 
+ 
+ def _check_large_sparse(X, accept_large_sparse=False):
