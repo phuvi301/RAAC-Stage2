@@ -192,3 +192,21 @@ async def test_from_runtime_uses_real_llm_client_path(tmp_path):
         assert observation["tool_observations"][0]["observation"]["result"]["content"] == "VALUE = 1\n"
     finally:
         await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_invoke_agent_keeps_the_requirement_when_no_spec_exists():
+    seen = []
+
+    async def runner(role, request):
+        seen.append(request)
+        return {}
+
+    engine = Engine(registry=None, runner=runner)
+    state = {"run_id": "r", "task": {"task_id": "t"}, "requirement": "do it", "plan": {"steps": []},
+             "messages": [{"from": "Planner", "content": "old"}]}
+    await engine.invoke_agent("Coder", state, incoming_message={"from": "Router", "content": "do it"},
+                              artifacts={"plan": state["plan"]})
+    assert seen[0]["requirement"] == "do it"
+    assert seen[0]["incoming_message"] == {"from": "Router", "content": "do it"}
+    assert "collaboration_state" not in seen[0]["artifacts"]

@@ -289,6 +289,11 @@ class L1Fixed(BaseLevel):
                 artifacts["test_report"] = compact_test_report(state.get("test_results"))
                 if feedback.get("from") == "Code Reviewer":
                     artifacts["review_report"] = state.get("review")
+                # The latest round is above; earlier rounds are otherwise invisible.
+                earlier = [entry for entry in state.get("iterations") or []
+                           if entry.get("stage") != "developer" and entry.get("round", 0) < state.get("rounds", 0)]
+                if earlier:
+                    artifacts["earlier_rounds"] = earlier
                 incoming = {"from": feedback["from"], "content": feedback.get("content")}
             else:
                 incoming = {"from": "Planner", "content": state.get("plan")}

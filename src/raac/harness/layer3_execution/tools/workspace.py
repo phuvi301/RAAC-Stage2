@@ -17,10 +17,10 @@ import os  # Duyệt cây thư mục bằng os.walk().
 import subprocess  # Hỏi git những file untracked bị .gitignore loại (chỉ đọc).
 from pathlib import Path  # Biểu diễn đường dẫn, ghép path và đọc/ghi file.
 
-from .patching import apply_repo_patch, rebase_repo_patch  # Áp patch vào dữ liệu trong RAM, chưa ghi ổ đĩa.
+from .patching import apply_repo_patch, apply_tool_patch, rebase_repo_patch  # Áp patch vào dữ liệu trong RAM, chưa ghi ổ đĩa.
 # excluded_directory: thư mục bỏ qua; repo_path: kiểm tra tên; test_path: đoán file test theo tên.
 from .paths import excluded_directory, excluded_runtime_name, repo_path, test_path
-from raac.common.errors import WorkspaceSnapshotError, RejectedEditError
+from raac.common.errors import PatchFormatError, WorkspaceSnapshotError, RejectedEditError
 
 
 class EditConflictError(ValueError):
@@ -615,7 +615,11 @@ class WorkspaceTools:
                     continue
         # Parser tính toàn bộ kết quả trong RAM: {tên: nội_dung_mới_hoặc_None}.
         # None nghĩa là xóa; chuỗi rỗng nghĩa là giữ/tạo một file rỗng.
-        changes = apply_repo_patch(source, patch)
+        try:
+            changes = apply_tool_patch(source, patch)
+        except ValueError as exc:
+            # The parser's sentence tells the model what to fix instead of a generic refusal.
+            raise PatchFormatError(str(exc)) from None
         # Vòng 1 kiểm tra toàn bộ đường dẫn/quyền/kích thước trước khi ghi file đầu tiên.
         for name, content in changes.items():
             self._path(name)
