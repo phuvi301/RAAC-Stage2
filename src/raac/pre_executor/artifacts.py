@@ -5,6 +5,8 @@
     answers.md              câu hỏi + câu trả lời; người dùng sửa phần sau "A:"
     clarification.json      Clarification đã duyệt (ghi lúc approve clarify) — đầu vào của flow requirements
     feedback/<flow>.json    góp ý của người dùng cho flow đó, theo thứ tự
+    run.json                run_id chung của workspace: mọi flow ghi log vào cùng results/<run_id>/llm.jsonl
+    usage.json              token đã dùng: từng lần chạy flow, cộng dồn theo flow và theo run
     approvals.json          {flow: {sha256, approved_at}}
     (requirements.json, requirement_profile.json, tech_stack.json, ... do các flow sau ghi)
 
@@ -81,3 +83,48 @@ class Artifacts:
 
     def feedback_history(self, flow: str) -> list[str]:
         return [entry["text"] for entry in self.read_json(f"feedback/{flow}.json") or []]
+
+    # ---- run chung của workspace
+    def run_id(self) -> str | None:
+        return (self.read_json("run.json") or {}).get("run_id")
+
+    def set_run_id(self, run_id: str, reason: str = "") -> None:
+        data = self.read_json("run.json") or {"run_id": None, "history": []}
+        if data.get("run_id") == run_id:
+            return
+        if data.get("run_id"):
+            data["history"].append({"run_id": data["run_id"], "replaced_because": reason or "unknown",
+                                    "at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
+        data["run_id"] = run_id
+        self.write_json("run.json", data)
+
+    def usage_for_run(self, run_id: str | None) -> dict:
+        """Token đã ghi cho run này (mọi lần chạy flow trước), để tách token của lần chạy hiện tại."""
+        total = {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0}
+        for run in (self.read_json("usage.json") or {}).get("runs", []):
+            if run["run_id"] == run_id:
+                for key in total:
+                    total[key] += run[key]
+        return total
+
+    # ---- token đã dùng (số do provider báo, như MAS)
+    def add_usage(self, flow: str, run_id: str, usage: dict) -> None:
+        data = self.read_json("usage.json") or {"runs": [], "flows": {}}
+        entry = {key: usage.get(key) or 0 for key in ("prompt_tokens", "completion_tokens", "calls")}
+        data["runs"].append({"run_id": run_id, "flow": flow, **entry,
+                             "at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
+        total = data["flows"].setdefault(flow, {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0, "runs": 0})
+        for key, value in entry.items():
+            total[key] += value
+        total["runs"] += 1
+        self.write_json("usage.json", data)
+
+    def usage_by_flow(self) -> dict:
+        return (self.read_json("usage.json") or {}).get("flows", {})
+
+    def usage_total(self) -> dict:
+        total = {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0}
+        for values in self.usage_by_flow().values():
+            for key in total:
+                total[key] += values[key]
+        return total

@@ -38,9 +38,11 @@ python -m raac.pre_executor tui --workspace C:/work/shop
 python -m raac.pre_executor tui --workspace C:/work/shop --prompt-file C:/work/request.md --model cc/claude-opus-5-5
 ```
 
-1. **Yêu cầu:** gõ trong TUI nếu workspace chưa có (hoặc truyền `--prompt` / `--prompt-file`).
-2. **clarify:** mỗi câu hỏi một cửa sổ, ô trả lời điền sẵn gợi ý, Enter để trả lời. Agent tự hỏi vòng tiếp tới khi
-   đủ (hoặc hết `max_clarify_rounds`) rồi tự chốt. Không có góp ý/approve ở bước này.
+1. **Yêu cầu:** gõ trong TUI nếu workspace chưa có (hoặc truyền `--prompt` / `--prompt-file`). Có thể là một câu
+   yêu cầu thô hoặc cả một bản spec: agent đọc hết và chỉ hỏi những gì spec chưa nói rõ.
+2. **clarify:** mỗi câu hỏi một cửa sổ. Câu trắc nghiệm: chọn trong danh sách (phương án khuyến nghị chọn sẵn) hoặc
+   tự gõ ở ô "Khác"; câu trả lời ngắn: sửa gợi ý rồi Enter. Agent tự hỏi vòng tiếp tới khi đủ (hoặc hết
+   `max_clarify_rounds`) rồi tự chốt. Không có góp ý/approve ở bước này.
 3. **requirements → profile:** mỗi bước hiện bản nháp; gõ góp ý rồi Enter để agent sửa tiếp trên bản nháp, vừa ý
    bấm **Approve**, rồi "Tiếp" sang bước sau.
 
@@ -59,8 +61,26 @@ Ctrl+Q để dừng bất cứ lúc nào; chạy lại đúng lệnh đó sẽ *
 | trạng thái | `python -m raac.pre_executor status --workspace W` |
 
 `revise`, `approve`, `review` dùng cho requirements và profile (clarify chỉ hỏi-đáp). Mỗi flow chỉ chạy khi flow
-trước đã chốt/duyệt. Sau mỗi lần chạy, lệnh in `run_id`; xem log agent bằng
-`python -m raac.mas_cli show-log --run-id <run_id>`.
+trước đã chốt/duyệt. Sau mỗi lần chạy, lệnh in **token đã dùng** (lần này và cộng dồn workspace, như MAS: số do 9router
+báo) và `run_id`; xem log agent bằng `python -m raac.mas_cli show-log --run-id <run_id>`. TUI hiện token của từng lần
+chạy trong log và tổng trên thanh tiêu đề; `status` hiện token theo từng flow.
+
+### Theo dõi agent và log
+
+- **Một run cho cả workspace:** mọi flow và mọi lần góp ý dùng chung một `run_id` (lưu ở `.raac/pre_executor/run.json`),
+  log nối tiếp vào cùng `results/<run_id>/llm.jsonl`: `python -m raac.mas_cli show-log --run-id <run_id>` xem được cả
+  chuỗi clarify → requirements → profile. Mỗi lần chạy flow có `flow_started` / `flow_completed` trong log. Nếu lần
+  trước bị dừng giữa chừng (Ctrl+Q khi agent đang chạy), lần sau tự mở run mới và ghi lý do trong `run.json`.
+- **Đang chạy thì thấy agent làm gì** (như MAS):
+  - TUI: log hiện từng bước — agent bắt đầu, mỗi lượt gọi model, tóm tắt suy nghĩ công khai của model, tool agent
+    dùng (đọc file, tìm kiếm), token từng lượt, và khi đầu ra vi phạm luật phải gửi lại cho agent sửa.
+  - Dòng lệnh: `--observe terminal` (mặc định) in sự kiện trực tiếp; `--observe web` mở viewer web của MAS (viewer
+    vẫn mở sau khi chạy, Ctrl+C để đóng); `--observe none` để tắt.
+- **Mỗi lần góp ý, agent làm gì:** agent nhận bản nháp hiện tại + toàn bộ góp ý của flow đó (cùng lượt trước của chính
+  nó), rồi trả về **toàn bộ bản nháp mới** theo schema (không sửa file bằng tool); prompt yêu cầu giữ nguyên mọi phần
+  người dùng không yêu cầu đổi. Code ghi đè `requirements.json` / `requirement_profile.json` và in **danh sách thay đổi
+  so với bản trước** (`+` thêm, `~` sửa, `-` bớt theo id: chức năng, tiêu chí thành công, NFR, user flow, quy tắc, yêu
+  cầu, trường hợp biên; và các mục tổng quan/ràng buộc/giả định nếu đổi) để kiểm agent có đổi ngoài ý muốn không.
 
 ### Tham số chung
 
@@ -78,13 +98,27 @@ Mọi thứ nằm trong `<workspace>/.raac/pre_executor/` (có `.gitignore` riê
 | File | Nội dung |
 |---|---|
 | `request.md` | yêu cầu gốc |
-| `answers.md`, `clarification.json` | câu hỏi/trả lời của clarify, bản đã chốt |
-| `requirements.md/.json` | tổng quan, chức năng cốt lõi, NFR |
-| `requirement_profile.md/.json` | user flow, quy tắc nghiệp vụ, FR + AC — đầu vào cho các flow thiết kế |
+| `answers.md`, `clarification.json` | câu hỏi/trả lời của clarify (kèm bảng độ phủ từng vòng), bản đã chốt |
+| `coverage.json` | độ phủ cuối của 10 nhóm: rõ / đã rõ sau khi hỏi / để bước sau / không áp dụng / còn thiếu |
+| `requirements.md/.json` | tổng quan, chức năng cốt lõi (lý do ưu tiên, cách kiểm độc lập), tiêu chí thành công, thực thể chính, NFR |
+| `requirement_profile.md/.json` | user flow, quy tắc nghiệp vụ, FR + AC Given/When/Then, trường hợp biên — đầu vào cho các flow thiết kế |
+| `usage.json` | token đã dùng: từng lần chạy flow và cộng dồn theo flow |
+| `run.json` | run_id chung của workspace (và run cũ bị thay nếu lần trước dừng giữa chừng) |
 | `approvals.json`, `feedback/` | bước nào đã duyệt (kèm hash), các góp ý |
 
 - Sửa tay file đã duyệt → trạng thái `stale`, phải duyệt lại. Revise một bước → các bước sau mất duyệt và chạy lại.
 - Mỗi yêu cầu dùng một workspace riêng; muốn làm lại từ đầu trên cùng thư mục thì xoá `.raac/pre_executor/`.
+
+## Nguồn tham khảo (đã đọc trực tiếp; học cấu trúc, prompt tự viết)
+
+| Flow | Nguồn | Áp dụng |
+|---|---|---|
+| clarify | GitHub Spec Kit `templates/commands/clarify.md` (`github/spec-kit`, MIT) | 10 nhóm độ phủ, trạng thái clear/partial/missing (+ not_applicable, deferred), tối đa 5 câu tác động lớn nhất, trắc nghiệm 2–5 lựa chọn có khuyến nghị, báo cáo độ phủ cuối (resolved/deferred/outstanding); không hỏi điều có mặc định thông thường |
+| requirements | Spec Kit `templates/spec-template.md`, `templates/commands/specify.md`; ISO/IEC 25010 | chức năng như user story có lý do ưu tiên + cách kiểm độc lập (lát cắt MVP); success criteria đo được, không nói công nghệ; key entities; tối đa 3 câu hỏi mở; mặc định hợp lý ghi vào giả định; NFR theo đặc tính chất lượng ISO/IEC 25010 |
+| profile | Spec Kit `spec-template.md` (acceptance scenarios, edge cases, "System MUST"); Gherkin; EARS (Mavin); Kiro | AC dạng Given/When/Then; trường hợp biên cho từng chức năng; FR viết thành câu chỉ thị một hành vi |
+
+Đọc thêm: ISO/IEC/IEEE 29148 (đặc điểm của yêu cầu tốt: cần thiết, không mơ hồ, kiểm được), Volere Requirements
+Specification Template (Robertson), Karl Wiegers *Software Requirements*, User Story Mapping (Jeff Patton), MoSCoW.
 
 ## Ý tưởng
 
@@ -96,9 +130,9 @@ Mọi thứ nằm trong `<workspace>/.raac/pre_executor/` (có `.gitignore` riê
 
 | Flow (vai trong sơ đồ) | Role | Đầu vào (đã chốt/duyệt) | Đầu ra | Duyệt | Luật kiểm bằng code |
 |---|---|---|---|---|---|
-| clarify (Clarification Manager) | `clarifier` | request (+ câu trả lời vòng trước) | **Clarification** `answers.md` → `clarification.json` | tự chốt, chỉ hỏi-đáp | không hỏi lại câu đã hỏi; chưa đủ thì phải hỏi; ≤ 5 câu/vòng |
-| requirements (Product Requirement Analyst) | `requirement_analyst` | request + Clarification | **Tổng quan, chức năng cốt lõi (F-n), NFR (NFR-n)** `requirements.json/.md` | góp ý + approve | id duy nhất; tên chức năng không trùng; căn cứ là request/Qn có thật; câu để nguyên gợi ý phải vào giả định; NFR có metric |
-| profile (Requirement Profile) | `requirement_profiler` | requirements (+ request, Clarification) | **User flow, quy tắc nghiệp vụ, yêu cầu chi tiết FR-n + AC** `requirement_profile.json/.md` | góp ý + approve | mỗi feature có FR; FR trỏ feature có thật và có AC; không thêm feature |
+| clarify (Clarification Manager) | `clarifier` | yêu cầu thô hoặc spec (+ câu trả lời vòng trước) | **Clarification** `answers.md` → `clarification.json` + `coverage.json` | tự chốt, chỉ hỏi-đáp | đủ 10 nhóm độ phủ; không complete khi còn missing; chỉ hỏi nhóm partial/missing; trắc nghiệm 2–5 lựa chọn, khuyến nghị nằm trong lựa chọn; không hỏi lại |
+| requirements (Product Requirement Analyst) | `requirement_analyst` | request + Clarification + coverage | **Tổng quan, chức năng cốt lõi (F-n), tiêu chí thành công (SC-n), thực thể chính, NFR (NFR-n, ISO 25010)** `requirements.json/.md` | góp ý + approve | id/tên không trùng; mỗi chức năng có lý do ưu tiên + cách kiểm độc lập; có SC và SC không nhắc công nghệ; ≤ 3 câu hỏi mở; căn cứ là request/Qn có thật; câu giữ khuyến nghị phải vào giả định; NFR có metric |
+| profile (Requirement Profile) | `requirement_profiler` | requirements (+ request, Clarification) | **User flow, quy tắc nghiệp vụ, FR-n (câu chỉ thị) + AC Given/When/Then, trường hợp biên EC-n** `requirement_profile.json/.md` | góp ý + approve | mỗi feature có FR; FR/BR/UF/EC trỏ feature có thật; AC đặt tên theo FR; feature ưu tiên cao có user flow và trường hợp biên |
 | tech_select (Technology Selector) | `tech_selector` | Requirement Profile (+ đọc repo) | `tech_stack.json/.md` | góp ý + approve | mỗi lựa chọn có lý do; repo có sẵn không đổi stack vô cớ |
 | architecture (System Architect) | `system_architect` | Requirement Profile + tech_stack | `architecture.json/.md` | góp ý + approve | chỉ dùng công nghệ đã chốt; thư mục là đường dẫn tương đối |
 | environment | `environment_planner` | tech_stack + architecture + NFR + `machine.json` | `environment.json/.md` | góp ý + approve | runtime "đã có" phải có thật trên máy; "cần cài" phải có lệnh cài; có lệnh test |

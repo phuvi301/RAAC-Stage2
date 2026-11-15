@@ -26,6 +26,16 @@ from .runtime import PROJECT
 IMPLEMENTED = {"clarify": clarify, "requirements": requirements, "profile": profile}
 
 
+def format_usage(usage: dict) -> str:
+    """Như MAS: số token do provider (9router) báo; có thể thiếu phần cache."""
+    text = f"token vào {usage.get('prompt_tokens', 0):,} / ra {usage.get('completion_tokens', 0):,}"
+    if usage.get("calls") is not None:
+        text += f", {usage['calls']} lượt gọi model"
+    if usage.get("cached_tokens"):
+        text += f", cache {usage['cached_tokens']:,}"
+    return text
+
+
 def _request_text(args) -> str | None:
     if getattr(args, "prompt_file", None):
         return Path(args.prompt_file).read_text(encoding="utf-8-sig")
@@ -51,7 +61,7 @@ def _prepare(args, *, require_request: bool = True) -> Artifacts:
 
 
 async def _run_flow(flow: str, artifacts: Artifacts, *, note=None, open_runtime=None, write=print,
-                    model: str | None = None) -> dict:
+                    model: str | None = None, observe: str = "none", event_handler=None) -> dict:
     module = IMPLEMENTED.get(flow)
     if module is None:
         raise ValueError(f"Flow {flow} chưa triển khai")
@@ -59,21 +69,55 @@ async def _run_flow(flow: str, artifacts: Artifacts, *, note=None, open_runtime=
     config = load_config(PROJECT / "configs/pre_executor.yaml")
     if open_runtime is None:
         from .runtime import open_runtime
-    runtime = await open_runtime(artifacts.workspace, artifacts.request(), flow, model=config.model_for(flow, model))
-    status = "failed"
+    extra = {"event_handler": event_handler} if event_handler is not None else {}
+    run_id = artifacts.run_id()
+    if run_id:  # cả workspace dùng chung một run: log nối tiếp, show-log xem được cả chuỗi
+        extra.update(run_id=run_id, usage_baseline=artifacts.usage_for_run(run_id))
+    runtime = await open_runtime(artifacts.workspace, artifacts.request(), flow, model=config.model_for(flow, model),
+                                 **extra)
+    if getattr(runtime, "run_id", None):
+        replaced = getattr(runtime, "replaced_run_id", None)
+        artifacts.set_run_id(runtime.run_id, "previous run was interrupted" if replaced else "")
+        if replaced:
+            write(f"  Run {replaced} bị dừng giữa chừng lần trước; chuyển sang run mới {runtime.run_id}")
+    observer = None
+    if observe != "none" and getattr(runtime, "log_path", None) is not None:
+        from raac.benchmark.observe import BenchmarkObserver  # viewer của MAS: terminal hoặc web
+
+        observer = BenchmarkObserver(observe, label=f"pre_executor {flow}")
+        observer.ready(runtime.log_path)
+    status, usage = "failed", None
     try:
         result = await module.run(artifacts, runtime, config, note=note)
         status = "completed"
     finally:
+        snapshot = getattr(runtime, "usage", None)
+        usage = snapshot() if callable(snapshot) else None
         await runtime.aclose(status=status)
+        if observer is not None:
+            if observe == "web":
+                await observer.finish()  # như MAS: viewer vẫn mở tới khi Ctrl+C
+            observer.close()
+        if usage and usage.get("calls"):
+            artifacts.add_usage(flow, runtime.run_id, usage)
+            if status != "completed":
+                write(f"{flow}: {format_usage(usage)} (lần chạy lỗi)")
+    if usage:
+        result["usage"] = usage
     if result.get("message"):
         write(result["message"])
     elif result.get("status") == "done":
         write(f"{flow}: xong sau {result['round']} vòng ({result['reason']}): {result['answered']} câu trả lời, "
-              f"{result['assumed']} câu dùng gợi ý (giả định). Kết quả: {result['clarification']}")
+              f"{result['assumed']} câu dùng khuyến nghị (giả định). Kết quả: {result['clarification']}")
+        if result.get("coverage"):
+            write("  Độ phủ: " + ", ".join(f"{status} {count}" for status, count in result["coverage"].items())
+                  + f" (chi tiết: {artifacts.path('coverage.json')})")
     else:
         write(f"{flow}: vòng {result['round']}, {result['questions']} câu hỏi. Trả lời tại: {result['answers']}")
         write(f"  Trả lời xong thì chạy lại `clarify --workspace ...` để agent hỏi tiếp.")
+    if usage and usage.get("calls"):
+        total = artifacts.usage_total()
+        write(f"  Token lần này: {format_usage(usage)} · cộng dồn workspace: {format_usage(total)}")
     if result.get("run_id"):
         write(f"  Log: python -m raac.mas_cli show-log --run-id {result['run_id']}")
     return result
@@ -94,10 +138,14 @@ def _approve(flow: str, artifacts: Artifacts, write=print) -> None:
 
 
 def _status(artifacts: Artifacts, write=print) -> None:
+    usage = artifacts.usage_by_flow()
     for flow, value in gate.status(artifacts).items():
         note = "" if flow in IMPLEMENTED else "  (chưa triển khai)"
         feedback = len(artifacts.feedback_history(flow))
-        write(f"{flow:<16} {value:<9}{f'  {feedback} góp ý' if feedback else ''}{note}")
+        tokens = f"  {format_usage(usage[flow])}" if flow in usage else ""
+        write(f"{flow:<16} {value:<9}{f'  {feedback} góp ý' if feedback else ''}{tokens}{note}")
+    if usage:
+        write(f"Tổng: {format_usage(artifacts.usage_total())}")
 
 
 async def review(flow: str, artifacts: Artifacts, *, read=input, write=print, open_runtime=None, model=None) -> None:
@@ -127,6 +175,8 @@ def build_parser() -> argparse.ArgumentParser:
         group.add_argument("--prompt", help="yêu cầu nhập trực tiếp")
         group.add_argument("--prompt-file", help="đường dẫn file yêu cầu (vd. request.md)")
         sub.add_argument("--model", help="model cho lần chạy này (ghi đè models trong configs/pre_executor.yaml)")
+        sub.add_argument("--observe", choices=["terminal", "web", "none"], default="terminal",
+                         help="theo dõi agent khi chạy, như mas_cli run (mặc định terminal)")
 
     for flow in FLOWS:
         common(commands.add_parser(flow, help=f"chạy flow {flow}"))
@@ -154,10 +204,14 @@ def main(argv=None, *, open_runtime=None) -> int:
 
             run_tui(artifacts, model=args.model)
         elif args.command in FLOWS:
-            asyncio.run(_run_flow(args.command, artifacts, open_runtime=open_runtime, model=args.model))
+            asyncio.run(_run_flow(args.command, artifacts, open_runtime=open_runtime, model=args.model,
+                                  observe=args.observe))
         elif args.command == "revise":
             _reviewable(args.flow)
-            asyncio.run(_run_flow(args.flow, artifacts, note=args.note, open_runtime=open_runtime, model=args.model))
+            if len(args.note.strip()) < 3:
+                raise ValueError("Góp ý quá ngắn (ít nhất 3 ký tự)")
+            asyncio.run(_run_flow(args.flow, artifacts, note=args.note, open_runtime=open_runtime, model=args.model,
+                                  observe=args.observe))
         elif args.command == "approve":
             _approve(args.flow, artifacts)
         elif args.command == "review":
@@ -167,6 +221,10 @@ def main(argv=None, *, open_runtime=None) -> int:
     except (ValueError, gate.GateError, FlowError, OSError) as exc:
         print(f"Lỗi: {exc}", file=sys.stderr)
         return 2
+    except RuntimeError as exc:  # lỗi khi gọi model/agent (vd. 9router tắt): báo gọn, không in traceback
+        print(f"Lỗi khi chạy agent ({type(exc).__name__}: {exc}). Kiểm tra 9router/model rồi chạy lại; "
+              "kết quả các bước trước vẫn được giữ.", file=sys.stderr)
+        return 3
     except KeyboardInterrupt:
         return 130
     return 0
