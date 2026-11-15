@@ -21,7 +21,7 @@ async def run_role(runtime, flow: str, role_name: str, schema: type[BaseModel], 
                    check: Callable[[BaseModel], list[str]], *, retries: int = 2, round_number: int = 0):
     problems: list[str] = []
     previous = None
-    for _ in range(retries + 1):
+    for attempt in range(1, retries + 2):
         payload = dict(artifacts)
         if problems:
             payload["previous_output"] = previous
@@ -41,5 +41,8 @@ async def run_role(runtime, flow: str, role_name: str, schema: type[BaseModel], 
         problems = check(output)
         if not problems:
             return output
+        note = getattr(runtime, "note", None)
+        if callable(note):
+            note("flow_rule_violation", flow=flow, attempt=attempt, problems=len(problems), first=problems[0])
         previous = output.model_dump()
     raise FlowError(f"{flow}: đầu ra vẫn vi phạm luật sau {retries + 1} lần: " + "; ".join(problems))

@@ -10,6 +10,7 @@ import pytest
 
 from raac.pre_executor import cli, gate
 from raac.pre_executor.artifacts import Artifacts
+from pe_helpers import with_coverage
 from raac.pre_executor.config import PreExecutorConfig
 from raac.pre_executor.flows import clarify
 from raac.pre_executor.flows.base import FlowError
@@ -32,7 +33,7 @@ class FakeRuntime:
 
     async def run(self, role_name, request):
         self.requests.append((role_name, request))
-        return self.outputs.pop(0)
+        return with_coverage(self.outputs.pop(0))
 
     async def aclose(self, *, status="completed"):
         self.closed = status
@@ -77,7 +78,7 @@ def test_rounds_are_numbered_across_rounds_and_keep_the_user_answers(tmp_path):
     second = FakeRuntime({"complete": False, "questions": [question("a", "Cổng thanh toán?", "VNPay")]})
     run(clarify.run(artifacts, second, CONFIG))
     sent = second.requests[0][1]["artifacts"]["answers"]
-    assert sent[0] == {"id": "Q1", "question": "Bán gì?", "answer": "giày dép", "assumed": False}
+    assert sent[0] == {"id": "Q1", "category": "functional_scope", "question": "Bán gì?", "answer": "giày dép", "assumed": False}
     assert sent[1]["assumed"] is True
     assert parse_answers(artifacts.read_text("answers.md")) == {"Q1": "giày dép", "Q2": "100", "Q3": "VNPay"}
 
@@ -156,7 +157,7 @@ def test_finishes_at_the_round_limit(tmp_path):
 def opener(*outputs):
     runtime = FakeRuntime(*outputs)
 
-    async def open_runtime(workspace, request_text, flow, model=None):
+    async def open_runtime(workspace, request_text, flow, model=None, **kwargs):
         runtime.opened = (Path(workspace), request_text, flow)
         runtime.model = model
         return runtime
@@ -209,7 +210,8 @@ def test_clarify_runs_through_the_real_agent_runner_and_writes_a_viewable_log(tm
 
     def respond(http_request):
         seen.append(json.loads(http_request.content))
-        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(reply, ensure_ascii=False)}}],
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(with_coverage(reply),
+                                                                                          ensure_ascii=False)}}],
                                          "usage": {"prompt_tokens": 50, "completion_tokens": 20}})
 
     repo = tmp_path / "shop"
@@ -231,4 +233,140 @@ def test_clarify_runs_through_the_real_agent_runner_and_writes_a_viewable_log(tm
     system = seen[0]["messages"][0]["content"]
     assert "Clarification Manager" in system and "Làm phần mềm bán hàng" in json.dumps(seen[0], ensure_ascii=False)
     events = [json.loads(line)["event"] for line in runtime.log_path.read_text(encoding="utf-8").splitlines()]
-    assert events[0] == "run_started" and "llm_request" in events and events[-1] == "run_completed"
+    assert events[:2] == ["run_started", "flow_started"] and "llm_request" in events and events[-1] == "flow_completed"
+
+    # Lần chạy thứ hai của cùng workspace: cùng run_id, nối tiếp cùng log, token tính riêng cho lần này.
+    async def again():
+        second = await open_runtime(repo, artifacts.request(), "clarify", stream=False, registry_dir=registry,
+                                    results_dir=tmp_path / "results", llm_config=LLMConfig(model="fixture"),
+                                    transport=httpx.MockTransport(respond), run_id=runtime.run_id,
+                                    usage_baseline={"prompt_tokens": 50, "completion_tokens": 20, "calls": 1})
+        try:
+            await clarify.run(artifacts, second, CONFIG)
+            return second, second.usage()
+        finally:
+            await second.aclose()
+
+    reply["questions"] = [question("q2", "Giao hàng ở đâu?", "toàn quốc", "phí ship")]
+    second, usage = run(again())
+    assert second.run_id == runtime.run_id and second.log_path == runtime.log_path
+    records = [json.loads(line) for line in runtime.log_path.read_text(encoding="utf-8").splitlines()]
+    assert [r["event"] for r in records].count("run_started") == 1
+    assert [r["event"] for r in records].count("flow_started") == 2
+    sequences = [r["sequence"] for r in records]
+    assert sequences == sorted(sequences) and len(set(sequences)) == len(sequences)  # số thứ tự nối tiếp, không trùng
+    assert usage["calls"] == 1 and usage["prompt_tokens"] == 50 and usage["completion_tokens"] == 20
+
+
+# ---------------------------------------------------------------- độ phủ và câu trắc nghiệm (kiểu Spec Kit)
+
+def coverage(**status):
+    from raac.pre_executor.contracts import COVERAGE_CATEGORIES
+
+    return [{"category": name, "status": status.get(name, "clear"), "note": "lý do" if status.get(name) else ""}
+            for name in COVERAGE_CATEGORIES]
+
+
+def mc(qid, text, options, default, category="functional_scope"):
+    return {"id": qid, "category": category, "text": text, "options": options, "default_answer": default, "why": "w"}
+
+
+GOOD = {"complete": False, "coverage": coverage(integrations="missing"),
+        "questions": [mc("a", "Thanh toán?", ["COD", "VNPay", "Cả hai"], "Cả hai", "integrations")]}
+
+
+@pytest.mark.parametrize("bad, problem", [
+    ({**GOOD, "coverage": coverage(integrations="missing")[:9]}, "coverage is missing category open_items"),
+    ({"complete": True, "coverage": coverage(functional_scope="missing"), "questions": []}, "complete is true while categories are missing"),
+    ({**GOOD, "questions": [mc("a", "Nền tảng?", ["web", "app"], "web", "ux_flow")]}, "only ask about partial or missing"),
+    ({**GOOD, "questions": [mc("a", "Thanh toán?", ["COD"], "COD", "integrations")]}, "must have 2-5 options"),
+    ({**GOOD, "questions": [mc("a", "Thanh toán?", ["COD", "VNPay"], "MoMo", "integrations")]}, "default_answer must be one of"),
+    ({**GOOD, "coverage": coverage(integrations="missing", ux_flow="not_applicable") and
+      [*coverage(integrations="missing")[:2], {"category": "ux_flow", "status": "not_applicable", "note": ""},
+       *coverage(integrations="missing")[3:]]}, "ux_flow is not_applicable without a reason"),
+])
+def test_coverage_and_question_rules_are_sent_back(tmp_path, bad, problem):
+    artifacts = workspace(tmp_path)
+    runtime = FakeRuntime(bad, GOOD)
+    run(clarify.run(artifacts, runtime, CONFIG))
+    assert any(problem in item for item in runtime.requests[1][1]["artifacts"]["rule_violations"])
+    assert runtime.requests[0][1]["artifacts"]["coverage_categories"]["integrations"].startswith("Tích hợp")
+
+
+def test_a_spec_as_input_is_passed_whole_and_the_final_coverage_is_reported(tmp_path):
+    spec = "# Spec: shop\n## Chức năng\n- giỏ hàng\n- thanh toán COD\n## Ràng buộc\n- 1 tháng"
+    artifacts = workspace(tmp_path, request=spec)
+    runtime = FakeRuntime(GOOD)
+    run(clarify.run(artifacts, runtime, CONFIG))
+    assert runtime.requests[0][1]["artifacts"]["request"] == spec.strip()
+    text = artifacts.read_text("answers.md")
+    assert "| Tích hợp ngoài | thiếu |" in text and "**Cả hai** (khuyến nghị)" in text
+    assert "_Nhóm: Tích hợp ngoài · Vì sao hỏi: w_" in text
+
+    second = FakeRuntime({"complete": True, "coverage": coverage(integrations="partial"), "questions": []})
+    clarify.save_answers(artifacts, {"Q1": "VNPay"})
+    result = run(clarify.run(artifacts, second, CONFIG))
+    assert second.requests[0][1]["artifacts"]["previous_coverage"][4] == {
+        "category": "integrations", "status": "missing", "note": "lý do"}
+    assert result["status"] == "done" and result["coverage"] == {"clear": 9, "outstanding": 1}
+    final = {item["category"]: item["status"] for item in artifacts.read_json("coverage.json")}
+    assert final["integrations"] == "outstanding" and final["functional_scope"] == "clear"
+
+
+def test_answered_categories_become_resolved_in_the_final_coverage(tmp_path):
+    artifacts = workspace(tmp_path)
+    run(clarify.run(artifacts, FakeRuntime({**GOOD, "complete": True, "coverage": coverage(integrations="partial")}),
+                    CONFIG))
+    run(clarify.run(artifacts, FakeRuntime(), CONFIG))  # trả lời xong -> tự chốt
+    final = {item["category"]: item["status"] for item in artifacts.read_json("coverage.json")}
+    assert final["integrations"] == "resolved"
+    assert artifacts.read_json("clarification.json")[0]["category"] == "integrations"
+
+
+def test_cli_reports_an_agent_failure_without_a_traceback(tmp_path, capsys):
+    from raac.common.errors import RunGuardError
+
+    class Down(FakeRuntime):
+        async def run(self, role_name, request):
+            raise RunGuardError("usage_unavailable")
+
+    async def open_runtime(workspace, request_text, flow, model=None, **kwargs):
+        return Down()
+
+    assert cli.main(["clarify", "--workspace", str(tmp_path), "--prompt", "x"], open_runtime=open_runtime) == 3
+    assert "Kiểm tra 9router" in capsys.readouterr().err
+
+
+def test_token_usage_is_shown_and_accumulated_like_mas(tmp_path, capsys):
+    class Counted(FakeRuntime):
+        def usage(self):
+            return {"prompt_tokens": 1200, "completion_tokens": 300, "calls": 2, "cached_tokens": None}
+
+    runtime = Counted({"complete": False, "questions": [question("a", "Bán gì?", "quần áo")]},
+                      {"complete": False, "questions": [question("a", "Giao hàng?", "toàn quốc")]})
+
+    async def open_runtime(workspace, request_text, flow, model=None, **kwargs):
+        return runtime
+
+    assert cli.main(["clarify", "--workspace", str(tmp_path), "--prompt", "x"], open_runtime=open_runtime) == 0
+    assert cli.main(["clarify", "--workspace", str(tmp_path)], open_runtime=open_runtime) == 0
+    out = capsys.readouterr().out
+    assert "Token lần này: token vào 1,200 / ra 300, 2 lượt gọi model" in out
+    assert "cộng dồn workspace: token vào 2,400 / ra 600, 4 lượt gọi model" in out
+    usage = Artifacts(tmp_path).read_json("usage.json")
+    assert usage["flows"]["clarify"] == {"prompt_tokens": 2400, "completion_tokens": 600, "calls": 4, "runs": 2}
+    assert [run["run_id"] for run in usage["runs"]] == ["chain-fake", "chain-fake"]
+    assert cli.main(["status", "--workspace", str(tmp_path)]) == 0
+    status = capsys.readouterr().out
+    assert "clarify" in status and "token vào 2,400 / ra 600" in status and "Tổng: token vào 2,400" in status
+
+
+def test_the_clarifier_prompt_lists_exactly_the_coverage_categories_checked_in_code():
+    import re
+
+    from raac.pre_executor.contracts import COVERAGE_CATEGORIES
+
+    prompt = (ROOT / "registry/prompts/pre_executor/clarifier.md").read_text(encoding="utf-8")
+    listed = re.findall(r"^- `([a-z_]+)`:", prompt.split("Each round:")[0].split("The ten coverage categories")[1],
+                        re.MULTILINE)
+    assert listed == list(COVERAGE_CATEGORIES)  # sửa nhóm ở contracts.py thì phải sửa cả prompt

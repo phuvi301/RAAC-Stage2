@@ -15,11 +15,13 @@ Câu trả lời được ghi vào answers.md, nên dừng giữa chừng (Ctrl+
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen, Screen
-from textual.widgets import Button, Footer, Header, Input, Label, Markdown, RichLog, Static, TextArea
+from textual.widgets import Button, Footer, Header, Input, Label, Markdown, OptionList, RichLog, Static, TextArea
 
 from . import cli, gate
 from .artifacts import Artifacts
 from .flows import clarify
+from .events import describe
+from .render import CATEGORY_LABELS, STATUS_LABELS
 
 CSS = """
 QuestionScreen, MessageScreen { align: center middle; }
@@ -53,34 +55,55 @@ class RequestScreen(Screen[str]):
 
 
 class QuestionScreen(ModalScreen[str]):
-    """Một câu hỏi: đọc, sửa câu trả lời gợi ý, Enter để trả lời."""
+    """Một câu hỏi. Trắc nghiệm: chọn trong danh sách (khuyến nghị chọn sẵn) hoặc tự nhập ở ô "Khác".
+    Trả lời ngắn: sửa gợi ý trong ô rồi Enter."""
 
     def __init__(self, question: dict, index: int, total: int, round_number: int):
         super().__init__()
         self.question, self.index, self.total, self.round_number = question, index, total, round_number
+        self.options = list(question.get("options") or [])
+        self.default = question.get("default_answer", "")
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog"):
-            yield Label(f"Vòng {self.round_number} · Câu {self.index}/{self.total}")
+            category = CATEGORY_LABELS.get(self.question.get("category"), self.question.get("category") or "")
+            yield Label(f"Vòng {self.round_number} · Câu {self.index}/{self.total}" + (f" · {category}" if category else ""))
             yield Static(f"[b]{self.question['text']}[/b]")
             if self.question.get("why"):
                 yield Static(f"Vì sao hỏi: {self.question['why']}", classes="why")
-            yield Input(value=self.question.get("default_answer", ""), placeholder="Câu trả lời", id="answer")
+            if self.options:
+                yield OptionList(*[f"{option}  (khuyến nghị)" if option == self.default else option
+                                   for option in self.options], id="options")
+                yield Input(placeholder="Khác: tự nhập câu trả lời rồi Enter", id="answer")
+            else:
+                yield Input(value=self.default, placeholder="Câu trả lời", id="answer")
             with Horizontal(classes="buttons"):
                 yield Button("Trả lời (Enter)", id="submit", variant="primary")
-                yield Button("Dùng gợi ý", id="default")
+                yield Button("Dùng khuyến nghị", id="default")
 
     def on_mount(self) -> None:
-        self.query_one("#answer", Input).focus()
+        if self.options:
+            choices = self.query_one("#options", OptionList)
+            choices.highlighted = self.options.index(self.default) if self.default in self.options else 0
+            choices.focus()
+        else:
+            self.query_one("#answer", Input).focus()
+
+    def chosen(self) -> str:
+        typed = self.query_one("#answer", Input).value.strip()
+        if typed or not self.options:
+            return typed
+        highlighted = self.query_one("#options", OptionList).highlighted
+        return self.options[highlighted if highlighted is not None else 0]
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        self.dismiss(self.options[event.option_index])
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        self.dismiss(event.value.strip())
+        self.dismiss(self.chosen())
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "default":
-            self.dismiss(self.question.get("default_answer", ""))
-        else:
-            self.dismiss(self.query_one("#answer", Input).value.strip())
+        self.dismiss(self.default if event.button.id == "default" else self.chosen())
 
 
 class MessageScreen(ModalScreen[str]):
@@ -99,6 +122,9 @@ class MessageScreen(ModalScreen[str]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         self.dismiss(event.button.id)
+
+
+MIN_NOTE = 3  # góp ý ngắn hơn thế (gõ nhầm) không gửi: mỗi lần sửa tốn hàng chục nghìn token
 
 
 class DraftScreen(Screen[tuple[str, str]]):
@@ -123,13 +149,19 @@ class DraftScreen(Screen[tuple[str, str]]):
     def on_mount(self) -> None:
         self.query_one("#note", Input).focus()
 
+    def _note_ok(self, note: str) -> bool:
+        if len(note) >= MIN_NOTE:
+            return True
+        self.app.notify(f"Góp ý quá ngắn (ít nhất {MIN_NOTE} ký tự), chưa gửi.", severity="warning")
+        return False
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.value.strip():
+        if self._note_ok(event.value.strip()):
             self.dismiss(("feedback", event.value.strip()))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         note = self.query_one("#note", Input).value.strip()
-        if event.button.id == "feedback" and not note:
+        if event.button.id == "feedback" and not self._note_ok(note):
             return
         self.dismiss((event.button.id, note))
 
@@ -154,7 +186,22 @@ class PreExecutorApp(App):
     def write(self, text: str) -> None:
         self.query_one("#log", RichLog).write(text)
 
+    def on_trace(self, record: dict) -> None:
+        """Từng sự kiện của agent (gọi model, dùng tool, token, vi phạm luật) hiện ngay trong log."""
+        line = describe(record)
+        if line:
+            self.write(f"[dim]{line}[/dim]" if line.startswith("   ") else line)
+
+    def show_usage(self, result: dict | None) -> None:
+        """Như MAS: token của lần chạy vào log, tổng của workspace lên thanh tiêu đề."""
+        if result and result.get("usage", {}).get("calls"):
+            self.write(f"[dim]Token: {cli.format_usage(result['usage'])}[/dim]")
+        total = self.artifacts.usage_total()
+        if total["calls"]:
+            self.sub_title = f"Tổng {cli.format_usage(total)}"
+
     def on_mount(self) -> None:
+        self.show_usage(None)
         if self.artifacts.request():
             self.run_worker(self.session(), exclusive=True)
         else:
@@ -170,8 +217,14 @@ class PreExecutorApp(App):
         while True:
             self.write(f"[dim]{flow}: đang chạy agent...[/dim]")
             try:
-                return await cli._run_flow(flow, self.artifacts, note=note, open_runtime=self.open_runtime,
-                                           write=lambda _text: None, model=self.model)
+                result = await cli._run_flow(flow, self.artifacts, note=note, open_runtime=self.open_runtime,
+                                             write=lambda _text: None, model=self.model, event_handler=self.on_trace)
+                self.show_usage(result)
+                if result.get("changes"):
+                    self.write(f"[b]Thay đổi so với bản trước ({len(result['changes'])}):[/b]")
+                    for change in result["changes"]:
+                        self.write(f"  {change}")
+                return result
             except Exception as exc:  # noqa: BLE001 -- báo lỗi, cho thử lại hoặc thoát; kết quả trước đã lưu
                 detail = exc if isinstance(exc, (ValueError, RuntimeError)) else type(exc).__name__
                 self.write(f"[red]Lỗi: {detail}[/red]")
@@ -200,8 +253,11 @@ class PreExecutorApp(App):
                 return False
             if result["status"] == "done":
                 self.clarification = self.artifacts.read_json("clarification.json")
+                coverage = ", ".join(f"{STATUS_LABELS.get(status, status)}: {count}"
+                                     for status, count in result.get("coverage", {}).items())
                 message = (f"Làm rõ xong sau {result['round']} vòng ({result['reason']}).\n"
-                           f"{result['answered']} câu trả lời, {result['assumed']} câu dùng gợi ý (giả định).")
+                           f"{result['answered']} câu trả lời, {result['assumed']} câu dùng khuyến nghị (giả định).\n"
+                           + (f"Độ phủ: {coverage}" if coverage else ""))
                 self.write(message)
                 choice = await self.push_screen_wait(MessageScreen(message, [("next", "Tiếp: phân tích yêu cầu"),
                                                                              ("close", "Đóng")]))
@@ -210,6 +266,10 @@ class PreExecutorApp(App):
             questions = history[-1]["questions"]
             if history[-1].get("summary"):
                 self.write(f"[i]{history[-1]['summary']}[/i]")
+            for item in history[-1].get("coverage", []):
+                if item["status"] in ("partial", "missing"):
+                    self.write(f"[yellow]{CATEGORY_LABELS.get(item['category'], item['category'])}: "
+                               f"{STATUS_LABELS.get(item['status'], item['status'])}[/yellow] {item.get('note', '')}")
             for index, question in enumerate(questions, start=1):
                 answer = await self.push_screen_wait(QuestionScreen(question, index, len(questions), len(history)))
                 self.write(f"{question['id']}. {question['text']} → [b]{answer}[/b]")
