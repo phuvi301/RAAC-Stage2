@@ -128,7 +128,7 @@ def test_finishes_after_the_last_answers_when_the_agent_said_enough(tmp_path):
         question("a", "Bán gì?", "quần áo"), question("b", "Thanh toán?", "VNPay")]}), CONFIG))
     assert gate.state(artifacts, "clarify") == "draft"  # còn câu hỏi chưa trả lời
     with pytest.raises(gate.GateError):
-        gate.require_runnable(artifacts, "requirements")
+        gate.require_runnable(artifacts, "spec")
 
     clarify.save_answers(artifacts, {"Q2": "MoMo"})
     idle = FakeRuntime()
@@ -136,12 +136,12 @@ def test_finishes_after_the_last_answers_when_the_agent_said_enough(tmp_path):
     assert idle.requests == [] and result["status"] == "done" and result["assumed"] == 1
     items = artifacts.read_json("clarification.json")
     assert [(item["answer"], item["assumed"]) for item in items] == [("quần áo", True), ("MoMo", False)]
-    assert gate.can_run(artifacts, "requirements")
+    assert gate.can_run(artifacts, "spec")
 
     clarify.save_answers(artifacts, {"Q2": "ZaloPay"})  # sửa sau khi chốt -> chạy lại để chốt lại
-    assert gate.state(artifacts, "clarify") == "stale" and not gate.can_run(artifacts, "requirements")
+    assert gate.state(artifacts, "clarify") == "stale" and not gate.can_run(artifacts, "spec")
     run(clarify.run(artifacts, FakeRuntime(), CONFIG))
-    assert artifacts.read_json("clarification.json")[1]["answer"] == "ZaloPay" and gate.can_run(artifacts, "requirements")
+    assert artifacts.read_json("clarification.json")[1]["answer"] == "ZaloPay" and gate.can_run(artifacts, "spec")
 
 
 def test_finishes_at_the_round_limit(tmp_path):
@@ -177,7 +177,7 @@ def test_cli_takes_the_request_like_the_tui_and_drives_clarify(tmp_path, capsys)
     assert (repo / ".raac/pre_executor/answers.md").is_file() and (repo / ".raac/.gitignore").read_text() == "*\n"
 
     assert cli.main(["clarify", "--workspace", str(repo), "--prompt", "Việc khác"], open_runtime=open_runtime) == 2
-    assert cli.main(["requirements", "--workspace", str(repo)]) == 2  # chưa triển khai / clarify chưa xong
+    assert cli.main(["spec", "--workspace", str(repo)]) == 2  # clarify chưa xong
     for command in (["approve", "clarify"], ["review", "clarify"], ["revise", "clarify", "--note", "x"]):
         assert cli.main([*command, "--workspace", str(repo)]) == 2  # clarify không có góp ý/approve
 
@@ -185,8 +185,8 @@ def test_cli_takes_the_request_like_the_tui_and_drives_clarify(tmp_path, capsys)
     capsys.readouterr()
     assert cli.main(["status", "--workspace", str(repo)]) == 0
     lines = capsys.readouterr().out.splitlines()
-    assert lines[0].split()[:2] == ["clarify", "approved"] and lines[1].split()[:2] == ["requirements", "missing"]
-    assert "chưa triển khai" not in lines[2] and "chưa triển khai" in lines[3]  # profile đã có, tech_select chưa
+    assert lines[0].split()[:2] == ["clarify", "approved"] and lines[1].split()[:2] == ["spec", "missing"]
+    assert "chưa triển khai" not in lines[1] and "chưa triển khai" in lines[2]  # spec đã có, tech_select chưa
 
 
 def test_cli_without_any_request_is_refused(tmp_path):

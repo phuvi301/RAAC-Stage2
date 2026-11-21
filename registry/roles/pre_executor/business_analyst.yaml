@@ -1,8 +1,8 @@
-id: requirement_profiler
-role: RequirementProfiler
+id: business_analyst
+role: BusinessAnalyst
 group: pre_executor
-prompt: prompts/pre_executor/requirement_profiler.md
-prompt_version: pre-executor-v3
+prompt: prompts/pre_executor/business_analyst.md
+prompt_version: pre-executor-v1
 tools:
   - list_files
   - read_file

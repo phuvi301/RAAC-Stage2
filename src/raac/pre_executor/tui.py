@@ -1,12 +1,12 @@
-"""TUI của pre_executor: clarify (hỏi và trả lời) -> requirements -> profile (bản nháp, góp ý, approve).
+"""TUI của pre_executor: clarify (hỏi và trả lời) -> spec của Business Analyst (bản nháp, góp ý, approve).
 
     python -m raac.pre_executor tui --workspace <repo> [--prompt "..." | --prompt-file request.md] [--model ...]
 
 Luồng: (nhập yêu cầu nếu workspace chưa có) -> agent hỏi một vòng -> từng câu một cửa sổ, ô trả lời điền sẵn đáp án
 gợi ý (Enter để trả lời) -> agent tự hỏi vòng tiếp dựa trên câu trả lời -> ... -> khi agent thấy đủ (hoặc hết số vòng)
 clarify tự chốt (clarification.json). Không có góp ý hay approve ở bước này.
-Tiếp đó requirements: agent viết tổng quan, chức năng cốt lõi, NFR -> TUI hiện bản nháp -> người dùng góp ý để agent
-sửa, lặp tới khi vừa ý thì Approve. Rồi profile (user flow, quy tắc nghiệp vụ, FR + AC) cùng cách duyệt.
+Tiếp đó spec: Business Analyst viết Requirement Spec (tổng quan, chức năng, SC, NFR, user flow, quy tắc, FR + AC,
+trường hợp biên) -> TUI hiện bản nháp -> người dùng góp ý để agent sửa, lặp tới khi vừa ý thì Approve.
 Mở lại TUI sẽ tiếp tục đúng bước đang dở.
 Câu trả lời được ghi vào answers.md, nên dừng giữa chừng (Ctrl+Q) rồi mở lại vẫn tiếp tục được.
 Độc lập với TUI của MAS (raac.tui); dùng chung flow, gate và runtime với CLI.
@@ -175,8 +175,7 @@ class PreExecutorApp(App):
         super().__init__()
         self.artifacts, self.open_runtime, self.model = artifacts, open_runtime, model
         self.clarification: list[dict] | None = None
-        self.requirements: dict | None = None
-        self.profile: dict | None = None
+        self.spec: dict | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -241,9 +240,9 @@ class PreExecutorApp(App):
         self.clarification = self.artifacts.read_json("clarification.json")
         for flow, next_label in DRAFT_FLOWS:
             if not await self.draft_stage(flow, next_label):
-                self.exit(self.profile or self.requirements)
+                self.exit(self.spec)
                 return
-        self.exit(self.profile)
+        self.exit(self.spec)
 
     async def clarify_stage(self) -> bool:
         """Hỏi - trả lời đến khi clarify tự chốt. False = người dùng thoát."""
@@ -303,13 +302,12 @@ class PreExecutorApp(App):
         return await self.push_screen_wait(MessageScreen(message, buttons)) == "next"
 
 
-DRAFT_FLOWS = (("requirements", "Tiếp: Requirement Profile"), ("profile", None))
+DRAFT_FLOWS = (("spec", None),)
 DRAFT_TITLES = {
-    "requirements": ("Yêu cầu sản phẩm", lambda data: f"{len(data['features'])} chức năng cốt lõi, "
-                                                      f"{len(data['non_functional_requirements'])} NFR"),
-    "profile": ("Hồ sơ yêu cầu", lambda data: f"{len(data['user_flows'])} user flow, "
-                                             f"{len(data['functional_requirements'])} yêu cầu chi tiết, "
-                                             f"{sum(len(fr['acceptance_criteria']) for fr in data['functional_requirements'])} AC"),
+    "spec": ("Requirement Spec", lambda data: f"{len(data['features'])} chức năng, "
+                                              f"{len(data['functional_requirements'])} yêu cầu, "
+                                              f"{sum(len(fr['acceptance_criteria']) for fr in data['functional_requirements'])} AC, "
+                                              f"{len(data['non_functional_requirements'])} NFR"),
 }
 
 

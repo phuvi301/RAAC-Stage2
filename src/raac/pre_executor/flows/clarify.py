@@ -9,7 +9,7 @@ Vào:  request (yêu cầu thô HOẶC một bản spec) + các câu đã hỏi 
 Ra:   mỗi lần chạy một vòng câu hỏi mới (clarify.json) -> answers.md (câu hỏi + đáp án gợi ý).
       Người dùng trả lời (TUI hoặc sửa answers.md) rồi chạy tiếp; agent hỏi vòng sau dựa trên câu trả lời.
 Kết thúc: khi agent báo đủ thông tin (complete) hoặc hết max_clarify_rounds, flow TỰ CHỐT (`finish`):
-      Clarification = [{id, question, answer, assumed}] ghi vào clarification.json — đầu vào của flow requirements.
+      Clarification = [{id, question, answer, assumed}] ghi vào clarification.json — đầu vào của flow spec.
       `assumed` = người dùng để nguyên đáp án gợi ý. Sửa answers.md sau khi chốt thì chạy clarify lại để chốt lại.
       Kèm coverage.json: độ phủ cuối của từng nhóm (clear | resolved | deferred | not_applicable | outstanding).
 Luật (bằng code, vi phạm thì agent được gửi lại kèm lỗi): độ phủ liệt kê đủ 10 nhóm, mỗi nhóm một lần; không được báo
@@ -79,7 +79,7 @@ def final_coverage(artifacts: Artifacts) -> list[dict]:
 
 
 def finish(artifacts: Artifacts) -> list[dict]:
-    """Chốt câu trả lời hiện tại: ghi clarification.json + coverage.json và mở đường cho flow requirements."""
+    """Chốt câu trả lời hiện tại: ghi clarification.json + coverage.json và mở đường cho flow spec."""
     result = clarification(artifacts)
     artifacts.write_json("clarification.json", result)
     artifacts.write_json("coverage.json", final_coverage(artifacts))

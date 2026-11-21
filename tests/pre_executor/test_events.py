@@ -25,9 +25,9 @@ def test_changes_list_added_edited_and_removed_items():
            "success_criteria": [], "non_functional_requirements": [], "constraints": ["COD"]}
     new = {"features": [{"id": "F-1", "name": "Giỏ hàng có voucher"}, {"id": "F-3", "name": "Mã giảm giá"}],
            "success_criteria": [], "non_functional_requirements": [], "constraints": ["COD"]}
-    assert summarize_changes(old, new, "requirements") == [
+    assert summarize_changes(old, new, "spec") == [
         "~ chức năng F-1 Giỏ hàng có voucher", "+ chức năng F-3 Mã giảm giá", "- chức năng F-2 Đánh giá"]
-    assert summarize_changes(None, new, "requirements") == [] and summarize_changes(new, new, "requirements") == []
+    assert summarize_changes(None, new, "spec") == [] and summarize_changes(new, new, "spec") == []
 
 
 def test_a_rule_violation_is_noted_in_the_trace():
@@ -48,3 +48,19 @@ def test_a_rule_violation_is_noted_in_the_trace():
     calls = iter([["bad thing"], []])
     asyncio.run(run_role(Runtime(), "clarify", "Clarifier", ClarifyOutput, {}, lambda output: next(calls)))
     assert noted == [("flow_rule_violation", {"flow": "clarify", "attempt": 1, "problems": 1, "first": "bad thing"})]
+
+
+def test_models_are_configured_per_role_id():
+    import pytest
+
+    from raac.pre_executor.config import PreExecutorConfig, load_config
+    from pathlib import Path
+
+    config = PreExecutorConfig(models={"business_analyst": "m-ba", "clarifier": ""})
+    assert config.model_for("spec") == "m-ba" and config.model_for("clarify") is None
+    assert config.model_for("spec", "override") == "override"
+    with pytest.raises(ValueError):
+        PreExecutorConfig(models={"spec": "m"})  # khóa là tên flow cũ: báo lỗi rõ
+    shipped = load_config(Path(__file__).resolve().parents[2] / "configs/pre_executor.yaml")
+    assert set(shipped.models) == {"clarifier", "business_analyst", "tech_selector", "system_architect",
+                                   "environment_planner", "task_decomposer"}

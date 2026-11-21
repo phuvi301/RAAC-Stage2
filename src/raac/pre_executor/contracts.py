@@ -1,7 +1,6 @@
 """Đầu vào/đầu ra của các flow (pydantic, extra="forbid") và đăng ký với harness.
 
-Chuỗi:  User request -> Clarification -> Requirements (tổng quan, chức năng cốt lõi, NFR)
-        -> Requirement Profile (user flow, quy tắc nghiệp vụ, yêu cầu chi tiết, AC)
+Chuỗi:  User request -> Clarification -> Requirement Spec (Business Analyst)
         -> Tech Stack -> Architecture -> Environment Plan -> Task Plan
 
 Đã triển khai:
@@ -10,15 +9,12 @@ Chuỗi:  User request -> Clarification -> Requirements (tổng quan, chức nă
   hỏi tối đa 5 câu về nhóm partial/missing, mỗi câu là trắc nghiệm 2-5 lựa chọn có phương án khuyến nghị
   (`default_answer` là một trong `options`) hoặc trả lời ngắn có gợi ý (`options` rỗng).
   Bản chốt: Clarification = [{id, category, question, answer, assumed}] + coverage.json (độ phủ cuối).
-- RequirementsOutput (flow requirements, role RequirementAnalyst), theo Spec Kit spec-template + ISO/IEC 25010:
-  overview; features (F-n, mỗi chức năng có lý do ưu tiên và cách kiểm độc lập như một lát cắt MVP); success_criteria
-  (SC-n đo được, không phụ thuộc công nghệ); key_entities; non_functional_requirements (NFR-n theo đặc tính chất lượng
-  ISO/IEC 25010, có metric); constraints; assumptions; out_of_scope; open_questions (tối đa 3).
-
-- ProfileOutput (flow profile, role RequirementProfiler): với mỗi feature F-n đã duyệt: user_flows (UF-n),
-  business_rules (BR-n), functional_requirements (FR-n, câu chỉ thị kiểu "Hệ thống phải ..." như EARS/Spec Kit) kèm
-  acceptance_criteria (FR-n.ACm dạng Given/When/Then như Gherkin/Spec Kit) và edge_cases (EC-n).
-  requirement_profile.json = phần này + tổng quan/features/NFR/ràng buộc/giả định chép nguyên từ requirements.
+- RequirementSpecOutput (flow spec, role BusinessAnalyst): MỘT bản Requirement Spec, theo GitHub Spec Kit
+  spec-template + ISO/IEC 25010 + Gherkin/EARS: overview; features (F-n, lý do ưu tiên + cách kiểm độc lập như một lát
+  cắt MVP); success_criteria (SC-n đo được, không nói công nghệ); key_entities; non_functional_requirements (NFR-n theo
+  ISO/IEC 25010, có metric); user_flows (UF-n); business_rules (BR-n); functional_requirements (FR-n câu chỉ thị, kèm
+  acceptance_criteria FR-n.ACm dạng Given/When/Then); edge_cases (EC-n); constraints; assumptions; out_of_scope;
+  open_questions (tối đa 3). Là đầu vào chuẩn cho tech_select, architecture, task_decomposer.
 
 Chưa triển khai (xem docstring các flow): TechStack, Architecture, EnvironmentPlan, TaskPlan.
 
@@ -54,7 +50,7 @@ COVERAGE_CATEGORIES = {
     "open_items": "Còn bỏ ngỏ: TODO, quyết định chưa chốt, tính từ mơ hồ không có con số",
 }
 # clear: đủ; partial: có nhưng mơ hồ/mâu thuẫn; missing: chưa có; not_applicable: không áp dụng (ghi lý do);
-# deferred: thuộc tầng kế hoạch (chọn công nghệ, cách triển khai, chia task) hoặc chi tiết để requirements/profile.
+# deferred: thuộc tầng kế hoạch (chọn công nghệ, cách triển khai, chia task) hoặc chi tiết để Business Analyst (flow spec) quyết.
 COVERAGE_STATUSES = ("clear", "partial", "missing", "not_applicable", "deferred")
 
 
@@ -141,19 +137,6 @@ class Assumption(Strict):
     clarification_id: str | None = None  # câu hỏi clarify mà người dùng để nguyên gợi ý
 
 
-class RequirementsOutput(Strict):
-    """Product Requirement Analyst: tổng quan, chức năng cốt lõi, yêu cầu phi chức năng."""
-    overview: Overview
-    features: list[Feature] = Field(min_length=1)
-    success_criteria: list[SuccessCriterion] = Field(default_factory=list)
-    key_entities: list[KeyEntity] = Field(default_factory=list)
-    non_functional_requirements: list[NonFunctionalRequirement] = Field(default_factory=list)
-    constraints: list[str] = Field(default_factory=list)
-    assumptions: list[Assumption] = Field(default_factory=list)
-    out_of_scope: list[str] = Field(default_factory=list)
-    open_questions: list[str] = Field(default_factory=list)
-
-
 class UserFlow(Strict):
     id: str = Field(pattern=r"^UF-\d+$")
     name: Text
@@ -192,17 +175,24 @@ class FunctionalRequirement(Strict):
     acceptance_criteria: list[AcceptanceCriterion] = Field(min_length=1)
 
 
-class ProfileOutput(Strict):
-    """Requirement Profiler: chi tiết hoá từng chức năng cốt lõi đã duyệt."""
+class RequirementSpecOutput(Strict):
+    """Business Analyst: toàn bộ Requirement Spec trong một lần (tổng quan + chi tiết từng chức năng)."""
+    overview: Overview
+    features: list[Feature] = Field(min_length=1)
+    success_criteria: list[SuccessCriterion] = Field(default_factory=list)
+    key_entities: list[KeyEntity] = Field(default_factory=list)
+    non_functional_requirements: list[NonFunctionalRequirement] = Field(default_factory=list)
     user_flows: list[UserFlow] = Field(min_length=1)
     business_rules: list[BusinessRule] = Field(default_factory=list)
     functional_requirements: list[FunctionalRequirement] = Field(min_length=1)
     edge_cases: list[EdgeCase] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    assumptions: list[Assumption] = Field(default_factory=list)
+    out_of_scope: list[str] = Field(default_factory=list)
     open_questions: list[str] = Field(default_factory=list)
 
 
-ROLE_OUTPUTS = {"Clarifier": ClarifyOutput, "RequirementAnalyst": RequirementsOutput,
-                "RequirementProfiler": ProfileOutput}
+ROLE_OUTPUTS = {"Clarifier": ClarifyOutput, "BusinessAnalyst": RequirementSpecOutput}
 
 
 def register() -> None:

@@ -7,8 +7,8 @@
 
 Yêu cầu chỉ cần ở lần đầu (lưu ở .raac/pre_executor/request.md).
 clarify chỉ hỏi và trả lời: ở dòng lệnh, sửa answers.md rồi chạy lại `clarify` để agent hỏi vòng tiếp; khi agent thấy
-đủ (hoặc hết số vòng) clarify tự chốt. requirements và profile có góp ý (revise) và approve. Đã triển khai clarify,
-requirements, profile; các flow khác báo "chưa triển khai".
+đủ (hoặc hết số vòng) clarify tự chốt. spec (Business Analyst) có góp ý (revise) và approve. Đã triển khai clarify,
+spec; các flow khác báo "chưa triển khai".
 """
 
 import argparse
@@ -19,11 +19,11 @@ from pathlib import Path
 from . import gate
 from .artifacts import FLOWS, Artifacts
 from .config import load_config
-from .flows import clarify, profile, requirements
+from .flows import clarify, spec
 from .flows.base import FlowError
 from .runtime import PROJECT
 
-IMPLEMENTED = {"clarify": clarify, "requirements": requirements, "profile": profile}
+IMPLEMENTED = {"clarify": clarify, "spec": spec}
 
 
 def format_usage(usage: dict) -> str:
