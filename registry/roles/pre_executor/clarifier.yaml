@@ -2,7 +2,7 @@ id: clarifier
 role: Clarifier
 group: pre_executor
 prompt: prompts/pre_executor/clarifier.md
-prompt_version: pre-executor-v3
+prompt_version: pre-executor-v4
 tools:
   - list_files
   - read_file

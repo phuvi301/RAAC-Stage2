@@ -3,12 +3,13 @@
     request.md              yêu cầu gốc (từ --prompt hoặc --prompt-file)
     clarify.json            các vòng làm rõ: câu hỏi của role Clarifier theo vòng, run_id
     answers.md              câu hỏi + câu trả lời; người dùng sửa phần sau "A:"
-    clarification.json      Clarification đã duyệt (ghi lúc approve clarify) — đầu vào của flow requirements
+    clarification.json      Clarification đã chốt — đầu vào của flow spec
+    requirement_spec.json   Requirement Spec (Business Analyst) + requirement_spec.md để đọc
     feedback/<flow>.json    góp ý của người dùng cho flow đó, theo thứ tự
     run.json                run_id chung của workspace: mọi flow ghi log vào cùng results/<run_id>/llm.jsonl
     usage.json              token đã dùng: từng lần chạy flow, cộng dồn theo flow và theo run
     approvals.json          {flow: {sha256, approved_at}}
-    (requirements.json, requirement_profile.json, tech_stack.json, ... do các flow sau ghi)
+    (tech_stack.json, architecture.json, ... do các flow sau ghi)
 
 Thư mục có sẵn .gitignore riêng ("*") nên không lẫn vào git của repo đích.
 """
@@ -19,12 +20,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 FOLDER = Path(".raac") / "pre_executor"
-FLOWS = ("clarify", "requirements", "profile", "tech_select", "architecture", "environment", "task_decomposer")
+FLOWS = ("clarify", "spec", "tech_select", "architecture", "environment", "task_decomposer")
 # File mà người dùng duyệt cho từng flow (hash của file này được ghi lúc approve).
 APPROVED_FILE = {
     "clarify": "answers.md",
-    "requirements": "requirements.json",
-    "profile": "requirement_profile.json",
+    "spec": "requirement_spec.json",
     "tech_select": "tech_stack.json",
     "architecture": "architecture.json",
     "environment": "environment.json",

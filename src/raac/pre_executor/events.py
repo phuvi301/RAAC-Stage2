@@ -48,10 +48,10 @@ def describe(record: dict) -> str | None:
 
 # Danh sách cần so cho từng flow: tên trường -> (nhãn, trường dùng để hiện tên mục).
 CHANGE_FIELDS = {
-    "requirements": {"features": ("chức năng", "name"), "success_criteria": ("tiêu chí thành công", "outcome"),
-                     "non_functional_requirements": ("NFR", "requirement")},
-    "profile": {"user_flows": ("user flow", "name"), "business_rules": ("quy tắc", "rule"),
-                "functional_requirements": ("yêu cầu", "description"), "edge_cases": ("trường hợp biên", "situation")},
+    "spec": {"features": ("chức năng", "name"), "success_criteria": ("tiêu chí thành công", "outcome"),
+             "non_functional_requirements": ("NFR", "requirement"), "user_flows": ("user flow", "name"),
+             "business_rules": ("quy tắc", "rule"), "functional_requirements": ("yêu cầu", "description"),
+             "edge_cases": ("trường hợp biên", "situation")},
 }
 
 

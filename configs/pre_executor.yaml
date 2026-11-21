@@ -3,12 +3,12 @@ version: pre-executor-v1
 max_flow_retries: 2
 # Số vòng hỏi lại tối đa của flow clarify.
 max_clarify_rounds: 5
-# Model của từng flow; để trống = model mặc định trong configs/llm.yaml. Cờ --model ghi đè tất cả.
-# Ví dụ: "cc/claude-opus-5-5", "ds/deepseek-v4-pro".
+# Model của từng role (id trong registry/roles/pre_executor/); để trống = model mặc định trong configs/llm.yaml.
+# Cờ --model ghi đè tất cả. Ví dụ: "cc/claude-opus-5-5", "ds/deepseek-v4-pro".
 models:
-  clarify: ""
-  requirements: ""
-  tech_select: ""
-  architecture: ""
-  environment: ""
-  task_decomposer: ""
+  clarifier: "cc/claude-opus-5-5"            # flow clarify
+  business_analyst: "cc/claude-opus-5-5"     # flow spec
+  tech_selector: "cc/claude-opus-5-5"        # flow tech_select
+  system_architect: "cc/claude-opus-5-5"     # flow architecture
+  environment_planner: "cc/claude-opus-5-5"  # flow environment
+  task_decomposer: "cc/claude-opus-5-5"      # flow task_decomposer

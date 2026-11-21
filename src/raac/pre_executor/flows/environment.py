@@ -1,4 +1,4 @@
-"""Flow environment -> role `environment_planner`. Vào: requirements + tech_stack + architecture đã duyệt + machine.json.
+"""Flow environment -> role `environment_planner`. Vào: Requirement Spec + tech_stack + architecture đã duyệt + machine.json.
 
 Chuẩn bị: machine.probe() trước khi gọi role (ghi machine.json).
 Luật (bằng code, đối chiếu machine.json): runtime `installed` phải có thật trên máy đúng phiên bản và đường dẫn;
