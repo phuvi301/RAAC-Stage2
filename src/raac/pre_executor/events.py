@@ -48,10 +48,11 @@ def describe(record: dict) -> str | None:
 
 # Danh sách cần so cho từng flow: tên trường -> (nhãn, trường dùng để hiện tên mục).
 CHANGE_FIELDS = {
-    "requirements": {"features": ("chức năng", "name"), "success_criteria": ("tiêu chí thành công", "outcome"),
-                     "non_functional_requirements": ("NFR", "requirement")},
-    "profile": {"user_flows": ("user flow", "name"), "business_rules": ("quy tắc", "rule"),
-                "functional_requirements": ("yêu cầu", "description"), "edge_cases": ("trường hợp biên", "situation")},
+    "business_analyst": {"features": ("chức năng", "name"), "success_criteria": ("tiêu chí thành công", "outcome"),
+                         "key_entities": ("thực thể", "name"), "non_functional_requirements": ("NFR", "requirement"),
+                         "external_integrations": ("tích hợp ngoài", "name"), "user_flows": ("user flow", "name"),
+                         "business_rules": ("quy tắc", "rule"), "functional_requirements": ("yêu cầu", "description"),
+                         "edge_cases": ("trường hợp biên", "situation"), "open_questions": ("câu hỏi mở", "text")},
     "solution_architect": {"modules": ("module", "name"), "data_models": ("data model", "name"),
                            "api_contracts": ("API", "signature"), "global_constraints": ("ràng buộc", "rule"),
                            "decisions": ("quyết định", "topic")},
@@ -60,6 +61,7 @@ CHANGE_FIELDS = {
 # Trường không có id: chỉ báo "~ <trường>" khi đổi.
 DEFAULT_TOP_LEVEL = ("overview", "constraints", "assumptions", "out_of_scope", "open_questions", "key_entities")
 TOP_LEVEL_FIELDS = {
+    "business_analyst": ("overview", "constraints", "assumptions", "out_of_scope"),
     "solution_architect": ("summary", "tech_stack", "folders", "security_architecture", "runtime_contract",
                            "open_assumptions"),
     "project_manager": ("summary", "execution_order", "open_questions"),

@@ -22,7 +22,7 @@ from pe_helpers import (
 from raac.pre_executor import cli, gate
 from raac.pre_executor.artifacts import Artifacts
 from raac.pre_executor.config import PreExecutorConfig
-from raac.pre_executor.flows import clarify, project_manager, solution_architect
+from raac.pre_executor.flows import project_manager, solution_architect
 from raac.pre_executor.flows.base import FlowError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -141,6 +141,8 @@ def _extra_task(**fields):
      "acceptance criterion FR-1.AC2 is not covered by any task"),
     (pm_output(tasks_with(1, module_ids=["MOD-1"])), "module MOD-2 is not covered by any task"),
     (pm_output(tasks_with(3, nfr_ids=[])), "security NFR NFR-2 is not covered by any task"),
+    (pm_output(tasks_with(3, feature_ids=[])),
+     "security NFR NFR-2 belongs to features ['F-3']: put it on a task that covers one of them"),
     (pm_output(tasks_with(1, edge_case_ids=[])), "edge case EC-1 of high-priority feature F-1 is not covered"),
     (pm_output(_extra_task(fr_ids=[], acceptance_criteria_ids=[])), "feature task T5 needs at least one fr_id"),
 ])
@@ -202,7 +204,15 @@ def test_tasks_json_is_hydrated_by_code(tmp_path):
     assert t2["security_architecture"] is None
     assert t2["relevant_assumptions"] == ["giao hàng toàn quốc", "giới hạn 10 món áp dụng mỗi giỏ"]
 
+    assert t2["relevant_open_questions"] == ["có voucher?"]  # OQ-2 toàn cục; OQ-1 chỉ thuộc F-3
+    assert t2["external_integrations"] == []  # INT-1 chỉ thuộc F-2
+    t3 = data["tasks"][2]["context_slice"]
+    assert t3["external_integrations"] == BA_SPEC["external_integrations"]
+    assert t3["relevant_assumptions"] == ["giao hàng toàn quốc"] and t3["security_architecture"] is None
+
     t4 = data["tasks"][3]["context_slice"]
+    assert t4["relevant_assumptions"] == ["giao hàng toàn quốc", "admin là nhân viên nội bộ"]
+    assert t4["relevant_open_questions"] == ["admin có cần xuất báo cáo?", "có voucher?"]
     assert t4["security_architecture"] == sa_data["security_architecture"]
     assert t4["global_constraints"] == [sa_data["global_constraints"][0], sa_data["global_constraints"][1]]
     assert t4["non_functional_requirements"] == [BA_SPEC["non_functional_requirements"][1]]
@@ -210,9 +220,35 @@ def test_tasks_json_is_hydrated_by_code(tmp_path):
     assert t1["global_constraints"] == [sa_data["global_constraints"][0], sa_data["global_constraints"][2]]
 
 
+def test_a_task_on_a_security_scoped_feature_gets_the_security_architecture(tmp_path):
+    items = pm_tasks()
+    items.append(task("T5", deps=["T1"], feature_ids=["F-3"], fr_ids=["FR-4"], acceptance_criteria_ids=["FR-4.AC1"],
+                      module_ids=["MOD-3"]))
+    artifacts = ready(tmp_path)
+    run(project_manager.run(artifacts, FakeRuntime(pm_output(items)), CONFIG))
+    t5 = next(item for item in artifacts.read_json("tasks.json")["tasks"] if item["id"] == "T5")
+    assert t5["context_slice"]["security_architecture"] == sa_output()["security_architecture"] | {
+        "sensitive_data_rules": [], "trust_boundaries": []}
+
+
+def test_old_ba_spec_without_feature_scopes_still_slices(tmp_path):
+    spec = deepcopy(BA_SPEC)
+    spec["assumptions"] = [{"text": "giao hàng toàn quốc"}]
+    spec["open_questions"] = ["có voucher?"]  # dạng chuỗi của workspace cũ
+    for nfr in spec["non_functional_requirements"]:
+        nfr.pop("feature_ids")
+    spec.pop("external_integrations")
+    artifacts = ready(tmp_path, spec, sa_output(api_contracts=[{**c, "integration_ids": []}
+                                                               for c in sa_output()["api_contracts"]]))
+    run(project_manager.run(artifacts, FakeRuntime(pm_output()), CONFIG))
+    t2 = artifacts.read_json("tasks.json")["tasks"][1]["context_slice"]
+    assert t2["relevant_open_questions"] == ["có voucher?"] and t2["external_integrations"] == []
+    assert t2["relevant_assumptions"][0] == "giao hàng toàn quốc"
+
+
 def test_execution_order_is_reproducible_when_the_model_shuffles_tasks(tmp_path):
     branching = [task("T1", "bootstrap"), task("T10", deps=["T1"], fr_ids=["FR-4"], acceptance_criteria_ids=["FR-4.AC1"],
-                                               nfr_ids=["NFR-2"], module_ids=["MOD-3"]),
+                                               nfr_ids=["NFR-2"], feature_ids=["F-3"], module_ids=["MOD-3"]),
                  task("T3", deps=["T1"], fr_ids=["FR-3"], acceptance_criteria_ids=["FR-3.AC1"], module_ids=["MOD-3"]),
                  task("T2", deps=["T1"], fr_ids=["FR-1", "FR-2"], edge_case_ids=["EC-1"], module_ids=["MOD-2"],
                       acceptance_criteria_ids=["FR-1.AC1", "FR-1.AC2", "FR-2.AC1"]),
@@ -275,24 +311,13 @@ def test_cli_project_manager_revise_approve(tmp_path, capsys):
     assert artifacts.read_json("tasks.json")["summary"] == "bản sửa"
 
 
-def test_tui_goes_from_requirements_to_the_task_plan(tmp_path):
+def test_tui_goes_from_clarify_to_the_task_plan(tmp_path):
     pytest.importorskip("textual")
     from raac.pre_executor.tui import DraftScreen, MessageScreen, PreExecutorApp
 
-    requirements_output = {
-        "overview": BA_SPEC["overview"],
-        "features": [{**feature, "why_priority": "lõi", "independent_test": "kiểm riêng", "sources": ["request"]}
-                     for feature in BA_SPEC["features"]],
-        "success_criteria": BA_SPEC["success_criteria"], "key_entities": BA_SPEC["key_entities"],
-        "non_functional_requirements": BA_SPEC["non_functional_requirements"], "constraints": BA_SPEC["constraints"],
-        "assumptions": [], "out_of_scope": BA_SPEC["out_of_scope"], "open_questions": [],
-    }
-    profile_output = {key: BA_SPEC[key] for key in ("user_flows", "business_rules", "functional_requirements",
-                                                    "edge_cases")} | {"open_questions": []}
     artifacts = Artifacts(tmp_path)
     artifacts.save_request("Làm website bán quần áo")
-    run(clarify.run(artifacts, FakeRuntime({"complete": True, "questions": []}), CONFIG))
-    runtime = FakeRuntime(requirements_output, profile_output, sa_output(), pm_output())
+    runtime = FakeRuntime({"complete": True, "questions": []}, BA_SPEC, sa_output(), pm_output())
 
     async def open_runtime(workspace, request_text, flow, model=None, **kwargs):
         return runtime
@@ -310,9 +335,12 @@ def test_tui_goes_from_requirements_to_the_task_plan(tmp_path):
 
     async def scenario():
         async with app.run_test(size=(120, 40)) as pilot:
+            done = await wait_for(pilot, MessageScreen, "Làm rõ xong")
+            assert "Tiếp: Business Analyst" in str(done.buttons)
+            await pilot.click("#next")
             for draft_text, done_text, button in (
-                    ("Giỏ hàng", "Đã duyệt yêu cầu sản phẩm", "#next"),
-                    ("FR-1.AC1", "Đã duyệt hồ sơ yêu cầu", "#next"),
+                    ("FR-1.AC1", ("Đã duyệt đặc tả nghiệp vụ: 3 chức năng, 4 yêu cầu chi tiết, 5 AC, 2 NFR, "
+                                  "2 trường hợp biên"), "#next"),
                     ("MOD-3 · orders", "Đã duyệt kiến trúc giải pháp: Python, 3 module, 2 hợp đồng API, 3 ràng buộc",
                      "#next"),
                     ("T1 → T2 → T3 → T4", "Đã duyệt kế hoạch công việc (pm): 4 task, 1 milestone", "#close")):
@@ -324,6 +352,7 @@ def test_tui_goes_from_requirements_to_the_task_plan(tmp_path):
 
     asyncio.run(scenario())
     assert all(state == "approved" for state in gate.status(artifacts).values())
+    assert app.ba_spec["key_entities"][0]["id"] == "ENT-1"
     assert app.solution_architecture["modules"][2]["name"] == "orders"
     assert app.project_manager["execution_order"] == ["T1", "T2", "T3", "T4"]
     assert app.return_value == app.project_manager

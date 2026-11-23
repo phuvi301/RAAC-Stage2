@@ -25,9 +25,21 @@ def test_changes_list_added_edited_and_removed_items():
            "success_criteria": [], "non_functional_requirements": [], "constraints": ["COD"]}
     new = {"features": [{"id": "F-1", "name": "Giỏ hàng có voucher"}, {"id": "F-3", "name": "Mã giảm giá"}],
            "success_criteria": [], "non_functional_requirements": [], "constraints": ["COD"]}
-    assert summarize_changes(old, new, "requirements") == [
+    assert summarize_changes(old, new, "business_analyst") == [
         "~ chức năng F-1 Giỏ hàng có voucher", "+ chức năng F-3 Mã giảm giá", "- chức năng F-2 Đánh giá"]
-    assert summarize_changes(None, new, "requirements") == [] and summarize_changes(new, new, "requirements") == []
+    assert summarize_changes(None, new, "business_analyst") == []
+    assert summarize_changes(new, new, "business_analyst") == []
+
+
+def test_business_analyst_changes_cover_the_new_ids_and_top_level_fields():
+    old = {"features": [], "key_entities": [{"id": "ENT-1", "name": "Giỏ"}],
+           "external_integrations": [], "open_questions": [{"id": "OQ-1", "text": "có voucher?"}],
+           "overview": {"summary": "a"}, "assumptions": []}
+    new = {"features": [], "key_entities": [{"id": "ENT-1", "name": "Giỏ hàng"}],
+           "external_integrations": [{"id": "INT-1", "name": "Giao hàng"}], "open_questions": [],
+           "overview": {"summary": "b"}, "assumptions": []}
+    assert summarize_changes(old, new, "business_analyst") == [
+        "~ thực thể ENT-1 Giỏ hàng", "+ tích hợp ngoài INT-1 Giao hàng", "- câu hỏi mở OQ-1 có voucher?", "~ overview"]
 
 
 def test_a_rule_violation_is_noted_in_the_trace():

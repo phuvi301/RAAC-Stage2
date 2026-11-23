@@ -2,7 +2,7 @@ id: solution_architect
 role: SolutionArchitect
 group: pre_executor
 prompt: prompts/pre_executor/solution_architect.md
-prompt_version: pre-executor-v2
+prompt_version: pre-executor-v3
 tools:
   - list_files
   - read_file

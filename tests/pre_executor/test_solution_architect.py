@@ -63,21 +63,21 @@ def test_find_cycle_is_deterministic():
 
 # ---------------------------------------------------------------- gate
 
-def test_needs_an_approved_profile(tmp_path):
+def test_needs_an_approved_ba_spec(tmp_path):
     artifacts = Artifacts(tmp_path)
     artifacts.save_request("Làm website")
     with pytest.raises(gate.GateError):  # missing
         run(solution_architect.run(artifacts, FakeRuntime(sa_output()), CONFIG))
     artifacts = ready(tmp_path)
     approvals = artifacts.read_json("approvals.json")
-    del approvals["profile"]
+    del approvals["business_analyst"]
     artifacts.write_json("approvals.json", approvals)  # draft
     with pytest.raises(gate.GateError):
         run(solution_architect.run(artifacts, FakeRuntime(sa_output()), CONFIG))
     artifacts = ready(tmp_path)
-    profile = artifacts.read_json("requirement_profile.json")
-    artifacts.write_json("requirement_profile.json", {**profile, "constraints": ["đã sửa tay"]})  # stale
-    assert gate.state(artifacts, "profile") == "stale"
+    spec = artifacts.read_json("ba_spec.json")
+    artifacts.write_json("ba_spec.json", {**spec, "constraints": ["đã sửa tay"]})  # stale
+    assert gate.state(artifacts, "business_analyst") == "stale"
     with pytest.raises(gate.GateError):
         run(solution_architect.run(artifacts, FakeRuntime(sa_output()), CONFIG))
 
@@ -98,19 +98,38 @@ def test_drafts_the_architecture_from_the_approved_ba_spec(tmp_path):
     for text in ("## 2. Tech stack", "| Ngôn ngữ | Python | >=3.11 | đội quen |", "### MOD-3 · orders (`src/shop/orders`)",
                  "### DM-1 · Order (MOD-3)", "`POST /orders`", "**Xác thực:** session cookie cho admin",
                  "**Test:** `python -m pytest -q` (pytest)", "| CON-2 | security | route admin phải kiểm quyền |",
-                 "**ADR-1 · Kiểu kiến trúc**", "chưa chốt cổng thanh toán online"):
+                 "**ADR-1 · Kiểu kiến trúc**", "chưa chốt cổng thanh toán online", "- **Thực thể BA:** ENT-2",
+                 "- **Tích hợp ngoài:** INT-1"):
         assert text in markdown
 
 
-def test_reads_ba_spec_json_first_and_detects_brownfield(tmp_path):
+def test_read_ba_spec_prefers_ba_spec_json_and_falls_back_to_an_old_workspace(tmp_path):
+    artifacts = Artifacts(tmp_path)
+    assert artifacts.read_ba_spec() is None
+    artifacts.write_json("requirement_profile.json", {"features": [], "from": "old"})  # workspace trước khi gộp BA
+    assert artifacts.read_ba_spec()["from"] == "old"
+    artifacts.write_json("ba_spec.json", {"features": [], "from": "new"})
+    assert artifacts.read_ba_spec()["from"] == "new"
+
+
+def test_detects_a_brownfield_workspace(tmp_path):
     artifacts = ready(tmp_path)
-    renamed = {**deepcopy(BA_SPEC), "constraints": ["từ ba_spec.json"]}
-    artifacts.write_json("ba_spec.json", renamed)
     (tmp_path / "pyproject.toml").write_text("[project]\nname='shop'\n", encoding="utf-8")
     runtime = FakeRuntime(sa_output())
     run(solution_architect.run(artifacts, runtime, CONFIG))
-    sent = runtime.requests[0][1]["artifacts"]
-    assert sent["ba_spec"]["constraints"] == ["từ ba_spec.json"] and sent["workspace_mode"] == "brownfield"
+    assert runtime.requests[0][1]["artifacts"]["workspace_mode"] == "brownfield"
+
+
+def test_entities_and_integrations_are_only_checked_when_the_ba_spec_has_ids(tmp_path):
+    spec = deepcopy(BA_SPEC)
+    spec["key_entities"] = [{"name": "Đơn hàng", "description": "đơn"}]  # workspace cũ: chưa có ENT-n
+    spec.pop("external_integrations")
+    artifacts = approve_ba_spec(Artifacts(tmp_path), spec)
+    plain = sa_output(data_models=[{**sa_output()["data_models"][0], "entity_ids": []}],
+                      api_contracts=[{**c, "integration_ids": []} for c in sa_output()["api_contracts"]])
+    runtime = FakeRuntime(plain)
+    run(solution_architect.run(artifacts, runtime, CONFIG))
+    assert len(runtime.requests) == 1
 
 
 # ---------------------------------------------------------------- schema
@@ -190,6 +209,17 @@ def _security(**changes):
     (sa_output(security_architecture={"auth_strategy": "x", "nfr_ids": ["NFR-2", "NFR-7"]}),
      "security_architecture refers to unknown NFRs ['NFR-7']"),
     (_security(), "security NFRs exist: describe auth"),
+    (sa_output(data_models=[{**sa_output()["data_models"][0], "entity_ids": ["ENT-2", "ENT-9"]}]),
+     "data model DM-1 refers to unknown entities ['ENT-9']"),
+    (sa_output(data_models=[{**sa_output()["data_models"][0], "entity_ids": []}]),
+     "entity ENT-2 is not mapped to any data model entity_ids or module owns_entities"),
+    (sa_output(modules=_mod(1, owns_entities=[])), "entity ENT-1 is not mapped"),
+    (sa_output(api_contracts=[sa_output()["api_contracts"][0],
+                              {**sa_output()["api_contracts"][1], "integration_ids": ["INT-1", "INT-7"]}]),
+     "API contract API-2 refers to unknown integrations ['INT-7']"),
+    (sa_output(api_contracts=[sa_output()["api_contracts"][0],
+                              {**sa_output()["api_contracts"][1], "integration_ids": []}]),
+     "integration INT-1 is not covered by any API contract integration_ids"),
     (sa_output(runtime_contract={**sa_output()["runtime_contract"], "env_vars": {"OPENAI_KEY": "sk-abcdefghijklmnop"}}),
      "env var OPENAI_KEY looks like a real secret"),
 ])
@@ -268,9 +298,9 @@ def test_cli_solution_architect_revise_approve(tmp_path, capsys):
     capsys.readouterr()
     assert cli.main(["status", "--workspace", str(tmp_path)]) == 0
     lines = capsys.readouterr().out.splitlines()
-    assert [line.split()[:2] for line in lines[:5]] == [
-        ["clarify", "approved"], ["requirements", "approved"], ["profile", "approved"],
-        ["solution_architect", "approved"], ["project_manager", "missing"]]
+    assert [line.split()[:2] for line in lines[:4]] == [
+        ["clarify", "approved"], ["business_analyst", "approved"], ["solution_architect", "approved"],
+        ["project_manager", "missing"]]
     assert not any("chưa triển khai" in line for line in lines)
 
 

@@ -29,18 +29,28 @@ def _ac(frid, number):
 BA_SPEC = {
     "overview": {"summary": "Website bán quần áo", "product_goal": "Bán online", "target_users": ["khách lẻ"]},
     "features": [
-        {"id": "F-1", "name": "Giỏ hàng", "description": "thêm, sửa, xoá", "priority": "high"},
-        {"id": "F-2", "name": "Đặt hàng", "description": "đặt và thanh toán COD", "priority": "medium"},
-        {"id": "F-3", "name": "Quản lý đơn", "description": "admin xử lý đơn", "priority": "low"},
+        {"id": "F-1", "name": "Giỏ hàng", "description": "thêm, sửa, xoá", "priority": "high", "why_priority": "lõi",
+         "independent_test": "thêm 1 món", "sources": ["request"]},
+        {"id": "F-2", "name": "Đặt hàng", "description": "đặt và thanh toán COD", "priority": "medium",
+         "why_priority": "cần", "independent_test": "đặt 1 đơn", "sources": ["request"]},
+        {"id": "F-3", "name": "Quản lý đơn", "description": "admin xử lý đơn", "priority": "low",
+         "why_priority": "vận hành", "independent_test": "đổi trạng thái", "sources": ["request"]},
     ],
     "success_criteria": [{"id": "SC-1", "outcome": "Khách đặt hàng nhanh", "metric": "dưới 3 phút"}],
-    "key_entities": [{"name": "Đơn hàng", "description": "đơn của khách", "attributes": [], "relations": []}],
+    "key_entities": [{"id": "ENT-1", "name": "Giỏ", "description": "giỏ của khách", "attributes": [], "relations": []},
+                     {"id": "ENT-2", "name": "Đơn hàng", "description": "đơn của khách", "attributes": [],
+                      "relations": []}],
     "non_functional_requirements": [
-        {"id": "NFR-1", "category": "performance_efficiency", "requirement": "nhanh", "metric": "p95 < 2 s"},
-        {"id": "NFR-2", "category": "security", "requirement": "chỉ admin xử lý đơn", "metric": "100% route admin"},
+        {"id": "NFR-1", "category": "performance_efficiency", "requirement": "nhanh", "metric": "p95 < 2 s",
+         "feature_ids": []},
+        {"id": "NFR-2", "category": "security", "requirement": "chỉ admin xử lý đơn", "metric": "100% route admin",
+         "feature_ids": ["F-3"]},
     ],
+    "external_integrations": [{"id": "INT-1", "name": "Dịch vụ giao hàng", "purpose": "tính phí ship",
+                               "feature_ids": ["F-2"], "failure_behavior": "dùng phí cố định"}],
     "constraints": ["chỉ COD"],
-    "assumptions": [{"text": "giao hàng toàn quốc", "clarification_id": "Q1"}],
+    "assumptions": [{"text": "giao hàng toàn quốc", "clarification_id": None, "feature_ids": []},
+                    {"text": "admin là nhân viên nội bộ", "clarification_id": None, "feature_ids": ["F-3"]}],
     "out_of_scope": ["app mobile"],
     "user_flows": [{"id": "UF-1", "name": "Mua hàng", "actor": "khách", "feature_ids": ["F-1", "F-2"],
                     "steps": ["chọn", "đặt"]}],
@@ -58,7 +68,8 @@ BA_SPEC = {
     ],
     "edge_cases": [{"id": "EC-1", "feature_id": "F-1", "situation": "hết hàng", "expected": "báo lỗi"},
                    {"id": "EC-2", "feature_id": "F-3", "situation": "đơn đã huỷ", "expected": "không đổi"}],
-    "open_questions": ["có voucher?"],
+    "open_questions": [{"id": "OQ-1", "text": "admin có cần xuất báo cáo?", "feature_ids": ["F-3"]},
+                       {"id": "OQ-2", "text": "có voucher?", "feature_ids": []}],
 }
 
 
@@ -73,16 +84,17 @@ def sa_output(**changes):
         "modules": [
             {"id": "MOD-1", "name": "core", "path": "src/shop/core", "responsibility": "cấu hình, db"},
             {"id": "MOD-2", "name": "cart", "path": "src/shop/cart", "responsibility": "giỏ hàng",
-             "feature_ids": ["F-1"], "depends_on": ["MOD-1"]},
+             "feature_ids": ["F-1"], "depends_on": ["MOD-1"], "owns_entities": ["ENT-1"]},
             {"id": "MOD-3", "name": "orders", "path": "src/shop/orders", "responsibility": "đơn hàng",
              "feature_ids": ["F-2", "F-3"], "depends_on": ["MOD-1", "MOD-2"], "owns_entities": ["Đơn hàng"]},
         ],
         "data_models": [{"id": "DM-1", "name": "Order", "module_id": "MOD-3", "description": "đơn",
-                         "fields": [{"name": "id", "field_type": "int", "constraints": "primary key"}]}],
+                         "fields": [{"name": "id", "field_type": "int", "constraints": "primary key"}],
+                         "entity_ids": ["ENT-2"]}],
         "api_contracts": [{"id": "API-1", "module_id": "MOD-2", "kind": "http", "signature": "POST /cart/items",
                            "purpose": "thêm món", "fr_ids": ["FR-1"]},
                           {"id": "API-2", "module_id": "MOD-3", "kind": "http", "signature": "POST /orders",
-                           "purpose": "đặt hàng", "fr_ids": ["FR-3"]}],
+                           "purpose": "đặt hàng", "fr_ids": ["FR-3"], "integration_ids": ["INT-1"]}],
         "security_architecture": {"auth_strategy": "session cookie cho admin", "authorization_model": "role admin",
                                   "nfr_ids": ["NFR-2"]},
         "runtime_contract": {"runtime_versions": {"python": ">=3.11"}, "package_manager": "pip",
@@ -130,18 +142,16 @@ def pm_output(tasks=None, **changes):
 
 
 def approve_ba_spec(artifacts, data=None):
-    """Ghi thẳng các file đã duyệt của clarify/requirements/profile (phần của thành viên khác) rồi approve gate."""
+    """Ghi thẳng các file đã duyệt của clarify + business_analyst rồi approve gate (không chạy agent)."""
     import hashlib
     from datetime import UTC, datetime
 
     artifacts.save_request("Làm website bán quần áo")
     artifacts.write_text("answers.md", "# Làm rõ yêu cầu\n")
     artifacts.write_json("clarification.json", [])
-    artifacts.write_json("requirements.json", {"features": (data or BA_SPEC)["features"]})
-    artifacts.write_json("requirement_profile.json", data or BA_SPEC)
+    artifacts.write_json("ba_spec.json", data or BA_SPEC)
     approvals = {}
-    for flow, filename in (("clarify", "answers.md"), ("requirements", "requirements.json"),
-                           ("profile", "requirement_profile.json")):
+    for flow, filename in (("clarify", "answers.md"), ("business_analyst", "ba_spec.json")):
         approvals[flow] = {"sha256": hashlib.sha256(artifacts.path(filename).read_bytes()).hexdigest(),
                            "approved_at": datetime.now(UTC).isoformat(timespec="seconds")}
     artifacts.write_json("approvals.json", approvals)

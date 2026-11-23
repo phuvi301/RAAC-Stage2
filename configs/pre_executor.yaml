@@ -1,4 +1,4 @@
-version: pre-executor-v2
+version: pre-executor-v3
 # Số lần cho role chạy lại khi đầu ra sai schema hoặc luật kiểm bằng code.
 max_flow_retries: 2
 # Số vòng hỏi lại tối đa của flow clarify.
@@ -7,7 +7,6 @@ max_clarify_rounds: 5
 # Ví dụ: "cc/claude-opus-5-5", "ds/deepseek-v4-pro".
 models:
   clarify: ""
-  requirements: ""
-  profile: ""
+  business_analyst: ""
   solution_architect: ""
   project_manager: ""

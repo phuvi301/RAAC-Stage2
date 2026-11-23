@@ -21,7 +21,7 @@ Mục đích: Đặc tả chi tiết để hiện thực hai flow thiết kế c
 [Tầng 2 — Micro / Per-Task Adaptive Execution Loop (ngoài pre_executor, lặp theo DAG)]
   For each T_i in tasks.json["execution_order"]:
     (T_i, T_i.context_slice, repo_snapshot_{i-1})
-      ─► Requirement Analyzer (just-in-time)       → Requirement Profile 4 điểm: (Complexity, Ambiguity, Architecture Impact, Security)
+      ─► Requirement Analyzer (just-in-time)       → Requirement Profile 4 điểm: (Complexity, Testability, Architecture Impact, Security)
       ─► Adaptivity Controller                     → chọn L1 / L2 / L3
       ─► Collaboration Engine (L1 / L2 / L3)       → cài đặt code-level, chạy test T_i + regression test
 ```
@@ -35,13 +35,13 @@ Mục đích: Đặc tả chi tiết để hiện thực hai flow thiết kế c
    - **Giữ nguyên hoàn toàn** code/logic của `clarify`, `requirements`, `profile` để không gây xung đột merge với thành viên phụ trách Clarifier + BA.
 2. **Tương thích đầu vào Upstream (từ Clarifier + BA):**
    - SA bám trực tiếp schema đầu ra hiện có của `pre_executor` là `requirement_profile.json` (`F-n`, `FR-n`, `FR-n.ACm`, `UF-n`, `BR-n`, `EC-n`, `NFR-n`, `SC-n`, `key_entities`, `constraints`, `assumptions`, `out_of_scope`, `open_questions`), thông qua một helper đọc tập trung (`artifacts.read_ba_spec()`) để nếu sau này thành viên làm BA gộp/đổi tên sang `ba_spec.json` thì chỉ đổi một chỗ.
-   - **Lưu ý thuật ngữ (tránh nhầm lẫn):** Trong `pre_executor` hiện tại, file `requirement_profile.json` là **hồ sơ đặc tả BA chi tiết** (FR/AC/UF/BR/EC). Khái niệm **Requirement Profile trong Proposal** là **bộ 4 điểm** `(Complexity, Ambiguity, Architecture Impact, Security)` do `Requirement Analyzer` sinh ra just-in-time sau PM. Hai thứ này khác nhau hoàn toàn.
+   - **Lưu ý thuật ngữ (tránh nhầm lẫn):** Trong `pre_executor` hiện tại, file `requirement_profile.json` là **hồ sơ đặc tả BA chi tiết** (FR/AC/UF/BR/EC). Khái niệm **Requirement Profile** ở Tầng Micro là **bộ 4 điểm** `(Complexity, Testability, Architecture Impact, Security)` *(thay trục `Ambiguity` gốc của Proposal bằng `Testability` do `Clarifier` đã xử lý mơ hồ ở Tầng Macro)* do `Requirement Analyzer` sinh ra just-in-time sau PM. Hai thứ này khác nhau hoàn toàn.
 3. **Phân ranh giới Macro vs Micro (chống lặp việc & chống phá kiến trúc):**
    - **SA (Macro):** Chốt Tech Stack, cấu trúc module cấp hệ thống, Data Models dùng chung, Public/Module API Contracts, Security Architecture, Target Runtime/Test Contract và **Global Constraints bất biến**. Không đi chi tiết hàm helper nội bộ hay viết mã giả từng dòng.
    - **PM (Macro):** Chia DAG các task nhỏ `T1..Tn`, đảm bảo 100% phủ AC/Module/Security NFR, giữ nguyên `open_assumptions`, và **code Python** tự cắt lát `context_slice` trích từ BA + SA cho từng task. Không viết kế hoạch sửa từng dòng code (việc của `Planner` tầng Micro).
    - **Tầng Micro (L1/L2/L3):** Nhận `T_i` + `context_slice` + `repo_{i-1}`; các role `Analyst / Architect / Planner` bên trong L1–L3 làm ở mức **code-level** trên `repo_{i-1}`, tuân thủ Global Constraints của SA như ràng buộc chỉ-đọc, và L2 vẫn giữ đủ role optional để adaptive routing có ý nghĩa.
 4. **Ranh giới PM với `Requirement Analyzer` & `Controller`:**
-   - PM **tuyệt đối không** chấm 4 điểm `(Complexity, Ambiguity, Architecture Impact, Security)`, **không** gán `suggested_level`, **không** gán `risk: low|medium|high` mang tính quyết định thay Analyzer.
+   - PM **tuyệt đối không** chấm 4 điểm `(Complexity, Testability, Architecture Impact, Security)`, **không** gán `suggested_level`, **không** gán `risk: low|medium|high` mang tính quyết định thay Analyzer.
    - PM chỉ xuất **metadata cấu trúc khách quan** (`kind`, `depends_on`, tham chiếu ID về BA/SA, `target_paths`, `verification_scope`, `integration_notes`, `open_assumptions`) và `context_slice` được hydrate bằng code. Việc chấm 4 điểm thuộc `Requirement Analyzer` chạy just-in-time ở từng vòng $T_i$.
 
 ---
@@ -324,7 +324,7 @@ Prompt cần tuân thủ đúng văn phong và cấu trúc của `requirement_pr
   - **Không** viết chi tiết thuật toán nội bộ, tên hàm helper cục bộ hay từng bước sửa file (để tầng Micro giải quyết trên codebase thật).
   - Mọi `F-n` đều phải có `MOD-n` phụ trách; không tạo vòng phụ thuộc giữa các `MOD-n`.
   - Nếu có `NFR` thuộc `security`, phải điền đầy đủ `security_architecture` và tham chiếu đúng `NFR-n`.
-  - `runtime_contract` chỉ khai báo phiên bản/lệnh chuẩn mực (install/build/run/test), không giả định đã cài trên máy; luôn có `test_command` chạy được tự động.
+  - `runtime_contract` chỉ khai báo phiên bản/lệnh chuẩn mực (install/build/run/test), không giả định đã cài trên máy; luôn có `test_command` chạy được tự động. Ghi rõ chiến lược kiểm thử ở mức hệ thống đối với DB/dịch vụ ngoài (vd. in-memory DB, mock/stub) trong `global_constraints` (`category: "testing"`).
   - Những chi tiết kỹ thuật chưa cần chốt cứng ở mức hệ thống thì ghi vào `open_assumptions` thay vì bịa đặt quá chi tiết.
 - Yêu cầu ngôn ngữ: dùng ngôn ngữ của `request`, chỉ trả JSON đúng `output_schema`.
 
@@ -428,7 +428,7 @@ class ProjectManagerOutput(Strict):
     open_questions: list[str] = Field(default_factory=list)
 ```
 
-> Vì `TaskSpec` kế thừa `Strict` (`extra="forbid"`), nếu model tự thêm các trường cấm như `level`, `suggested_level`, `risk`, `complexity`, `ambiguity`, `architecture_impact`, `security`, Pydantic sẽ chặn ngay lập tức.
+> Vì `TaskSpec` kế thừa `Strict` (`extra="forbid"`), nếu model tự thêm các trường cấm như `level`, `suggested_level`, `risk`, `complexity`, `testability`, `ambiguity`, `architecture_impact`, `security`, Pydantic sẽ chặn ngay lập tức.
 
 ### 4.4. Luật kiểm bằng code (`check_against(ba_spec, sa_data, workspace_mode)` trong `flows/project_manager.py`)
 
@@ -538,8 +538,8 @@ Prompt cần nhấn mạnh các nguyên tắc cốt lõi sau:
   - Với `greenfield`, luôn có task `bootstrap` (`depends_on: []`) đầu tiên để dựng khung thư mục, dependency và test runner; các task sau phụ thuộc vào nó.
   - `depends_on` chỉ khai báo phụ thuộc kỹ thuật thực sự (dùng model/API/module của task trước); **không tạo chu trình**.
   - Phủ **100%** `FR-n.ACm`, **100%** `MOD-n`, **100%** `NFR-n` bảo mật và `edge_cases` của feature ưu tiên cao. Nếu đưa `FR-k.ACm` vào `acceptance_criteria_ids` thì phải đưa `FR-k` vào `fr_ids`.
-  - **Ranh giới Macro vs Micro:** chỉ mô tả *mục tiêu, hợp đồng cần tuân thủ, vùng thư mục (`target_paths`) và phạm vi kiểm thử (`verification_scope`)*. Không kê chi tiết từng hàm nội bộ hay diff dòng code.
-  - **Không tự đánh giá level hay chấm điểm:** không tự xếp loại L1/L2/L3, không tự chấm 4 trục (Complexity/Ambiguity/Architecture Impact/Security), không tự thêm trường `risk` hay `suggested_level`.
+  - **Ranh giới Macro vs Micro:** chỉ mô tả *mục tiêu, hợp đồng cần tuân thủ, vùng thư mục (`target_paths`) và phạm vi kiểm thử (`verification_scope` — nêu rõ loại kiểm thử cần thiết như unit test thuần logic, fixture DB/file, mock API ngoài, tích hợp nhiều module, test UI và regression với `depends_on`)*. Không kê chi tiết từng hàm nội bộ hay diff dòng code.
+  - **Không tự đánh giá level hay chấm điểm:** không tự xếp loại L1/L2/L3, không tự chấm 4 trục (Complexity/Testability/Architecture Impact/Security), không tự thêm trường `risk` hay `suggested_level`.
   - **Bảo tồn `open_assumptions`:** nếu một task còn điểm kỹ thuật chưa chốt (ví dụ từ `ba_spec.open_questions` hoặc `solution_architecture.open_assumptions`), ghi trung thực vào `task.open_assumptions` thay vì tự bịa giải pháp thay developer.
 - Ngôn ngữ theo `request`, chỉ trả về JSON đúng `output_schema`.
 
@@ -571,7 +571,7 @@ Phần này **không triển khai trong phạm vi `pre_executor`**, nhưng đị
      1. `task_i` (metadata khách quan từ `tasks.json`, gồm `goal`, `kind`, `depends_on`, `target_paths`, `open_assumptions`, các ID tham chiếu).
      2. `task_i["context_slice"]` (ngữ cảnh BA + SA đã cắt lát đúng phạm vi $T_i$).
      3. `repo_snapshot_{i-1}` (cây thư mục hiện tại sau $T_{i-1}$ + tóm tắt public interface/schema của các module trong `depends_on` + ghi chú sai lệch nếu có từ các vòng trước).
-   - Output của `Requirement Analyzer`: **Requirement Profile 4 điểm** `(Complexity, Ambiguity, Architecture Impact, Security)` → đưa vào `Adaptivity Controller` chọn `L1 / L2 / L3`.
+   - Output của `Requirement Analyzer`: **Requirement Profile 4 điểm** `(Complexity, Testability, Architecture Impact, Security)` → đưa vào `Adaptivity Controller` chọn `L1 / L2 / L3`.
 3. **Ràng buộc cho tầng Micro (L1/L2/L3):**
    - `context_slice["global_constraints"]`, `context_slice["api_contracts"]`, `context_slice["data_models"]` và `global_runtime_contract` là **read-only constraints** — tầng Micro không được tự ý sửa vỡ hợp đồng toàn cục; nếu xung đột với code thực tế phải báo conflict/escalate.
    - Cuối mỗi vòng $T_i$, gate kiểm tra chạy test của $T_i$ + regression test bằng `global_runtime_contract["test_command"]`.
@@ -679,7 +679,7 @@ Phần này **không triển khai trong phạm vi `pre_executor`**, nhưng đị
 ### 8.2. Test bắt buộc cho `project_manager` (`tests/pre_executor/test_project_manager.py`)
 
 - **Gate:** từ chối chạy khi `solution_architect` chưa duyệt hoặc bị `stale`; mất duyệt ngay khi `solution_architect` bị `revise`.
-- **Schema (`extra="forbid"`):** từ chối mọi trường rò rỉ thẩm quyền Analyzer/Controller (`suggested_level`, `level`, `risk`, `complexity`, `ambiguity`, `architecture_impact`, `security`).
+- **Schema (`extra="forbid"`):** từ chối mọi trường rò rỉ thẩm quyền Analyzer/Controller (`suggested_level`, `level`, `risk`, `complexity`, `testability`, `ambiguity`, `architecture_impact`, `security`).
 - **Deterministic rules (parametrize — vi phạm → retry → pass):**
   - Trùng ID `T1`, trùng tiêu đề task.
   - `depends_on` trỏ task không tồn tại, tự phụ thuộc, **chu trình 2-node và 3-node**.

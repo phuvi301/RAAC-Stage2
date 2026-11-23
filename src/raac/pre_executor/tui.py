@@ -1,4 +1,4 @@
-"""TUI của pre_executor: clarify (hỏi và trả lời) -> requirements -> profile -> solution_architect -> project_manager
+"""TUI của pre_executor: clarify (hỏi và trả lời) -> business_analyst -> solution_architect -> project_manager
 (bản nháp, góp ý, approve).
 
     python -m raac.pre_executor tui --workspace <repo> [--prompt "..." | --prompt-file request.md] [--model ...]
@@ -6,8 +6,8 @@
 Luồng: (nhập yêu cầu nếu workspace chưa có) -> agent hỏi một vòng -> từng câu một cửa sổ, ô trả lời điền sẵn đáp án
 gợi ý (Enter để trả lời) -> agent tự hỏi vòng tiếp dựa trên câu trả lời -> ... -> khi agent thấy đủ (hoặc hết số vòng)
 clarify tự chốt (clarification.json). Không có góp ý hay approve ở bước này.
-Tiếp đó requirements: agent viết tổng quan, chức năng cốt lõi, NFR -> TUI hiện bản nháp -> người dùng góp ý để agent
-sửa, lặp tới khi vừa ý thì Approve. Rồi profile (user flow, quy tắc nghiệp vụ, FR + AC), solution_architect (tech
+Tiếp đó business_analyst: agent viết đặc tả nghiệp vụ (chức năng, FR + AC, NFR, thực thể, tích hợp ngoài, ...) ->
+TUI hiện bản nháp -> người dùng góp ý để agent sửa, lặp tới khi vừa ý thì Approve. Rồi solution_architect (tech
 stack, module, API, ràng buộc toàn cục, runtime/test) và project_manager (DAG task + tasks.json) cùng cách duyệt.
 Mở lại TUI sẽ tiếp tục đúng bước đang dở.
 Câu trả lời được ghi vào answers.md, nên dừng giữa chừng (Ctrl+Q) rồi mở lại vẫn tiếp tục được.
@@ -177,13 +177,12 @@ class PreExecutorApp(App):
         super().__init__()
         self.artifacts, self.open_runtime, self.model = artifacts, open_runtime, model
         self.clarification: list[dict] | None = None
-        self.requirements: dict | None = None
-        self.profile: dict | None = None
+        self.ba_spec: dict | None = None
         self.solution_architecture: dict | None = None
         self.project_manager: dict | None = None
 
     def last_result(self) -> dict | None:
-        return self.project_manager or self.solution_architecture or self.profile or self.requirements
+        return self.project_manager or self.solution_architecture or self.ba_spec
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -266,7 +265,7 @@ class PreExecutorApp(App):
                            f"{result['answered']} câu trả lời, {result['assumed']} câu dùng khuyến nghị (giả định).\n"
                            + (f"Độ phủ: {coverage}" if coverage else ""))
                 self.write(message)
-                choice = await self.push_screen_wait(MessageScreen(message, [("next", "Tiếp: phân tích yêu cầu"),
+                choice = await self.push_screen_wait(MessageScreen(message, [("next", "Tiếp: Business Analyst"),
                                                                              ("close", "Đóng")]))
                 return choice == "next"
             history = clarify.rounds(self.artifacts)
@@ -311,18 +310,17 @@ class PreExecutorApp(App):
 
 
 DRAFT_FLOWS = (
-    ("requirements", "Tiếp: Requirement Profile"),
-    ("profile", "Tiếp: Solution Architect"),
+    ("business_analyst", "Tiếp: Solution Architect"),
     ("solution_architect", "Tiếp: Project Manager"),
     ("project_manager", None),
 )
-STATE_ATTR = {"solution_architect": "solution_architecture"}  # flow -> thuộc tính lưu bản đã duyệt trên app
+STATE_ATTR = {"business_analyst": "ba_spec", "solution_architect": "solution_architecture"}  # flow -> thuộc tính lưu bản đã duyệt trên app
 DRAFT_TITLES = {
-    "requirements": ("Yêu cầu sản phẩm", lambda data: f"{len(data['features'])} chức năng cốt lõi, "
-                                                      f"{len(data['non_functional_requirements'])} NFR"),
-    "profile": ("Hồ sơ yêu cầu", lambda data: f"{len(data['user_flows'])} user flow, "
-                                             f"{len(data['functional_requirements'])} yêu cầu chi tiết, "
-                                             f"{sum(len(fr['acceptance_criteria']) for fr in data['functional_requirements'])} AC"),
+    "business_analyst": ("Đặc tả nghiệp vụ", lambda data: f"{len(data['features'])} chức năng, "
+                                                         f"{len(data['functional_requirements'])} yêu cầu chi tiết, "
+                                                         f"{sum(len(fr['acceptance_criteria']) for fr in data['functional_requirements'])} AC, "
+                                                         f"{len(data['non_functional_requirements'])} NFR, "
+                                                         f"{len(data['edge_cases'])} trường hợp biên"),
     "solution_architect": ("Kiến trúc giải pháp", lambda data: f"{data['tech_stack']['language']['name']}, "
                                                                f"{len(data['modules'])} module, "
                                                                f"{len(data['api_contracts'])} hợp đồng API, "
