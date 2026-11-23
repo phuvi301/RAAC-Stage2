@@ -128,7 +128,7 @@ def test_finishes_after_the_last_answers_when_the_agent_said_enough(tmp_path):
         question("a", "Bán gì?", "quần áo"), question("b", "Thanh toán?", "VNPay")]}), CONFIG))
     assert gate.state(artifacts, "clarify") == "draft"  # còn câu hỏi chưa trả lời
     with pytest.raises(gate.GateError):
-        gate.require_runnable(artifacts, "spec")
+        gate.require_runnable(artifacts, "business_analyst")
 
     clarify.save_answers(artifacts, {"Q2": "MoMo"})
     idle = FakeRuntime()
@@ -136,12 +136,12 @@ def test_finishes_after_the_last_answers_when_the_agent_said_enough(tmp_path):
     assert idle.requests == [] and result["status"] == "done" and result["assumed"] == 1
     items = artifacts.read_json("clarification.json")
     assert [(item["answer"], item["assumed"]) for item in items] == [("quần áo", True), ("MoMo", False)]
-    assert gate.can_run(artifacts, "spec")
+    assert gate.can_run(artifacts, "business_analyst")
 
     clarify.save_answers(artifacts, {"Q2": "ZaloPay"})  # sửa sau khi chốt -> chạy lại để chốt lại
-    assert gate.state(artifacts, "clarify") == "stale" and not gate.can_run(artifacts, "spec")
+    assert gate.state(artifacts, "clarify") == "stale" and not gate.can_run(artifacts, "business_analyst")
     run(clarify.run(artifacts, FakeRuntime(), CONFIG))
-    assert artifacts.read_json("clarification.json")[1]["answer"] == "ZaloPay" and gate.can_run(artifacts, "spec")
+    assert artifacts.read_json("clarification.json")[1]["answer"] == "ZaloPay" and gate.can_run(artifacts, "business_analyst")
 
 
 def test_finishes_at_the_round_limit(tmp_path):
@@ -177,7 +177,7 @@ def test_cli_takes_the_request_like_the_tui_and_drives_clarify(tmp_path, capsys)
     assert (repo / ".raac/pre_executor/answers.md").is_file() and (repo / ".raac/.gitignore").read_text() == "*\n"
 
     assert cli.main(["clarify", "--workspace", str(repo), "--prompt", "Việc khác"], open_runtime=open_runtime) == 2
-    assert cli.main(["spec", "--workspace", str(repo)]) == 2  # clarify chưa xong
+    assert cli.main(["business_analyst", "--workspace", str(repo)]) == 2  # clarify chưa xong
     for command in (["approve", "clarify"], ["review", "clarify"], ["revise", "clarify", "--note", "x"]):
         assert cli.main([*command, "--workspace", str(repo)]) == 2  # clarify không có góp ý/approve
 
@@ -185,8 +185,66 @@ def test_cli_takes_the_request_like_the_tui_and_drives_clarify(tmp_path, capsys)
     capsys.readouterr()
     assert cli.main(["status", "--workspace", str(repo)]) == 0
     lines = capsys.readouterr().out.splitlines()
-    assert lines[0].split()[:2] == ["clarify", "approved"] and lines[1].split()[:2] == ["spec", "missing"]
-    assert "chưa triển khai" not in lines[1] and "chưa triển khai" in lines[2]  # spec đã có, tech_select chưa
+    assert lines[0].split()[:2] == ["clarify", "approved"] and lines[1].split()[:2] == ["business_analyst", "missing"]
+    assert [line.split()[0] for line in lines] == ["clarify", "business_analyst", "solution_architect",
+                                                  "project_manager"]
+    assert not any("chưa triển khai" in line for line in lines)  # cả 4 flow đã triển khai
+
+
+# ---------------------------------------------------------------- workspace_mode, --auto-assume
+
+def test_the_payload_tells_the_clarifier_whether_the_workspace_has_code(tmp_path):
+    empty = tmp_path / "new"
+    empty.mkdir()
+    runtime = FakeRuntime({"complete": True, "questions": []})
+    run(clarify.run(workspace(empty), runtime, CONFIG))
+    assert runtime.requests[0][1]["artifacts"]["workspace_mode"] == "greenfield"
+
+    existing = tmp_path / "old"
+    existing.mkdir()
+    (existing / "package.json").write_text("{}", encoding="utf-8")
+    runtime = FakeRuntime({"complete": True, "questions": []})
+    run(clarify.run(workspace(existing), runtime, CONFIG))
+    assert runtime.requests[0][1]["artifacts"]["workspace_mode"] == "brownfield"
+
+
+def test_auto_assume_runs_every_round_with_the_recommendations_and_finishes(tmp_path):
+    artifacts = workspace(tmp_path)
+    runtime = FakeRuntime({"complete": False, "questions": [question("a", "Bán gì?", "quần áo")]},
+                          {"complete": False, "questions": [question("a", "Thanh toán?", "COD")]})
+    result = run(clarify.run(artifacts, runtime, PreExecutorConfig(max_flow_retries=1, max_clarify_rounds=2),
+                             auto_assume=True))
+    assert len(runtime.requests) == 2 and result["status"] == "done" and result["auto_assumed"] is True
+    assert result["reason"] == "đã hết 2 vòng" and result["assumed"] == 2
+    assert runtime.requests[1][1]["artifacts"]["answers"] == [
+        {"id": "Q1", "category": "functional_scope", "question": "Bán gì?", "answer": "quần áo", "assumed": True}]
+    items = artifacts.read_json("clarification.json")
+    assert [(item["answer"], item["assumed"]) for item in items] == [("quần áo", True), ("COD", True)]
+    assert gate.state(artifacts, "clarify") == "approved" and artifacts.read_json("coverage.json")
+
+
+def test_auto_assume_stops_as_soon_as_the_agent_says_enough(tmp_path):
+    artifacts = workspace(tmp_path)
+    runtime = FakeRuntime({"complete": True, "questions": [question("a", "Bán gì?", "quần áo")]})
+    result = run(clarify.run(artifacts, runtime, PreExecutorConfig(max_clarify_rounds=5), auto_assume=True))
+    assert len(runtime.requests) == 1 and result["reason"] == "agent thấy đã đủ thông tin"
+    assert gate.can_run(artifacts, "business_analyst")
+
+
+def test_cli_auto_assume_finishes_clarify_in_one_command(tmp_path, capsys):
+    repo = tmp_path / "shop"
+    repo.mkdir()
+    runtime, open_runtime = opener({"complete": False, "questions": [question("a", "Bán gì?", "quần áo")]},
+                                   {"complete": True, "questions": []})
+    assert cli.main(["clarify", "--workspace", str(repo), "--prompt", "Làm phần mềm bán hàng", "--auto-assume",
+                     "--observe", "none"], open_runtime=open_runtime) == 0
+    out = capsys.readouterr().out
+    assert "clarify: xong sau 2 vòng" in out and "--auto-assume" in out
+    folder = repo / ".raac/pre_executor"
+    assert json.loads((folder / "clarification.json").read_text(encoding="utf-8"))[0]["assumed"] is True
+    assert (folder / "coverage.json").is_file()
+    with pytest.raises(SystemExit):  # cờ chỉ có ở clarify
+        cli.main(["business_analyst", "--workspace", str(repo), "--auto-assume"])
 
 
 def test_cli_without_any_request_is_refused(tmp_path):

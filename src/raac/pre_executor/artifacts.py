@@ -3,13 +3,15 @@
     request.md              yêu cầu gốc (từ --prompt hoặc --prompt-file)
     clarify.json            các vòng làm rõ: câu hỏi của role Clarifier theo vòng, run_id
     answers.md              câu hỏi + câu trả lời; người dùng sửa phần sau "A:"
-    clarification.json      Clarification đã chốt — đầu vào của flow spec
-    requirement_spec.json   Requirement Spec (Business Analyst) + requirement_spec.md để đọc
+    clarification.json      Clarification đã duyệt (ghi lúc chốt clarify) — đầu vào của flow business_analyst
+    coverage.json           độ phủ cuối của 10 nhóm khi chốt clarify
     feedback/<flow>.json    góp ý của người dùng cho flow đó, theo thứ tự
     run.json                run_id chung của workspace: mọi flow ghi log vào cùng results/<run_id>/llm.jsonl
     usage.json              token đã dùng: từng lần chạy flow, cộng dồn theo flow và theo run
     approvals.json          {flow: {sha256, approved_at}}
-    (tech_stack.json, architecture.json, ... do các flow sau ghi)
+    ba_spec.json/.md                flow business_analyst (đặc tả BA: F/SC/ENT/NFR/INT/UF/BR/FR/AC/EC/OQ), đầu vào SA/PM
+    solution_architecture.json/.md  flow solution_architect (tech stack, module, API, ràng buộc toàn cục, runtime)
+    tasks.json/.md                  flow project_manager (DAG T1..Tn + execution_order + context_slice cho MAS)
 
 Thư mục có sẵn .gitignore riêng ("*") nên không lẫn vào git của repo đích.
 """
@@ -20,16 +22,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 FOLDER = Path(".raac") / "pre_executor"
-FLOWS = ("clarify", "spec", "tech_select", "architecture", "environment", "task_decomposer")
+FLOWS = ("clarify", "business_analyst", "solution_architect", "project_manager")
 # File mà người dùng duyệt cho từng flow (hash của file này được ghi lúc approve).
 APPROVED_FILE = {
     "clarify": "answers.md",
-    "spec": "requirement_spec.json",
-    "tech_select": "tech_stack.json",
-    "architecture": "architecture.json",
-    "environment": "environment.json",
-    "task_decomposer": "tasks.json",
+    "business_analyst": "ba_spec.json",
+    "solution_architect": "solution_architecture.json",
+    "project_manager": "tasks.json",
 }
+# Đầu ra đã duyệt của tầng BA mà SA/PM đọc: ba_spec.json; requirement_profile.json chỉ để đọc workspace tạo trước
+# khi gộp requirements + profile thành business_analyst.
+BA_SPEC_CANDIDATES = ("ba_spec.json", "requirement_profile.json")
 
 
 class Artifacts:
@@ -66,6 +69,14 @@ class Artifacts:
     def read_json(self, name: str):
         text = self.read_text(name)
         return json.loads(text) if text is not None else None
+
+    def read_ba_spec(self) -> dict | None:
+        """Đặc tả BA đã duyệt (ba_spec.json; requirement_profile.json của workspace cũ nếu chưa có)."""
+        for filename in BA_SPEC_CANDIDATES:
+            data = self.read_json(filename)
+            if data is not None:
+                return data
+        return None
 
     # ---- yêu cầu gốc
     def save_request(self, text: str) -> None:

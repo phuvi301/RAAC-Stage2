@@ -3,7 +3,7 @@
     python -m raac.ra analyze --workspace <repo> --task <task-id> [--model ...] [--observe terminal|web|none]
     python -m raac.ra show    --workspace <repo> [--task <task-id>]
 
-Đầu vào lấy trong <workspace>/.raac/pre_executor/: tasks.json, requirement_spec.json, architecture.md.
+Đầu vào lấy trong <workspace>/.raac/pre_executor/: tasks.json (project_manager), ba_spec.json, solution_architecture.md.
 Đầu ra: <workspace>/.raac/ra/requirement_profile.json (+ .md), mỗi task một mục; chấm lại thì ghi đè mục của task đó.
 Log ghi vào cùng run của workspace với pre_executor (show-log --run-id <run_id> xem được cả chuỗi).
 """
@@ -23,6 +23,7 @@ from raac.pre_executor.runtime import PROJECT
 
 from . import analyze as analyzer
 from . import contracts
+from .context import prompt_in_sync, sync_prompt
 
 
 class RaConfig(BaseModel):
@@ -49,7 +50,10 @@ class RaArtifacts(Artifacts):
 
 
 async def run_analyze(workspace: Path, task_id: str, *, model=None, observe="none", open_runtime=None,
-                      write=print, rubric_path: Path = PROJECT / contracts.RUBRIC_FILE) -> dict:
+                      write=print) -> dict:
+    if not prompt_in_sync(PROJECT / contracts.PROMPT_FILE, PROJECT / contracts.RUBRIC_FILE):
+        raise ValueError(f"Rubric trong {contracts.PROMPT_FILE} lệch với {contracts.RUBRIC_FILE}: "
+                         "chạy `python -m raac.ra sync-rubric`")
     sources, store = Artifacts(workspace), RaArtifacts(workspace)
     config = load_config()
     contracts.register()
@@ -72,7 +76,7 @@ async def run_analyze(workspace: Path, task_id: str, *, model=None, observe="non
         observer.ready(runtime.log_path)
     status, usage = "failed", None
     try:
-        result = await analyzer.run(sources, store, runtime, config, task_id, rubric_path=rubric_path)
+        result = await analyzer.run(sources, store, runtime, config, task_id)
         status = "completed"
     finally:
         snapshot = getattr(runtime, "usage", None)
@@ -117,6 +121,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--task", required=True, help="id task trong tasks.json, ví dụ T3")
     sub.add_argument("--model", help="model cho lần chạy này (ghi đè configs/ra.yaml)")
     sub.add_argument("--observe", choices=["terminal", "web", "none"], default="terminal")
+    commands.add_parser("sync-rubric", help="chép lại rubric (mục 2-7) vào prompt của role sau khi sửa file rubric")
     sub = commands.add_parser("show", help="xem profile đã chấm")
     sub.add_argument("--workspace", required=True)
     sub.add_argument("--task")
@@ -129,6 +134,10 @@ def main(argv=None, *, open_runtime=None) -> int:
             stream.reconfigure(encoding="utf-8")
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "sync-rubric":
+            changed = sync_prompt(PROJECT / contracts.PROMPT_FILE, PROJECT / contracts.RUBRIC_FILE)
+            print(f"{'Đã cập nhật' if changed else 'Không đổi'}: {contracts.PROMPT_FILE}")
+            return 0
         if not Path(args.workspace).is_dir():
             raise ValueError(f"Workspace không tồn tại: {args.workspace}")
         if args.command == "analyze":

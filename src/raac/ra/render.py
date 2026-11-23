@@ -22,7 +22,7 @@ def render_profiles(profiles: dict) -> str:
             score = entry[axis]
             lines.append(f"| {label} | {score['score']} | {', '.join(score['factors'])} | {_cell(score['evidence'])} |")
         if entry.get("architecture_sections_read"):
-            lines += ["", f"Đã đọc trong architecture.md: {', '.join(entry['architecture_sections_read'])}"]
+            lines += ["", f"Đã đọc trong solution_architecture.md: {', '.join(entry['architecture_sections_read'])}"]
         if entry.get("checks"):
             lines += ["", "Cần xem lại:", *[f"- {note}" for note in entry["checks"]]]
         if entry.get("human"):

@@ -5,16 +5,18 @@ phủ của Spec Kit (contracts.COVERAGE_CATEGORIES), đánh dấu clear/partial
 tác động lớn nhất về các nhóm partial/missing; mỗi câu là trắc nghiệm có phương án khuyến nghị hoặc trả lời ngắn.
 
 Vào:  request (yêu cầu thô HOẶC một bản spec) + các câu đã hỏi và câu trả lời hiện có trong answers.md
-      + độ phủ của vòng trước.
+      + độ phủ của vòng trước + workspace_mode (greenfield/brownfield, tính bằng code).
 Ra:   mỗi lần chạy một vòng câu hỏi mới (clarify.json) -> answers.md (câu hỏi + đáp án gợi ý).
       Người dùng trả lời (TUI hoặc sửa answers.md) rồi chạy tiếp; agent hỏi vòng sau dựa trên câu trả lời.
 Kết thúc: khi agent báo đủ thông tin (complete) hoặc hết max_clarify_rounds, flow TỰ CHỐT (`finish`):
-      Clarification = [{id, question, answer, assumed}] ghi vào clarification.json — đầu vào của flow spec.
+      Clarification = [{id, question, answer, assumed}] ghi vào clarification.json — đầu vào của flow business_analyst.
       `assumed` = người dùng để nguyên đáp án gợi ý. Sửa answers.md sau khi chốt thì chạy clarify lại để chốt lại.
       Kèm coverage.json: độ phủ cuối của từng nhóm (clear | resolved | deferred | not_applicable | outstanding).
 Luật (bằng code, vi phạm thì agent được gửi lại kèm lỗi): độ phủ liệt kê đủ 10 nhóm, mỗi nhóm một lần; không được báo
 complete khi còn nhóm missing; not_applicable phải có lý do; câu hỏi chỉ nhắm nhóm partial/missing; trắc nghiệm có 2-5
 lựa chọn và phương án khuyến nghị nằm trong các lựa chọn; không hỏi lại câu đã hỏi; tối đa 5 câu một vòng (schema).
+auto_assume (CLI --auto-assume, cho chạy tự động/benchmark): tự dùng phương án khuyến nghị qua mọi vòng (mọi câu được
+ghi trung thực `assumed: true`) tới khi agent báo đủ hoặc hết max_clarify_rounds, rồi tự chốt.
 """
 
 import re
@@ -23,6 +25,7 @@ from .. import gate
 from ..artifacts import Artifacts
 from ..contracts import COVERAGE_CATEGORIES, ClarifyOutput
 from ..render import parse_answers, render_answers
+from ._checks import workspace_mode
 from .base import run_role
 
 FLOW = "clarify"
@@ -79,7 +82,7 @@ def final_coverage(artifacts: Artifacts) -> list[dict]:
 
 
 def finish(artifacts: Artifacts) -> list[dict]:
-    """Chốt câu trả lời hiện tại: ghi clarification.json + coverage.json và mở đường cho flow spec."""
+    """Chốt câu trả lời hiện tại: ghi clarification.json + coverage.json và mở đường cho flow business_analyst."""
     result = clarification(artifacts)
     artifacts.write_json("clarification.json", result)
     artifacts.write_json("coverage.json", final_coverage(artifacts))
@@ -130,22 +133,16 @@ def _done(artifacts: Artifacts, config) -> dict:
             "clarification": str(artifacts.path("clarification.json"))}
 
 
-async def run(artifacts: Artifacts, runtime, config, *, note: str | None = None) -> dict:
-    if note:
-        raise ValueError("clarify chỉ hỏi và trả lời, không nhận góp ý")
-    request = artifacts.request()
-    if not request:
-        raise ValueError("Chưa có yêu cầu: chạy clarify với --prompt hoặc --prompt-file")
-    if finished(artifacts, config):
-        return _done(artifacts, config)
-
+async def _ask_round(artifacts: Artifacts, runtime, config, request: str) -> dict:
+    """Một vòng hỏi: gọi role, đánh số câu hỏi, ghi clarify.json + answers.md (điền sẵn đáp án khuyến nghị)."""
     history = rounds(artifacts)
     current = clarification(artifacts)
     output = await run_role(
         runtime, FLOW, ROLE, ClarifyOutput,
         {"request": request, "answers": current, "round": len(history) + 1,
          "max_rounds": config.max_clarify_rounds, "coverage_categories": COVERAGE_CATEGORIES,
-         "previous_coverage": history[-1].get("coverage", []) if history else []},
+         "previous_coverage": history[-1].get("coverage", []) if history else [],
+         "workspace_mode": workspace_mode(artifacts.workspace)},
         check_against([item["question"] for item in current]),
         retries=config.max_flow_retries, round_number=len(history),
     )
@@ -160,7 +157,26 @@ async def run(artifacts: Artifacts, runtime, config, *, note: str | None = None)
     artifacts.write_json("clarify.json", {"rounds": history})
     artifacts.write_text("answers.md", render_answers(history, {item["id"]: item["answer"] for item in current}))
     gate.invalidate_from(artifacts, FLOW)
-    if not questions:  # agent thấy đủ ngay, không còn gì để trả lời
-        return {**_done(artifacts, config), "run_id": runtime.run_id}
     return {"status": "questions", "round": len(history), "questions": len(questions), "complete": output.complete,
             "run_id": runtime.run_id, "answers": str(artifacts.path("answers.md"))}
+
+
+async def run(artifacts: Artifacts, runtime, config, *, note: str | None = None, auto_assume: bool = False) -> dict:
+    if note:
+        raise ValueError("clarify chỉ hỏi và trả lời, không nhận góp ý")
+    request = artifacts.request()
+    if not request:
+        raise ValueError("Chưa có yêu cầu: chạy clarify với --prompt hoặc --prompt-file")
+    if not auto_assume:
+        if finished(artifacts, config):
+            return _done(artifacts, config)
+        result = await _ask_round(artifacts, runtime, config, request)
+        if not result["questions"]:  # agent thấy đủ ngay, không còn gì để trả lời
+            return {**_done(artifacts, config), "run_id": runtime.run_id}
+        return result
+    # Tự động: answers.md đã điền sẵn đáp án khuyến nghị cho câu mới, nên mọi câu chưa sửa là assumed=True.
+    while not finished(artifacts, config):
+        result = await _ask_round(artifacts, runtime, config, request)
+        if not result["questions"]:
+            break
+    return {**_done(artifacts, config), "run_id": runtime.run_id, "auto_assumed": True}

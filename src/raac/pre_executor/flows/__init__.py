@@ -1,4 +1,4 @@
 """Mỗi file một flow, mỗi flow gọi đúng một role của registry/roles/pre_executor/.
 
-Thứ tự: clarify -> spec -> tech_select -> architecture -> environment -> task_decomposer -> (tasks.json cho MAS)
+Thứ tự: clarify -> business_analyst -> solution_architect -> project_manager -> (tasks.json cho MAS)
 """

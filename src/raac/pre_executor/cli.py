@@ -1,14 +1,15 @@
 """Lệnh dòng lệnh của pre_executor. Đầu vào giống TUI: repo đích + yêu cầu (nhập trực tiếp hoặc file).
 
     python -m raac.pre_executor tui     --workspace <repo>     # mỗi câu hỏi một cửa sổ, trả lời ngay
-    python -m raac.pre_executor clarify --workspace <repo> --prompt "..." | --prompt-file request.md
+    python -m raac.pre_executor clarify --workspace <repo> --prompt "..." | --prompt-file request.md [--auto-assume]
     python -m raac.pre_executor status  --workspace <repo>
     python -m raac.pre_executor revise | approve | review <flow> ...   # các flow sau clarify (góp ý/duyệt)
 
 Yêu cầu chỉ cần ở lần đầu (lưu ở .raac/pre_executor/request.md).
 clarify chỉ hỏi và trả lời: ở dòng lệnh, sửa answers.md rồi chạy lại `clarify` để agent hỏi vòng tiếp; khi agent thấy
-đủ (hoặc hết số vòng) clarify tự chốt. spec (Business Analyst) có góp ý (revise) và approve. Đã triển khai clarify,
-spec; các flow khác báo "chưa triển khai".
+đủ (hoặc hết số vòng) clarify tự chốt; `--auto-assume` tự dùng phương án khuyến nghị qua mọi vòng rồi chốt (chạy tự
+động/benchmark). business_analyst, solution_architect, project_manager có góp ý (revise) và approve. Cả 4 flow đã
+triển khai; project_manager đã duyệt thì tasks.json là đầu vào của vòng lặp MAS.
 """
 
 import argparse
@@ -19,11 +20,12 @@ from pathlib import Path
 from . import gate
 from .artifacts import FLOWS, Artifacts
 from .config import load_config
-from .flows import clarify, spec
+from .flows import business_analyst, clarify, project_manager, solution_architect
 from .flows.base import FlowError
 from .runtime import PROJECT
 
-IMPLEMENTED = {"clarify": clarify, "spec": spec}
+IMPLEMENTED = {"clarify": clarify, "business_analyst": business_analyst,
+               "solution_architect": solution_architect, "project_manager": project_manager}
 
 
 def format_usage(usage: dict) -> str:
@@ -61,7 +63,8 @@ def _prepare(args, *, require_request: bool = True) -> Artifacts:
 
 
 async def _run_flow(flow: str, artifacts: Artifacts, *, note=None, open_runtime=None, write=print,
-                    model: str | None = None, observe: str = "none", event_handler=None) -> dict:
+                    model: str | None = None, observe: str = "none", event_handler=None,
+                    auto_assume: bool = False) -> dict:
     module = IMPLEMENTED.get(flow)
     if module is None:
         raise ValueError(f"Flow {flow} chưa triển khai")
@@ -88,7 +91,8 @@ async def _run_flow(flow: str, artifacts: Artifacts, *, note=None, open_runtime=
         observer.ready(runtime.log_path)
     status, usage = "failed", None
     try:
-        result = await module.run(artifacts, runtime, config, note=note)
+        flow_kwargs = {"auto_assume": True} if auto_assume and flow == "clarify" else {}
+        result = await module.run(artifacts, runtime, config, note=note, **flow_kwargs)
         status = "completed"
     finally:
         snapshot = getattr(runtime, "usage", None)
@@ -109,6 +113,8 @@ async def _run_flow(flow: str, artifacts: Artifacts, *, note=None, open_runtime=
     elif result.get("status") == "done":
         write(f"{flow}: xong sau {result['round']} vòng ({result['reason']}): {result['answered']} câu trả lời, "
               f"{result['assumed']} câu dùng khuyến nghị (giả định). Kết quả: {result['clarification']}")
+        if result.get("auto_assumed"):
+            write("  --auto-assume: mọi câu chưa trả lời dùng phương án khuyến nghị (ghi assumed: true).")
         if result.get("coverage"):
             write("  Độ phủ: " + ", ".join(f"{status} {count}" for status, count in result["coverage"].items())
                   + f" (chi tiết: {artifacts.path('coverage.json')})")
@@ -143,7 +149,7 @@ def _status(artifacts: Artifacts, write=print) -> None:
         note = "" if flow in IMPLEMENTED else "  (chưa triển khai)"
         feedback = len(artifacts.feedback_history(flow))
         tokens = f"  {format_usage(usage[flow])}" if flow in usage else ""
-        write(f"{flow:<16} {value:<9}{f'  {feedback} góp ý' if feedback else ''}{tokens}{note}")
+        write(f"{flow:<18} {value:<9}{f'  {feedback} góp ý' if feedback else ''}{tokens}{note}")
     if usage:
         write(f"Tổng: {format_usage(artifacts.usage_total())}")
 
@@ -179,7 +185,12 @@ def build_parser() -> argparse.ArgumentParser:
                          help="theo dõi agent khi chạy, như mas_cli run (mặc định terminal)")
 
     for flow in FLOWS:
-        common(commands.add_parser(flow, help=f"chạy flow {flow}"))
+        sub = commands.add_parser(flow, help=f"chạy flow {flow}")
+        common(sub)
+        if flow == "clarify":
+            sub.add_argument("--auto-assume", action="store_true",
+                             help="tự động dùng phương án khuyến nghị qua mọi vòng và chốt clarify "
+                                  "(dùng cho chạy tự động/benchmark)")
     for name, help_text in (("revise", "góp ý để agent chỉnh lại bản nháp"), ("approve", "duyệt bản nháp"),
                             ("review", "hỏi đáp: góp ý / approve")):
         sub = commands.add_parser(name, help=help_text)
@@ -205,7 +216,7 @@ def main(argv=None, *, open_runtime=None) -> int:
             run_tui(artifacts, model=args.model)
         elif args.command in FLOWS:
             asyncio.run(_run_flow(args.command, artifacts, open_runtime=open_runtime, model=args.model,
-                                  observe=args.observe))
+                                  observe=args.observe, auto_assume=getattr(args, "auto_assume", False)))
         elif args.command == "revise":
             _reviewable(args.flow)
             if len(args.note.strip()) < 3:

@@ -1,5 +1,5 @@
 version: ra-v1
-# Số lần cho role chạy lại khi đầu ra vi phạm luật (factor sai trục, không đọc architecture.md...).
+# Số lần cho role chạy lại khi đầu ra vi phạm luật (factor sai trục, không đọc solution_architecture.md...).
 max_flow_retries: 2
 # Model cho Requirement Analyzer; để trống = model mặc định trong configs/llm.yaml. Cờ --model ghi đè.
 model: ""

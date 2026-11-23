@@ -8,18 +8,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 # Flow -> id role trong registry/roles/pre_executor/ chạy flow đó.
 FLOW_ROLES = {
     "clarify": "clarifier",
-    "spec": "business_analyst",
-    "tech_select": "tech_selector",
-    "architecture": "system_architect",
-    "environment": "environment_planner",
-    "task_decomposer": "task_decomposer",
+    "business_analyst": "business_analyst",
+    "solution_architect": "solution_architect",
+    "project_manager": "project_manager",
 }
 
 
 class PreExecutorConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    version: str = "pre-executor-v1"
+    version: str = "pre-executor-v3"
     max_flow_retries: int = Field(default=2, ge=0)  # số lần cho role chạy lại khi đầu ra vi phạm luật
     max_clarify_rounds: int = Field(default=3, ge=1)
     models: dict[str, str] = Field(default_factory=dict)  # id role -> model; "" = model mặc định của llm.yaml

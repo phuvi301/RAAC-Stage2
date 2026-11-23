@@ -1,12 +1,14 @@
-"""TUI của pre_executor: clarify (hỏi và trả lời) -> spec của Business Analyst (bản nháp, góp ý, approve).
+"""TUI của pre_executor: clarify (hỏi và trả lời) -> business_analyst -> solution_architect -> project_manager
+(bản nháp, góp ý, approve).
 
     python -m raac.pre_executor tui --workspace <repo> [--prompt "..." | --prompt-file request.md] [--model ...]
 
 Luồng: (nhập yêu cầu nếu workspace chưa có) -> agent hỏi một vòng -> từng câu một cửa sổ, ô trả lời điền sẵn đáp án
 gợi ý (Enter để trả lời) -> agent tự hỏi vòng tiếp dựa trên câu trả lời -> ... -> khi agent thấy đủ (hoặc hết số vòng)
 clarify tự chốt (clarification.json). Không có góp ý hay approve ở bước này.
-Tiếp đó spec: Business Analyst viết Requirement Spec (tổng quan, chức năng, SC, NFR, user flow, quy tắc, FR + AC,
-trường hợp biên) -> TUI hiện bản nháp -> người dùng góp ý để agent sửa, lặp tới khi vừa ý thì Approve.
+Tiếp đó business_analyst: agent viết đặc tả nghiệp vụ (chức năng, FR + AC, NFR, thực thể, tích hợp ngoài, ...) ->
+TUI hiện bản nháp -> người dùng góp ý để agent sửa, lặp tới khi vừa ý thì Approve. Rồi solution_architect (tech
+stack, module, API, ràng buộc toàn cục, runtime/test) và project_manager (DAG task + tasks.json) cùng cách duyệt.
 Mở lại TUI sẽ tiếp tục đúng bước đang dở.
 Câu trả lời được ghi vào answers.md, nên dừng giữa chừng (Ctrl+Q) rồi mở lại vẫn tiếp tục được.
 Độc lập với TUI của MAS (raac.tui); dùng chung flow, gate và runtime với CLI.
@@ -175,7 +177,12 @@ class PreExecutorApp(App):
         super().__init__()
         self.artifacts, self.open_runtime, self.model = artifacts, open_runtime, model
         self.clarification: list[dict] | None = None
-        self.spec: dict | None = None
+        self.ba_spec: dict | None = None
+        self.solution_architecture: dict | None = None
+        self.project_manager: dict | None = None
+
+    def last_result(self) -> dict | None:
+        return self.project_manager or self.solution_architecture or self.ba_spec
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -240,9 +247,9 @@ class PreExecutorApp(App):
         self.clarification = self.artifacts.read_json("clarification.json")
         for flow, next_label in DRAFT_FLOWS:
             if not await self.draft_stage(flow, next_label):
-                self.exit(self.spec)
+                self.exit(self.last_result())
                 return
-        self.exit(self.spec)
+        self.exit(self.last_result())
 
     async def clarify_stage(self) -> bool:
         """Hỏi - trả lời đến khi clarify tự chốt. False = người dùng thoát."""
@@ -258,7 +265,7 @@ class PreExecutorApp(App):
                            f"{result['answered']} câu trả lời, {result['assumed']} câu dùng khuyến nghị (giả định).\n"
                            + (f"Độ phủ: {coverage}" if coverage else ""))
                 self.write(message)
-                choice = await self.push_screen_wait(MessageScreen(message, [("next", "Tiếp: phân tích yêu cầu"),
+                choice = await self.push_screen_wait(MessageScreen(message, [("next", "Tiếp: Business Analyst"),
                                                                              ("close", "Đóng")]))
                 return choice == "next"
             history = clarify.rounds(self.artifacts)
@@ -295,21 +302,33 @@ class PreExecutorApp(App):
                 else:
                     return False
         data = self.artifacts.read_json(gate.APPROVED_FILE[flow])
-        setattr(self, flow, data)
+        setattr(self, STATE_ATTR.get(flow, flow), data)
         buttons = ([("next", next_label)] if next_label else []) + [("close", "Đóng")]
         message = f"Đã duyệt {title.lower()}: {summary(data)}.\nKết quả: {self.artifacts.path(gate.APPROVED_FILE[flow])}"
         self.write(message)
         return await self.push_screen_wait(MessageScreen(message, buttons)) == "next"
 
 
-DRAFT_FLOWS = (("spec", None),)
+DRAFT_FLOWS = (
+    ("business_analyst", "Tiếp: Solution Architect"),
+    ("solution_architect", "Tiếp: Project Manager"),
+    ("project_manager", None),
+)
+STATE_ATTR = {"business_analyst": "ba_spec", "solution_architect": "solution_architecture"}  # flow -> thuộc tính lưu bản đã duyệt trên app
 DRAFT_TITLES = {
-    "spec": ("Requirement Spec", lambda data: f"{len(data['features'])} chức năng, "
-                                              f"{len(data['functional_requirements'])} yêu cầu, "
-                                              f"{sum(len(fr['acceptance_criteria']) for fr in data['functional_requirements'])} AC, "
-                                              f"{len(data['non_functional_requirements'])} NFR"),
+    "business_analyst": ("Đặc tả nghiệp vụ", lambda data: f"{len(data['features'])} chức năng, "
+                                                         f"{len(data['functional_requirements'])} yêu cầu chi tiết, "
+                                                         f"{sum(len(fr['acceptance_criteria']) for fr in data['functional_requirements'])} AC, "
+                                                         f"{len(data['non_functional_requirements'])} NFR, "
+                                                         f"{len(data['edge_cases'])} trường hợp biên"),
+    "solution_architect": ("Kiến trúc giải pháp", lambda data: f"{data['tech_stack']['language']['name']}, "
+                                                               f"{len(data['modules'])} module, "
+                                                               f"{len(data['api_contracts'])} hợp đồng API, "
+                                                               f"{len(data['global_constraints'])} ràng buộc"),
+    "project_manager": ("Kế hoạch công việc (PM)", lambda data: f"{len(data['tasks'])} task, "
+                                                                f"{len(data.get('milestones', []))} milestone"),
 }
 
 
-def run_tui(artifacts: Artifacts, *, model: str | None = None) -> list[dict] | None:
+def run_tui(artifacts: Artifacts, *, model: str | None = None) -> dict | None:
     return PreExecutorApp(artifacts, model=model).run()

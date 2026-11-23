@@ -1,8 +1,8 @@
-id: system_architect
-role: SystemArchitect
+id: project_manager
+role: ProjectManager
 group: pre_executor
-prompt: prompts/pre_executor/system_architect.md
-prompt_version: pre-executor-v1
+prompt: prompts/pre_executor/project_manager.md
+prompt_version: pre-executor-v3
 tools:
   - list_files
   - read_file
