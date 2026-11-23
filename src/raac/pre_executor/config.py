@@ -3,7 +3,15 @@
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+# Flow -> id role trong registry/roles/pre_executor/ chạy flow đó.
+FLOW_ROLES = {
+    "clarify": "clarifier",
+    "business_analyst": "business_analyst",
+    "solution_architect": "solution_architect",
+    "project_manager": "project_manager",
+}
 
 
 class PreExecutorConfig(BaseModel):
@@ -12,10 +20,19 @@ class PreExecutorConfig(BaseModel):
     version: str = "pre-executor-v3"
     max_flow_retries: int = Field(default=2, ge=0)  # số lần cho role chạy lại khi đầu ra vi phạm luật
     max_clarify_rounds: int = Field(default=3, ge=1)
-    models: dict[str, str] = Field(default_factory=dict)  # flow -> model; "" = model mặc định của llm.yaml
+    models: dict[str, str] = Field(default_factory=dict)  # id role -> model; "" = model mặc định của llm.yaml
+
+    @field_validator("models")
+    @classmethod
+    def known_roles(cls, value: dict[str, str]) -> dict[str, str]:
+        unknown = sorted(set(value) - set(FLOW_ROLES.values()))
+        if unknown:
+            raise ValueError(f"models: khóa phải là id role {sorted(FLOW_ROLES.values())}, không nhận {unknown}")
+        return value
 
     def model_for(self, flow: str, override: str | None = None) -> str | None:
-        return override or self.models.get(flow) or None
+        """Model cho role chạy flow này: --model > models[id role] > model mặc định của llm.yaml (None)."""
+        return override or self.models.get(FLOW_ROLES.get(flow, flow)) or None
 
 
 def load_config(path: Path) -> PreExecutorConfig:

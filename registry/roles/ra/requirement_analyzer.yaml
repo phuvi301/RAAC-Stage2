@@ -1,0 +1,12 @@
+id: requirement_analyzer
+role: RequirementAnalyzer
+group: ra
+prompt: prompts/ra/requirement_analyzer.md
+prompt_version: ra-v4
+tools:
+  - read_file
+  - read_files
+model:
+  ref: default
+cost_weight: 1.0
+max_llm_calls: 8

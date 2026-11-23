@@ -22,6 +22,7 @@ class RoleGroup(str, Enum):
     CORE = "core"
     EXTENDED = "extended"
     PRE_EXECUTOR = "pre_executor"  # role của raac.pre_executor (các flow trước khi chạy MAS)
+    RA = "ra"  # role của raac.ra (Requirement Analyzer)
 
 
 class OutputFormat(str, Enum):

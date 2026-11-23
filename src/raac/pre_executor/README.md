@@ -101,7 +101,7 @@ chạy trong log và tổng trên thanh tiêu đề; `status` hiện token theo 
 
 - `--workspace` (bắt buộc): thư mục dự án đích.
 - `--prompt "..."` hoặc `--prompt-file request.md`: yêu cầu, chỉ cần ở lần đầu (lưu ở `.raac/pre_executor/request.md`).
-- `--model`: model cho lần chạy này. Đặt cố định từng flow ở `models:` trong `configs/pre_executor.yaml`
+- `--model`: model cho lần chạy này. Đặt cố định theo id role (clarifier, business_analyst, ...) ở `models:` trong `configs/pre_executor.yaml`
   (để trống = model mặc định của `configs/llm.yaml`).
   Không thêm profile vào `llm.yaml` cho các role này: AgentRunner kiểm model của mọi role trong registry, nên đổi
   `ref` của role sẽ làm hỏng các chỗ dùng cấu hình LLM khác (test, benchmark).
@@ -172,7 +172,7 @@ src/raac/pre_executor/
   tui.py          giao diện Textual: mỗi câu hỏi một cửa sổ, bản nháp + góp ý + Approve cho 4 flow sau
   flows/          base.py + clarify.py, business_analyst.py (Tuấn)
                   + solution_architect.py, project_manager.py, _checks.py (luật dùng chung: path, vòng, workspace_mode)
-configs/pre_executor.yaml   max_flow_retries, max_clarify_rounds, models theo flow
+configs/pre_executor.yaml   max_flow_retries, max_clarify_rounds, models theo id role
 ```
 
 ## Một flow chạy thế nào (`flows/base.py`)
