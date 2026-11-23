@@ -137,7 +137,7 @@ def test_feedback_revises_the_draft_and_changing_requirements_unapproves_the_pro
     assert set(sent["current_draft"]) == {"user_flows", "business_rules", "functional_requirements", "edge_cases",
                                          "open_questions"}
     gate.approve(artifacts, "profile")
-    assert gate.can_run(artifacts, "tech_select")
+    assert gate.can_run(artifacts, "solution_architect")
 
     run(requirements.run(artifacts, FakeRuntime(REQUIREMENTS), CONFIG, note="đổi tên"))  # sửa requirements
     assert gate.state(artifacts, "profile") == "draft" and not gate.can_run(artifacts, "profile")

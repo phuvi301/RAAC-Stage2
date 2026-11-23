@@ -7,8 +7,8 @@
 
 Yêu cầu chỉ cần ở lần đầu (lưu ở .raac/pre_executor/request.md).
 clarify chỉ hỏi và trả lời: ở dòng lệnh, sửa answers.md rồi chạy lại `clarify` để agent hỏi vòng tiếp; khi agent thấy
-đủ (hoặc hết số vòng) clarify tự chốt. requirements và profile có góp ý (revise) và approve. Đã triển khai clarify,
-requirements, profile; các flow khác báo "chưa triển khai".
+đủ (hoặc hết số vòng) clarify tự chốt. requirements, profile, solution_architect, project_manager có góp ý (revise) và
+approve. Cả 5 flow đã triển khai; project_manager đã duyệt thì tasks.json là đầu vào của vòng lặp MAS.
 """
 
 import argparse
@@ -19,11 +19,12 @@ from pathlib import Path
 from . import gate
 from .artifacts import FLOWS, Artifacts
 from .config import load_config
-from .flows import clarify, profile, requirements
+from .flows import clarify, profile, project_manager, requirements, solution_architect
 from .flows.base import FlowError
 from .runtime import PROJECT
 
-IMPLEMENTED = {"clarify": clarify, "requirements": requirements, "profile": profile}
+IMPLEMENTED = {"clarify": clarify, "requirements": requirements, "profile": profile,
+               "solution_architect": solution_architect, "project_manager": project_manager}
 
 
 def format_usage(usage: dict) -> str:
@@ -143,7 +144,7 @@ def _status(artifacts: Artifacts, write=print) -> None:
         note = "" if flow in IMPLEMENTED else "  (chưa triển khai)"
         feedback = len(artifacts.feedback_history(flow))
         tokens = f"  {format_usage(usage[flow])}" if flow in usage else ""
-        write(f"{flow:<16} {value:<9}{f'  {feedback} góp ý' if feedback else ''}{tokens}{note}")
+        write(f"{flow:<18} {value:<9}{f'  {feedback} góp ý' if feedback else ''}{tokens}{note}")
     if usage:
         write(f"Tổng: {format_usage(artifacts.usage_total())}")
 

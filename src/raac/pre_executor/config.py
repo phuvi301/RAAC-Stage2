@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class PreExecutorConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    version: str = "pre-executor-v1"
+    version: str = "pre-executor-v2"
     max_flow_retries: int = Field(default=2, ge=0)  # số lần cho role chạy lại khi đầu ra vi phạm luật
     max_clarify_rounds: int = Field(default=3, ge=1)
     models: dict[str, str] = Field(default_factory=dict)  # flow -> model; "" = model mặc định của llm.yaml

@@ -1,8 +1,8 @@
-id: task_decomposer
-role: TaskDecomposer
+id: project_manager
+role: ProjectManager
 group: pre_executor
-prompt: prompts/pre_executor/task_decomposer.md
-prompt_version: pre-executor-v1
+prompt: prompts/pre_executor/project_manager.md
+prompt_version: pre-executor-v2
 tools:
   - list_files
   - read_file

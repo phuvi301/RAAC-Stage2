@@ -8,7 +8,10 @@
     run.json                run_id chung của workspace: mọi flow ghi log vào cùng results/<run_id>/llm.jsonl
     usage.json              token đã dùng: từng lần chạy flow, cộng dồn theo flow và theo run
     approvals.json          {flow: {sha256, approved_at}}
-    (requirements.json, requirement_profile.json, tech_stack.json, ... do các flow sau ghi)
+    requirements.json/.md           flow requirements
+    requirement_profile.json/.md    flow profile (hồ sơ đặc tả BA: F/FR/AC/UF/BR/EC/NFR), đầu vào của SA và PM
+    solution_architecture.json/.md  flow solution_architect (tech stack, module, API, ràng buộc toàn cục, runtime)
+    tasks.json/.md                  flow project_manager (DAG T1..Tn + execution_order + context_slice cho MAS)
 
 Thư mục có sẵn .gitignore riêng ("*") nên không lẫn vào git của repo đích.
 """
@@ -19,17 +22,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 FOLDER = Path(".raac") / "pre_executor"
-FLOWS = ("clarify", "requirements", "profile", "tech_select", "architecture", "environment", "task_decomposer")
+FLOWS = ("clarify", "requirements", "profile", "solution_architect", "project_manager")
 # File mà người dùng duyệt cho từng flow (hash của file này được ghi lúc approve).
 APPROVED_FILE = {
     "clarify": "answers.md",
     "requirements": "requirements.json",
     "profile": "requirement_profile.json",
-    "tech_select": "tech_stack.json",
-    "architecture": "architecture.json",
-    "environment": "environment.json",
-    "task_decomposer": "tasks.json",
+    "solution_architect": "solution_architecture.json",
+    "project_manager": "tasks.json",
 }
+# Đầu ra đã duyệt của tầng BA mà SA/PM đọc: ưu tiên ba_spec.json nếu phần Clarifier + BA sau này gộp/đổi tên,
+# mặc định requirement_profile.json. Đổi tên chỉ cần sửa ở đây (và FLOWS/APPROVED_FILE).
+BA_SPEC_CANDIDATES = ("ba_spec.json", "requirement_profile.json")
 
 
 class Artifacts:
@@ -66,6 +70,14 @@ class Artifacts:
     def read_json(self, name: str):
         text = self.read_text(name)
         return json.loads(text) if text is not None else None
+
+    def read_ba_spec(self) -> dict | None:
+        """Đặc tả BA đã duyệt (ba_spec.json nếu có, mặc định requirement_profile.json)."""
+        for filename in BA_SPEC_CANDIDATES:
+            data = self.read_json(filename)
+            if data is not None:
+                return data
+        return None
 
     # ---- yêu cầu gốc
     def save_request(self, text: str) -> None:
