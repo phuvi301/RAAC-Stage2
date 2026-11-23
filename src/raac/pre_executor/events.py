@@ -52,6 +52,17 @@ CHANGE_FIELDS = {
                      "non_functional_requirements": ("NFR", "requirement")},
     "profile": {"user_flows": ("user flow", "name"), "business_rules": ("quy tắc", "rule"),
                 "functional_requirements": ("yêu cầu", "description"), "edge_cases": ("trường hợp biên", "situation")},
+    "solution_architect": {"modules": ("module", "name"), "data_models": ("data model", "name"),
+                           "api_contracts": ("API", "signature"), "global_constraints": ("ràng buộc", "rule"),
+                           "decisions": ("quyết định", "topic")},
+    "project_manager": {"tasks": ("task", "title"), "milestones": ("milestone", "name")},
+}
+# Trường không có id: chỉ báo "~ <trường>" khi đổi.
+DEFAULT_TOP_LEVEL = ("overview", "constraints", "assumptions", "out_of_scope", "open_questions", "key_entities")
+TOP_LEVEL_FIELDS = {
+    "solution_architect": ("summary", "tech_stack", "folders", "security_architecture", "runtime_contract",
+                           "open_assumptions"),
+    "project_manager": ("summary", "execution_order", "open_questions"),
 }
 
 
@@ -69,7 +80,7 @@ def summarize_changes(old: dict | None, new: dict, flow: str) -> list[str]:
             elif after[key] != before[key]:
                 lines.append(f"~ {label} {key} {_short(after[key].get(name_key, ''), 70)}")
         lines += [f"- {label} {key} {_short(before[key].get(name_key, ''), 70)}" for key in before if key not in after]
-    for field in ("overview", "constraints", "assumptions", "out_of_scope", "open_questions", "key_entities"):
+    for field in TOP_LEVEL_FIELDS.get(flow, DEFAULT_TOP_LEVEL):
         if field in new and old.get(field) != new.get(field):
             lines.append(f"~ {field}")
     return lines

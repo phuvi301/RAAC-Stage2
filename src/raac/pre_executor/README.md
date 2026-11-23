@@ -1,7 +1,8 @@
 # raac.pre_executor — các flow trước khi chạy MAS
 
 > Trạng thái: **đã chạy được `clarify`, `requirements`, `profile`** (code + test + chạy thử thật với model) —
-> toàn bộ phần phân tích. Các flow thiết kế (tech_select ...) vẫn là khung.
+> toàn bộ phần phân tích. **`solution_architect` và `project_manager` đã có code + test** (FakeRuntime, AgentRunner
+> thật với HTTP mock), **chưa chạy thật với model**. Đặc tả: `docs/pre_executor_sa_pm_plan.md`.
 > Role và prompt nằm trong `registry/roles/pre_executor/` và `registry/prompts/pre_executor/`.
 
 ## Phạm vi
@@ -9,17 +10,27 @@
 Từ yêu cầu của người dùng tới **danh sách task đã duyệt** (`tasks.json`) cho bước chạy MAS:
 
 ```
-yêu cầu ─► clarify ─► requirements ─► profile ─► tech_select ─► architecture ─► environment ─► task_decomposer ─► (tasks.json)
-            ▲  │answers     │approve      │approve    │approve        │approve        │approve        │approve
+yêu cầu ─► clarify ─► requirements ─► profile ─► solution_architect ─► project_manager ─► (tasks.json)
+            ▲  │answers     │approve      │approve    │approve               │approve
             └──┘ (lặp)
-           Clarification  Requirement   Requirement
-                          Document      Profile
+           Clarification  Requirement   Requirement  Solution              Task DAG T1..Tn
+                          Document      Profile      Architecture          + execution_order + context_slice
 ```
+
+Hai tầng (theo Proposal): các flow trên là tầng **Macro**, chạy một lần cho cả dự án. Tầng **Micro** nằm ngoài
+package. Nó duyệt `tasks.json["execution_order"]`. Với mỗi task T_i, `Requirement Analyzer` chấm 4 điểm
+(Complexity, Ambiguity, Architecture Impact, Security) vào lúc đó, Controller chọn L1/L2/L3, rồi L1/L2/L3 cài đặt
+trên `repo_{i-1}`. PM **không** chấm điểm, không gán level hay risk.
+
+Lưu ý thuật ngữ: `requirement_profile.json` của package này là **hồ sơ đặc tả BA** (FR/AC/UF/BR/EC). Nó khác
+"Requirement Profile 4 điểm" của Proposal, vốn do Requirement Analyzer sinh ra sau PM.
+SA/PM đọc đặc tả BA qua `Artifacts.read_ba_spec()`: ưu tiên `ba_spec.json` nếu có, mặc định
+`requirement_profile.json`.
 
 | Phần | Flow | Người làm |
 |---|---|---|
 | Làm rõ và yêu cầu | clarify, requirements, profile | **Tuấn** |
-| Thiết kế và chia task | tech_select, architecture, environment, task_decomposer | thành viên khác |
+| Thiết kế và chia task | solution_architect, project_manager | thành viên khác |
 | Chạy task qua MAS / chọn level | (ngoài package này, dùng `tasks.json`) | thành viên khác |
 
 
@@ -43,8 +54,9 @@ python -m raac.pre_executor tui --workspace C:/work/shop --prompt-file C:/work/r
 2. **clarify:** mỗi câu hỏi một cửa sổ. Câu trắc nghiệm: chọn trong danh sách (phương án khuyến nghị chọn sẵn) hoặc
    tự gõ ở ô "Khác"; câu trả lời ngắn: sửa gợi ý rồi Enter. Agent tự hỏi vòng tiếp tới khi đủ (hoặc hết
    `max_clarify_rounds`) rồi tự chốt. Không có góp ý/approve ở bước này.
-3. **requirements → profile:** mỗi bước hiện bản nháp; gõ góp ý rồi Enter để agent sửa tiếp trên bản nháp, vừa ý
-   bấm **Approve**, rồi "Tiếp" sang bước sau.
+3. **requirements → profile → solution_architect → project_manager:** mỗi bước hiện bản nháp; gõ góp ý rồi Enter
+   để agent sửa tiếp trên bản nháp, vừa ý bấm **Approve**, rồi "Tiếp" sang bước sau. Duyệt `project_manager` xong
+   thì `tasks.json` sẵn sàng cho vòng lặp MAS.
 
 Ctrl+Q để dừng bất cứ lúc nào; chạy lại đúng lệnh đó sẽ **tiếp tục từ bước đang dở** (không cần `--prompt`).
 
@@ -55,12 +67,14 @@ Ctrl+Q để dừng bất cứ lúc nào; chạy lại đúng lệnh đó sẽ *
 | clarify | `python -m raac.pre_executor clarify --workspace W --prompt "..."` — sửa phần `A:` trong `answers.md`, chạy lại `clarify --workspace W` cho vòng tiếp, tới khi in "xong" |
 | requirements | `python -m raac.pre_executor requirements --workspace W` |
 | profile | `python -m raac.pre_executor profile --workspace W` |
+| solution_architect | `python -m raac.pre_executor solution_architect --workspace W` |
+| project_manager | `python -m raac.pre_executor project_manager --workspace W` |
 | góp ý | `python -m raac.pre_executor revise <flow> --workspace W --note "thêm mã giảm giá"` |
 | duyệt | `python -m raac.pre_executor approve <flow> --workspace W` |
 | hỏi đáp trong terminal | `python -m raac.pre_executor review <flow> --workspace W` |
 | trạng thái | `python -m raac.pre_executor status --workspace W` |
 
-`revise`, `approve`, `review` dùng cho requirements và profile (clarify chỉ hỏi-đáp). Mỗi flow chỉ chạy khi flow
+`revise`, `approve`, `review` dùng cho mọi flow trừ clarify (clarify chỉ hỏi-đáp). Mỗi flow chỉ chạy khi flow
 trước đã chốt/duyệt. Sau mỗi lần chạy, lệnh in **token đã dùng** (lần này và cộng dồn workspace, như MAS: số do 9router
 báo) và `run_id`; xem log agent bằng `python -m raac.mas_cli show-log --run-id <run_id>`. TUI hiện token của từng lần
 chạy trong log và tổng trên thanh tiêu đề; `status` hiện token theo từng flow.
@@ -133,35 +147,33 @@ Specification Template (Robertson), Karl Wiegers *Software Requirements*, User S
 | clarify (Clarification Manager) | `clarifier` | yêu cầu thô hoặc spec (+ câu trả lời vòng trước) | **Clarification** `answers.md` → `clarification.json` + `coverage.json` | tự chốt, chỉ hỏi-đáp | đủ 10 nhóm độ phủ; không complete khi còn missing; chỉ hỏi nhóm partial/missing; trắc nghiệm 2–5 lựa chọn, khuyến nghị nằm trong lựa chọn; không hỏi lại |
 | requirements (Product Requirement Analyst) | `requirement_analyst` | request + Clarification + coverage | **Tổng quan, chức năng cốt lõi (F-n), tiêu chí thành công (SC-n), thực thể chính, NFR (NFR-n, ISO 25010)** `requirements.json/.md` | góp ý + approve | id/tên không trùng; mỗi chức năng có lý do ưu tiên + cách kiểm độc lập; có SC và SC không nhắc công nghệ; ≤ 3 câu hỏi mở; căn cứ là request/Qn có thật; câu giữ khuyến nghị phải vào giả định; NFR có metric |
 | profile (Requirement Profile) | `requirement_profiler` | requirements (+ request, Clarification) | **User flow, quy tắc nghiệp vụ, FR-n (câu chỉ thị) + AC Given/When/Then, trường hợp biên EC-n** `requirement_profile.json/.md` | góp ý + approve | mỗi feature có FR; FR/BR/UF/EC trỏ feature có thật; AC đặt tên theo FR; feature ưu tiên cao có user flow và trường hợp biên |
-| tech_select (Technology Selector) | `tech_selector` | Requirement Profile (+ đọc repo) | `tech_stack.json/.md` | góp ý + approve | mỗi lựa chọn có lý do; repo có sẵn không đổi stack vô cớ |
-| architecture (System Architect) | `system_architect` | Requirement Profile + tech_stack | `architecture.json/.md` | góp ý + approve | chỉ dùng công nghệ đã chốt; thư mục là đường dẫn tương đối |
-| environment | `environment_planner` | tech_stack + architecture + NFR + `machine.json` | `environment.json/.md` | góp ý + approve | runtime "đã có" phải có thật trên máy; "cần cài" phải có lệnh cài; có lệnh test |
-| task_decomposer (Task Decomposer) | `task_decomposer` | Requirement Profile + tech_stack + architecture + environment | `tasks.json/.md` | góp ý + approve | id duy nhất, phụ thuộc hợp lệ, không vòng, mọi AC có task, có task dựng khung |
+| solution_architect (Solution Architect) | `solution_architect` | đặc tả BA (`read_ba_spec`) + request + Clarification + `workspace_mode` (+ đọc repo nếu brownfield) | **Tech stack, thư mục, module MOD-n, data model DM-n, hợp đồng API-n, kiến trúc bảo mật, runtime/test contract, ràng buộc toàn cục CON-n, quyết định ADR-n** `solution_architecture.json/.md` | góp ý + approve | id/tên/thư mục không trùng; đường dẫn tương đối POSIX; module chỉ phụ thuộc module có thật, không vòng; mọi F-n có module; tham chiếu F/FR/NFR/MOD có thật; NFR security phải được phủ trong `security_architecture`; `env_vars` không chứa giá trị giống secret |
+| project_manager (Project Manager) | `project_manager` | đặc tả BA + solution_architecture + `workspace_mode` | **DAG task T1..Tn** (metadata khách quan + id tham chiếu) → code tạo `execution_order` (Kahn, tái lập) + `context_slice` từng task, chép nguyên `global_tech_stack`/`global_runtime_contract` → `tasks.json/.md` | góp ý + approve | id/tiêu đề không trùng; DAG hợp lệ, có task gốc; greenfield có bootstrap gốc và mọi task phụ thuộc vào nó; đường dẫn tương đối; tham chiếu BA/SA có thật; AC kéo theo FR; milestone hợp lệ; phủ 100% AC, MOD, NFR security, EC của feature high; không gộp dự án lớn vào 1 task; schema cấm `level`/`risk`/4 điểm |
 
 **Requirements** chốt *làm cái gì* (tổng quan, chức năng cốt lõi, NFR); **Requirement Profile** chi tiết hoá *từng
 chức năng* (user flow, quy tắc nghiệp vụ, yêu cầu chi tiết, AC) và là "hợp đồng" cho các flow thiết kế phía sau.
-Schema chi tiết xem `contracts.py`.
+SA chốt *dựng bằng gì, chia khối ra sao, hợp đồng toàn cục nào*; PM chốt *làm theo thứ tự nào, mỗi task cần biết
+gì*. Schema chi tiết xem `contracts.py`.
 
 
 ## Cấu trúc
 
 ```
-registry/roles/pre_executor/      clarifier, requirement_analyst, tech_selector, system_architect,
-                             environment_planner, task_decomposer (.yaml)
+registry/roles/pre_executor/      clarifier, requirement_analyst, requirement_profiler, solution_architect,
+                             project_manager (.yaml)
 registry/prompts/pre_executor/    prompt tương ứng (.md)
 src/raac/pre_executor/
-  cli.py          lệnh: clarify | requirements | profile | tech | architect | env | decompose | review | revise | approve | status
+  cli.py          lệnh: clarify | requirements | profile | solution_architect | project_manager | review | revise | approve | status | tui
   runtime.py      dựng registry, LLMClient, AgentRunner, ToolOrchestrator, trace (dùng lại MAS)
   contracts.py    đầu vào/đầu ra các flow + đăng ký schema với harness
   artifacts.py    đọc/ghi kết quả; nối đầu ra flow trước thành đầu vào flow sau
   gate.py         duyệt, hash chống sửa sau duyệt, flow sau mất duyệt khi flow trước đổi
-  render.py       answers.md: in câu hỏi, đọc câu trả lời người dùng sửa
+  render.py       answers.md (đọc/ghi câu trả lời) và bản .md để đọc của từng flow
   config.py       đọc configs/pre_executor.yaml (số lần thử, số vòng hỏi, model theo flow)
-  tui.py          giao diện Textual: mỗi câu hỏi một cửa sổ
-  machine.py      dò máy cho flow environment (code thuần, chỉ lệnh --version)
+  tui.py          giao diện Textual: mỗi câu hỏi một cửa sổ, bản nháp + góp ý + Approve cho 4 flow sau
   flows/          base.py + clarify.py, requirements.py, profile.py (Tuấn)
-                  + tech_select.py, architecture.py, environment.py, task_decomposer.py (thành viên khác)
-configs/pre_executor.yaml   max_flow_retries, max_clarify_rounds
+                  + solution_architect.py, project_manager.py, _checks.py (luật dùng chung: path, vòng, workspace_mode)
+configs/pre_executor.yaml   max_flow_retries, max_clarify_rounds, models theo flow
 ```
 
 ## Một flow chạy thế nào (`flows/base.py`)
@@ -177,9 +189,9 @@ configs/pre_executor.yaml   max_flow_retries, max_clarify_rounds
 Mỗi flow có vòng duyệt riêng; flow sau chỉ chạy khi flow trước đã được approve:
 
 ```
-tech_select ─► bản nháp ─► "dùng PostgreSQL thay MySQL" ─► agent chỉnh ─► "bỏ Redis" ─► agent chỉnh ─► approve
-                                                                                                         │
-architecture ◄───────────────────────────────────────────────────────────────────────────────────────────┘
+solution_architect ─► bản nháp ─► "dùng PostgreSQL thay SQLite" ─► agent chỉnh ─► "bỏ Redis" ─► agent chỉnh ─► approve
+                                                                                                                │
+project_manager ◄───────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 - `revise <flow> --note "..."`: agent sửa bản nháp theo góp ý. Agent nhận **toàn bộ góp ý** của flow đó và bản nháp
@@ -203,16 +215,22 @@ architecture ◄─────────────────────�
 | 2 | `clarify` + `render.py` + `tui.py` — **xong** |
 | 3 | `requirements` — **xong** |
 | 4 | `profile` (role `requirement_profiler`: user flow, quy tắc nghiệp vụ, FR + AC) — **xong** |
+| 5 | `solution_architect` + `project_manager` (thay 4 stub tech_select/architecture/environment/task_decomposer) — **code + test xong, chưa chạy thật** |
 
 
 ## Cần thống nhất / quyết định
 
-- Định dạng Requirement Profile (`requirement_profile.json`) với người làm tech_select và task_decomposer,
-  nhất là id feature `F-n` và id AC `FR-n.ACm`.
-- Định dạng `tasks.json` (đầu ra) với người làm phần chạy MAS, nhất là `risk`, `depends_on` và môi trường đã chốt.
-- Chính sách duyệt lệnh khi `environment_planner` chạy lệnh `--version`.
+- Nếu phần BA đổi tên đầu ra thành `ba_spec.json`, chỉ cần cập nhật `FLOWS`/`APPROVED_FILE`; SA/PM đã đọc qua
+  `read_ba_spec()`.
+- `tasks.json` (`schema_version: tasks-v2`) với người làm vòng lặp MAS: chỉ đọc khi `project_manager` là
+  `approved`, duyệt theo `execution_order`. `context_slice` (ràng buộc toàn cục, hợp đồng API, data model) và
+  `global_runtime_contract` là ràng buộc chỉ-đọc, và `test_command` là regression gate sau mỗi task.
+- `context_slice.security_architecture` chỉ có khi task tham chiếu NFR security hoặc ràng buộc CON loại `security`.
+  Đặc tả còn nhắc "chạm module auth", nhưng SA không có liên kết xác định giữa module và auth nên chưa dùng tiêu chí
+  này.
+- Dò và cài môi trường thật trên máy (flow `environment` cũ đã gỡ) giờ là việc của tầng thực thi MAS.
 
 ## Kiểm thử
 
 Test với `AgentRunner`/LLM giả cho từng flow (schema, luật, chạy lại khi sai), gate (duyệt, hash, mất duyệt),
-artifacts (nối đầu vào), machine (lệnh giả). Chỉ coi là xong khi đã chạy với model thật trên một yêu cầu mẫu.
+artifacts (nối đầu vào), DAG/phủ/hydration của PM. Chỉ coi là xong khi đã chạy với model thật trên một yêu cầu mẫu.

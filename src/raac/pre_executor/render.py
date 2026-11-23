@@ -168,3 +168,140 @@ def render_profile(data: dict) -> str:
     if data.get("assumptions"):
         lines += ["", "## Giả định", "", *[f"- {item['text']}" for item in data["assumptions"]]]
     return "\n".join(lines) + "\n"
+
+
+def _choice(choice: dict | None) -> tuple[str, str, str]:
+    if not choice:
+        return "—", "", ""
+    return choice["name"], choice.get("version_constraint", ""), choice.get("reason", "")
+
+
+def _ids_line(label: str, values: list[str]) -> list[str]:
+    return [f"- **{label}:** {', '.join(values)}"] if values else []
+
+
+def render_solution_architecture(data: dict) -> str:
+    """solution_architecture.json -> .md để người dùng đọc, góp ý, duyệt (nguồn sự thật vẫn là json)."""
+    stack = data["tech_stack"]
+    lines = ["# Kiến trúc giải pháp (Solution Architecture)", "", "## 1. Tổng quan", "", data["summary"], "",
+             "## 2. Tech stack", "", "| Thành phần | Công nghệ | Phiên bản | Lý do |", "|---|---|---|---|"]
+    rows = [("Ngôn ngữ", stack["language"]), ("Backend", stack.get("backend_framework")),
+            ("Frontend", stack.get("frontend_framework")), ("Cơ sở dữ liệu", stack.get("database"))]
+    rows += [("Thư viện", library) for library in stack.get("libraries", [])]
+    for label, choice in rows:
+        if choice or label == "Ngôn ngữ":
+            name, version, reason = _choice(choice)
+            lines.append(f"| {label} | {_cell(name)} | {_cell(version or '—')} | {_cell(reason)} |")
+    lines += ["", "## 3. Cấu trúc thư mục", "", *[f"- `{folder['path']}`: {folder['purpose']}"
+                                                  for folder in data["folders"]]]
+    lines += ["", "## 4. Module"]
+    for module in data["modules"]:
+        lines += ["", f"### {module['id']} · {module['name']} (`{module['path']}`)", "", module["responsibility"]]
+        lines += _ids_line("Chức năng", module.get("feature_ids", []))
+        lines += _ids_line("Phụ thuộc", module.get("depends_on", []))
+        lines += _ids_line("Thực thể", module.get("owns_entities", []))
+    if data.get("data_models"):
+        lines += ["", "## 5. Mô hình dữ liệu"]
+        for model in data["data_models"]:
+            lines += ["", f"### {model['id']} · {model['name']} ({model['module_id']})", "", model["description"], "",
+                      "| Trường | Kiểu | Ràng buộc |", "|---|---|---|"]
+            lines += [f"| {_cell(field['name'])} | {_cell(field['field_type'])} | {_cell(field.get('constraints', ''))} |"
+                      for field in model["fields"]]
+            lines += _ids_line("Quan hệ", model.get("relations", []))
+    if data.get("api_contracts"):
+        lines += ["", "## 6. Hợp đồng giao tiếp"]
+        for contract in data["api_contracts"]:
+            lines += ["", f"### {contract['id']} · `{contract['signature']}` ({contract['kind']}, {contract['module_id']})",
+                      "", contract["purpose"]]
+            if contract.get("request_or_input"):
+                lines.append(f"- **Vào:** {contract['request_or_input']}")
+            if contract.get("response_or_output"):
+                lines.append(f"- **Ra:** {contract['response_or_output']}")
+            lines += _ids_line("Lỗi", contract.get("error_cases", []))
+            lines += _ids_line("Yêu cầu", contract.get("fr_ids", []))
+    security = data.get("security_architecture") or {}
+    lines += ["", "## 7. Kiến trúc bảo mật", ""]
+    shown = False
+    for label, key in (("Xác thực", "auth_strategy"), ("Phân quyền", "authorization_model")):
+        if security.get(key):
+            lines.append(f"- **{label}:** {security[key]}")
+            shown = True
+    for label, key in (("Dữ liệu nhạy cảm", "sensitive_data_rules"), ("Ranh giới tin cậy", "trust_boundaries")):
+        if security.get(key):
+            lines += [f"- **{label}:**", *[f"  - {item}" for item in security[key]]]
+            shown = True
+    lines += _ids_line("NFR", security.get("nfr_ids", []))
+    if not shown and not security.get("nfr_ids"):
+        lines.append("_Không có yêu cầu bảo mật riêng._")
+    runtime = data["runtime_contract"]
+    lines += ["", "## 8. Runtime và kiểm thử", "",
+              f"- **Runtime:** {', '.join(f'{name} {version}' for name, version in runtime['runtime_versions'].items())}",
+              f"- **Trình quản lý gói:** {runtime['package_manager']}",
+              f"- **Cài đặt:** `{runtime['install_command']}`"]
+    if runtime.get("build_command"):
+        lines.append(f"- **Build:** `{runtime['build_command']}`")
+    if runtime.get("run_command"):
+        lines.append(f"- **Chạy:** `{runtime['run_command']}`")
+    lines += [f"- **Test:** `{runtime['test_command']}` ({runtime['test_framework']})"]
+    if runtime.get("env_vars"):
+        lines += ["- **Biến môi trường:**", *[f"  - `{name}`: {text}" for name, text in runtime["env_vars"].items()]]
+    lines += ["", "## 9. Ràng buộc toàn cục (tầng thực thi không được phá vỡ)", "",
+              "| ID | Loại | Ràng buộc |", "|---|---|---|"]
+    lines += [f"| {item['id']} | {item['category']} | {_cell(item['rule'])} |" for item in data["global_constraints"]]
+    lines += ["", "## 10. Quyết định kiến trúc"]
+    for decision in data["decisions"]:
+        lines += ["", f"**{decision['id']} · {decision['topic']}**: {decision['decision']}",
+                  f"- Lý do: {decision['rationale']}"]
+        lines += _ids_line("Phương án loại", decision.get("alternatives_rejected", []))
+    if data.get("open_assumptions"):
+        lines += ["", "### Giả định kỹ thuật còn mở", "", *[f"- {item}" for item in data["open_assumptions"]]]
+    return "\n".join(lines) + "\n"
+
+
+TASK_KIND_LABELS = {"bootstrap": "dựng khung", "feature": "chức năng", "integration": "tích hợp",
+                    "hardening": "gia cố"}
+
+
+def render_tasks(data: dict) -> str:
+    """tasks.json -> tasks.md: thứ tự thực thi, bảng task, chi tiết, ma trận phủ AC, câu hỏi mở."""
+    runtime = data.get("global_runtime_contract") or {}
+    lines = ["# Kế hoạch công việc (Project Manager)", "", data["summary"], "",
+             f"- **Workspace:** {data.get('workspace_mode', '')}",
+             f"- **Lệnh test chuẩn:** `{runtime.get('test_command', '')}`", "",
+             "## Thứ tự thực thi", "", " → ".join(data["execution_order"]), "",
+             "## Tổng quan task", "", "| ID | Loại | Tiêu đề | Phụ thuộc | Module | Số AC |", "|---|---|---|---|---|---|"]
+    for task in data["tasks"]:
+        lines.append(f"| {task['id']} | {TASK_KIND_LABELS.get(task['kind'], task['kind'])} | {_cell(task['title'])} | "
+                     f"{', '.join(task['depends_on']) or '—'} | {', '.join(task['module_ids'])} | "
+                     f"{len(task['acceptance_criteria_ids'])} |")
+    if data.get("milestones"):
+        lines += ["", "## Milestone", ""]
+        lines += [f"- **{m['id']} · {m['name']}**: {m['goal']} ({', '.join(m['task_ids'])})" for m in data["milestones"]]
+    lines += ["", "## Chi tiết task"]
+    for task in data["tasks"]:
+        lines += ["", f"### {task['id']} · {task['title']} ({TASK_KIND_LABELS.get(task['kind'], task['kind'])})", "",
+                  task["goal"]]
+        for label, key in (("Phụ thuộc", "depends_on"), ("Chức năng", "feature_ids"), ("Yêu cầu", "fr_ids"),
+                           ("AC", "acceptance_criteria_ids"), ("Trường hợp biên", "edge_case_ids"), ("NFR", "nfr_ids"),
+                           ("Module", "module_ids"), ("API", "api_contract_ids"), ("Data model", "data_model_ids"),
+                           ("Ràng buộc", "constraint_ids")):
+            lines += _ids_line(label, task.get(key, []))
+        lines.append(f"- **Vùng đường dẫn:** {', '.join(f'`{path}`' for path in task['target_paths'])}")
+        lines.append(f"- **Phạm vi kiểm thử:** {task['verification_scope']}")
+        if task.get("integration_notes"):
+            lines.append(f"- **Tích hợp:** {task['integration_notes']}")
+        if task.get("open_assumptions"):
+            lines += ["- **Còn mở:**", *[f"  - {item}" for item in task["open_assumptions"]]]
+    coverage: dict[str, list[str]] = {}
+    for task in data["tasks"]:
+        for ac in task["acceptance_criteria_ids"]:
+            coverage.setdefault(ac, []).append(task["id"])
+    if coverage:
+        def ac_key(value: str):
+            fr, _, ac = value.partition(".AC")
+            return (int(fr.split("-")[-1]) if fr.split("-")[-1].isdigit() else 0, int(ac) if ac.isdigit() else 0, value)
+        lines += ["", "## Ma trận phủ AC", "", "| AC | Task |", "|---|---|"]
+        lines += [f"| {ac} | {', '.join(coverage[ac])} |" for ac in sorted(coverage, key=ac_key)]
+    if data.get("open_questions"):
+        lines += ["", "## Câu hỏi mở", "", *[f"- {item}" for item in data["open_questions"]]]
+    return "\n".join(lines) + "\n"

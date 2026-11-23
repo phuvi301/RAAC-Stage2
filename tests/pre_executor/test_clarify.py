@@ -177,7 +177,7 @@ def test_cli_takes_the_request_like_the_tui_and_drives_clarify(tmp_path, capsys)
     assert (repo / ".raac/pre_executor/answers.md").is_file() and (repo / ".raac/.gitignore").read_text() == "*\n"
 
     assert cli.main(["clarify", "--workspace", str(repo), "--prompt", "Việc khác"], open_runtime=open_runtime) == 2
-    assert cli.main(["requirements", "--workspace", str(repo)]) == 2  # chưa triển khai / clarify chưa xong
+    assert cli.main(["requirements", "--workspace", str(repo)]) == 2  # clarify chưa xong
     for command in (["approve", "clarify"], ["review", "clarify"], ["revise", "clarify", "--note", "x"]):
         assert cli.main([*command, "--workspace", str(repo)]) == 2  # clarify không có góp ý/approve
 
@@ -186,7 +186,9 @@ def test_cli_takes_the_request_like_the_tui_and_drives_clarify(tmp_path, capsys)
     assert cli.main(["status", "--workspace", str(repo)]) == 0
     lines = capsys.readouterr().out.splitlines()
     assert lines[0].split()[:2] == ["clarify", "approved"] and lines[1].split()[:2] == ["requirements", "missing"]
-    assert "chưa triển khai" not in lines[2] and "chưa triển khai" in lines[3]  # profile đã có, tech_select chưa
+    assert [line.split()[0] for line in lines] == ["clarify", "requirements", "profile", "solution_architect",
+                                                  "project_manager"]
+    assert not any("chưa triển khai" in line for line in lines)  # cả 5 flow đã triển khai
 
 
 def test_cli_without_any_request_is_refused(tmp_path):

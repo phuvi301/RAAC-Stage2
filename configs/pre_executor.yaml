@@ -1,4 +1,4 @@
-version: pre-executor-v1
+version: pre-executor-v2
 # Số lần cho role chạy lại khi đầu ra sai schema hoặc luật kiểm bằng code.
 max_flow_retries: 2
 # Số vòng hỏi lại tối đa của flow clarify.
@@ -8,7 +8,6 @@ max_clarify_rounds: 5
 models:
   clarify: ""
   requirements: ""
-  tech_select: ""
-  architecture: ""
-  environment: ""
-  task_decomposer: ""
+  profile: ""
+  solution_architect: ""
+  project_manager: ""

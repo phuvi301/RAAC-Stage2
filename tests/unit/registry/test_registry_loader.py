@@ -30,7 +30,7 @@ def test_real_registry_loads():
     registry = load_registry(REAL_REGISTRY)
     assert set(REQUIRED_CORE_ROLES) <= set(registry.roles)
     assert {r.id for r in registry.roles_in_group(RoleGroup.CORE)} == (
-        set(REQUIRED_CORE_ROLES) | {"environment", "hub", "router"}
+        set(REQUIRED_CORE_ROLES) | {"architect", "environment", "hub", "router"}
     )
     assert registry.roles_in_group(RoleGroup.EXTENDED) == []
     assert registry.version == read_registry_version(REAL_REGISTRY)
