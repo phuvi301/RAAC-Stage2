@@ -86,17 +86,22 @@ def _cell(text: str) -> str:
     return str(text).replace("|", r"\|").replace("\n", " ")
 
 
-def render_requirements(data: dict) -> str:
-    """requirements.json -> requirements.md để người dùng đọc, góp ý, duyệt (nguồn sự thật vẫn là json)."""
+def _features_note(item: dict) -> str:
+    return f" _({', '.join(item['feature_ids'])})_" if item.get("feature_ids") else " _(toàn hệ thống)_"
+
+
+def render_ba_spec(data: dict) -> str:
+    """ba_spec.json -> ba_spec.md để người dùng đọc, góp ý, duyệt (nguồn sự thật vẫn là json)."""
     overview = data["overview"]
-    lines = ["# Yêu cầu sản phẩm", "", "## Tổng quan", "", overview["summary"], "",
+    lines = ["# Đặc tả nghiệp vụ (Business Analyst)", "", "## Tổng quan", "", overview["summary"], "",
              f"- **Mục tiêu:** {overview['product_goal']}",
              f"- **Người dùng:** {', '.join(overview['target_users'])}"]
     if overview.get("platforms"):
         lines.append(f"- **Nền tảng:** {', '.join(overview['platforms'])}")
     if overview.get("scope"):
         lines.append(f"- **Phạm vi bản đầu:** {overview['scope']}")
-    lines += ["", "## Chức năng cốt lõi"]
+    rules = data.get("business_rules", [])
+    lines += ["", "## Chức năng"]
     for feature in data["features"]:
         lines += ["", f"### {feature['id']} · {feature['name']} — ưu tiên "
                       f"{PRIORITY.get(feature['priority'], feature['priority'])}", "", feature["description"]]
@@ -106,43 +111,6 @@ def render_requirements(data: dict) -> str:
             lines.append(f"- **Kiểm độc lập:** {feature['independent_test']}")
         if feature.get("sources"):
             lines.append(f"- **Căn cứ:** {', '.join(feature['sources'])}")
-    if data.get("success_criteria"):
-        lines += ["", "## Tiêu chí thành công", "", "| ID | Kết quả | Đo bằng |", "|---|---|---|"]
-        lines += [f"| {sc['id']} | {_cell(sc['outcome'])} | {_cell(sc['metric'])} |" for sc in data["success_criteria"]]
-    if data.get("key_entities"):
-        lines += ["", "## Thực thể chính", ""]
-        for entity in data["key_entities"]:
-            detail = "; ".join(part for part in (", ".join(entity.get("attributes", [])),
-                                                 ", ".join(entity.get("relations", []))) if part)
-            lines.append(f"- **{entity['name']}**: {entity['description']}" + (f" ({detail})" if detail else ""))
-    nfrs = data.get("non_functional_requirements", [])
-    if nfrs:
-        lines += ["", "## Yêu cầu phi chức năng", "", "| ID | Loại | Yêu cầu | Đo bằng |", "|---|---|---|---|"]
-        for nfr in nfrs:
-            lines.append(f"| {nfr['id']} | {nfr['category']} | {_cell(nfr['requirement'])} | {_cell(nfr['metric'])} |")
-    for title, key in (("Ràng buộc", "constraints"), ("Ngoài phạm vi", "out_of_scope"), ("Câu hỏi mở", "open_questions")):
-        if data.get(key):
-            lines += ["", f"## {title}", "", *[f"- {item}" for item in data[key]]]
-    if data.get("assumptions"):
-        lines += ["", "## Giả định", ""]
-        lines += [f"- {item['text']}" + (f" _(từ {item['clarification_id']})_" if item.get("clarification_id") else "")
-                  for item in data["assumptions"]]
-    return "\n".join(lines) + "\n"
-
-
-def render_profile(data: dict) -> str:
-    """requirement_profile.json -> .md: từng chức năng với yêu cầu chi tiết + AC, rồi user flow, quy tắc, NFR."""
-    overview = data["overview"]
-    lines = ["# Hồ sơ yêu cầu (Requirement Profile)", "",
-             "> Tổng quan, tên/mô tả chức năng (F-n), tiêu chí thành công, NFR, ràng buộc và giả định được chép nguyên "
-             "từ requirements đã duyệt: muốn đổi những phần đó, góp ý ở bước requirements (dòng lệnh: `revise requirements`, rồi "
-             "duyệt lại và chạy lại profile). Góp ý ở bước này chỉ đổi user flow, quy tắc nghiệp vụ, "
-             "yêu cầu chi tiết, AC và trường hợp biên.", "", overview["summary"], "",
-             f"- **Mục tiêu:** {overview['product_goal']}", f"- **Người dùng:** {', '.join(overview['target_users'])}"]
-    rules = data.get("business_rules", [])
-    for feature in data["features"]:
-        lines += ["", f"## {feature['id']} · {feature['name']} ({PRIORITY.get(feature['priority'], feature['priority'])})",
-                  "", feature["description"]]
         for fr in [fr for fr in data["functional_requirements"] if fr["feature_id"] == feature["id"]]:
             lines += ["", f"**{fr['id']}** ({PRIORITY.get(fr['priority'], fr['priority'])}): {fr['description']}"]
             lines += [f"- {ac['id']}: **Cho** {ac['given']}, **khi** {ac['when']}, **thì** {ac['then']}"
@@ -158,15 +126,37 @@ def render_profile(data: dict) -> str:
     for flow in data["user_flows"]:
         lines += ["", f"**{flow['id']} · {flow['name']}** — {flow['actor']} ({', '.join(flow['feature_ids'])})",
                   *[f"{number}. {step}" for number, step in enumerate(flow["steps"], start=1)]]
+    if data.get("success_criteria"):
+        lines += ["", "## Tiêu chí thành công", "", "| ID | Kết quả | Đo bằng |", "|---|---|---|"]
+        lines += [f"| {sc['id']} | {_cell(sc['outcome'])} | {_cell(sc['metric'])} |" for sc in data["success_criteria"]]
+    if data.get("key_entities"):
+        lines += ["", "## Thực thể chính", ""]
+        for entity in data["key_entities"]:
+            detail = "; ".join(part for part in (", ".join(entity.get("attributes", [])),
+                                                 ", ".join(entity.get("relations", []))) if part)
+            lines.append(f"- **{entity.get('id', '')} · {entity['name']}**: {entity['description']}"
+                         + (f" ({detail})" if detail else ""))
     nfrs = data.get("non_functional_requirements", [])
     if nfrs:
-        lines += ["", "## Yêu cầu phi chức năng", "", "| ID | Loại | Yêu cầu | Đo bằng |", "|---|---|---|---|"]
-        lines += [f"| {n['id']} | {n['category']} | {_cell(n['requirement'])} | {_cell(n['metric'])} |" for n in nfrs]
-    for title, key in (("Ràng buộc", "constraints"), ("Ngoài phạm vi", "out_of_scope"), ("Câu hỏi mở", "open_questions")):
+        lines += ["", "## Yêu cầu phi chức năng", "", "| ID | Loại | Yêu cầu | Đo bằng | Chức năng |",
+                  "|---|---|---|---|---|"]
+        lines += [f"| {n['id']} | {n['category']} | {_cell(n['requirement'])} | {_cell(n['metric'])} | "
+                  f"{', '.join(n.get('feature_ids', [])) or 'toàn hệ thống'} |" for n in nfrs]
+    if data.get("external_integrations"):
+        lines += ["", "## Tích hợp ngoài", "", "| ID | Dịch vụ | Mục đích | Khi lỗi | Chức năng |", "|---|---|---|---|---|"]
+        lines += [f"| {i['id']} | {_cell(i['name'])} | {_cell(i['purpose'])} | {_cell(i.get('failure_behavior') or '—')} | "
+                  f"{', '.join(i.get('feature_ids', [])) or 'toàn hệ thống'} |" for i in data["external_integrations"]]
+    for title, key in (("Ràng buộc", "constraints"), ("Ngoài phạm vi", "out_of_scope")):
         if data.get(key):
             lines += ["", f"## {title}", "", *[f"- {item}" for item in data[key]]]
     if data.get("assumptions"):
-        lines += ["", "## Giả định", "", *[f"- {item['text']}" for item in data["assumptions"]]]
+        lines += ["", "## Giả định", ""]
+        lines += [f"- {item['text']}" + (f" _(từ {item['clarification_id']})_" if item.get("clarification_id") else "")
+                  + _features_note(item) for item in data["assumptions"]]
+    if data.get("open_questions"):
+        lines += ["", "## Câu hỏi mở", ""]
+        lines += [f"- {item['id']}: {item['text']}{_features_note(item)}" if isinstance(item, dict) else f"- {item}"
+                  for item in data["open_questions"]]
     return "\n".join(lines) + "\n"
 
 
@@ -208,6 +198,7 @@ def render_solution_architecture(data: dict) -> str:
             lines += [f"| {_cell(field['name'])} | {_cell(field['field_type'])} | {_cell(field.get('constraints', ''))} |"
                       for field in model["fields"]]
             lines += _ids_line("Quan hệ", model.get("relations", []))
+            lines += _ids_line("Thực thể BA", model.get("entity_ids", []))
     if data.get("api_contracts"):
         lines += ["", "## 6. Hợp đồng giao tiếp"]
         for contract in data["api_contracts"]:
@@ -219,6 +210,7 @@ def render_solution_architecture(data: dict) -> str:
                 lines.append(f"- **Ra:** {contract['response_or_output']}")
             lines += _ids_line("Lỗi", contract.get("error_cases", []))
             lines += _ids_line("Yêu cầu", contract.get("fr_ids", []))
+            lines += _ids_line("Tích hợp ngoài", contract.get("integration_ids", []))
     security = data.get("security_architecture") or {}
     lines += ["", "## 7. Kiến trúc bảo mật", ""]
     shown = False

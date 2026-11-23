@@ -1,7 +1,7 @@
 """Flow solution_architect -> role `solution_architect` (Solution Architect, tầng Macro).
 
 Thay cho tech_select + architecture + phần runtime/test mục tiêu của environment (các stub cũ).
-Vào:  đặc tả BA đã duyệt (artifacts.read_ba_spec(): requirement_profile.json, hoặc ba_spec.json nếu có) + request +
+Vào:  đặc tả BA đã duyệt (artifacts.read_ba_spec(): ba_spec.json; requirement_profile.json của workspace cũ) + request +
       Clarification + workspace_mode (greenfield/brownfield, tính bằng code) + góp ý; khi revise thêm bản nháp hiện tại.
 Ra:   solution_architecture.json (+ .md): tech stack, thư mục, module MOD-n, data model DM-n, hợp đồng API-n, kiến trúc
       bảo mật, runtime/test contract, ràng buộc toàn cục CON-n (chỉ-đọc với tầng Micro L1–L3), quyết định ADR-n.
@@ -10,7 +10,10 @@ Luật (bằng code): id MOD/DM/API/CON/ADR duy nhất; tên module/thư viện/
 đường dẫn tương đối POSIX; module chỉ phụ thuộc module có thật, không tự phụ thuộc, không vòng; mọi F-n có module phụ
 trách và module chỉ trỏ F-n có thật; data model/API trỏ module có thật; API trỏ FR-n có thật; NFR trong
 security_architecture có thật; có NFR security thì security_architecture phải nhắc đủ id và có nội dung; env_vars
-không chứa giá trị trông như secret thật. Ràng buộc brownfield (giữ stack hiện có) nằm ở prompt, không kiểm cứng.
+không chứa giá trị trông như secret thật. Khi BA có id ENT-n/INT-n: data_model.entity_ids chỉ trỏ ENT có thật và mọi
+ENT được một data model (entity_ids) hoặc module (owns_entities) nhận; api_contract.integration_ids chỉ trỏ INT có thật
+và mọi INT có hợp đồng phủ (workspace cũ không có id thì bỏ qua). Ràng buộc brownfield (giữ stack hiện có) nằm ở
+prompt, không kiểm cứng.
 """
 
 import re
@@ -40,6 +43,8 @@ def check_against(ba_spec: dict, mode: str = "greenfield"):
     frs = {fr["id"] for fr in ba_spec.get("functional_requirements", [])}
     nfrs = {nfr["id"] for nfr in ba_spec.get("non_functional_requirements", [])}
     security = security_nfr_ids(ba_spec)
+    entities = [e["id"] for e in ba_spec.get("key_entities", []) if isinstance(e, dict) and e.get("id")]
+    integrations = [i["id"] for i in ba_spec.get("external_integrations", []) if isinstance(i, dict) and i.get("id")]
 
     def check(output: SolutionArchitectureOutput) -> list[str]:
         problems = duplicates("module id", [m.id for m in output.modules])
@@ -84,6 +89,24 @@ def check_against(ba_spec: dict, mode: str = "greenfield"):
             missing = [frid for frid in contract.fr_ids if frid not in frs]
             if missing:
                 problems.append(f"API contract {contract.id} refers to unknown functional requirements {missing}")
+
+        if entities:
+            for model in output.data_models:
+                unknown = [eid for eid in model.entity_ids if eid not in entities]
+                if unknown:
+                    problems.append(f"data model {model.id} refers to unknown entities {unknown}")
+            mapped = ({eid for model in output.data_models for eid in model.entity_ids}
+                      | {eid for module in output.modules for eid in module.owns_entities})
+            problems += [f"entity {eid} is not mapped to any data model entity_ids or module owns_entities"
+                         for eid in entities if eid not in mapped]
+        if integrations:
+            for contract in output.api_contracts:
+                unknown = [iid for iid in contract.integration_ids if iid not in integrations]
+                if unknown:
+                    problems.append(f"API contract {contract.id} refers to unknown integrations {unknown}")
+            served = {iid for contract in output.api_contracts for iid in contract.integration_ids}
+            problems += [f"integration {iid} is not covered by any API contract integration_ids"
+                         for iid in integrations if iid not in served]
 
         architecture = output.security_architecture
         missing = [nid for nid in architecture.nfr_ids if nid not in nfrs]

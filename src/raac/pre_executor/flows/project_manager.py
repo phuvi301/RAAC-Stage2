@@ -6,14 +6,15 @@ Vào:  đặc tả BA đã duyệt (artifacts.read_ba_spec()) + solution_archite
 Ra:   tasks.json (+ tasks.md): DAG các task T1..Tn với metadata khách quan (kind, depends_on, id tham chiếu về BA/SA,
       target_paths, verification_scope, integration_notes, open_assumptions). Sau khi kiểm, CODE (không qua model)
       tính execution_order (topo, tái lập) và cắt context_slice cho từng task từ BA + SA, chép nguyên
-      global_tech_stack / global_runtime_contract.
+      global_tech_stack / global_runtime_contract. assumptions, open_questions (OQ-n), external_integrations (INT-n)
+      của BA được lọc theo feature_ids của task (mục không gắn feature = toàn cục, luôn giữ).
 PM KHÔNG chấm 4 điểm (Complexity, Ambiguity, Architecture Impact, Security), không gán level hay risk: việc của
 Requirement Analyzer just-in-time và Controller ở vòng lặp downstream (TaskSpec extra="forbid" chặn các trường đó).
 Luật (bằng code): id/tiêu đề task và id milestone duy nhất; depends_on trỏ task có thật, không tự trỏ, không vòng, có
 task gốc; greenfield: có task bootstrap gốc và mọi task khác phụ thuộc (trực tiếp/gián tiếp) vào bootstrap; target_paths
 tương đối; id tham chiếu có thật trong BA/SA; AC FR-k.ACm kéo theo FR-k; milestone trỏ task có thật, mỗi task tối đa
-một milestone; phủ 100% AC, MOD, NFR security, EC của feature ưu tiên cao; không gộp cả dự án lớn vào một task; task
-feature có FR hoặc AC.
+một milestone; phủ 100% AC, MOD, NFR security, EC của feature ưu tiên cao; NFR security gắn feature_ids phải nằm ở
+ít nhất một task chạm đúng feature đó; không gộp cả dự án lớn vào một task; task feature có FR hoặc AC.
 """
 
 import heapq
@@ -47,6 +48,20 @@ def _ids(items) -> set[str]:
 
 def _acceptance_ids(ba_spec: dict) -> list[str]:
     return [ac["id"] for fr in ba_spec.get("functional_requirements", []) for ac in fr.get("acceptance_criteria", [])]
+
+
+def _scoped(items, features: set[str]) -> list:
+    """Mục toàn cục (không có feature_ids; chuỗi kiểu cũ) hoặc gắn với một feature của task."""
+    kept = []
+    for item in items or []:
+        scope = item.get("feature_ids") if isinstance(item, dict) else None
+        if not scope or set(scope) & features:
+            kept.append(item)
+    return kept
+
+
+def _text(item) -> str:
+    return item["text"] if isinstance(item, dict) else str(item)
 
 
 def _ancestors(task_id: str, graph: dict[str, list[str]]) -> set[str]:
@@ -139,6 +154,13 @@ def check_against(ba_spec: dict, sa_data: dict, mode: str = "greenfield"):
         problems += [f"module {mid} is not covered by any task" for mid in modules if mid not in covered_modules]
         covered_nfrs = {nid for task in tasks for nid in task.nfr_ids}
         problems += [f"security NFR {nid} is not covered by any task" for nid in security if nid not in covered_nfrs]
+        for nfr in ba_spec.get("non_functional_requirements", []):
+            scope = set(nfr.get("feature_ids") or [])
+            holders = [task for task in tasks if nfr["id"] in task.nfr_ids]
+            if nfr.get("category") == "security" and scope and holders and not any(
+                    scope & set(task.feature_ids) for task in holders):
+                problems.append(f"security NFR {nfr['id']} belongs to features {sorted(scope)}: put it on a task "
+                                "that covers one of them")
         covered_cases = {cid for task in tasks for cid in task.edge_case_ids}
         problems += [f"edge case {cid} of high-priority feature {case['feature_id']} is not covered by any task"
                      for cid, case in edge_cases.items()
@@ -182,10 +204,13 @@ def build_context_slice(task: dict, ba_spec: dict, sa_data: dict) -> dict:
                    if item["id"] in task["constraint_ids"] or item["category"] in SHARED_CONSTRAINT_CATEGORIES]
     architecture = sa_data.get("security_architecture") or {}
     security_nfrs = set(security_nfr_ids(ba_spec)) | set(architecture.get("nfr_ids", []))
+    features = set(task["feature_ids"])
+    scoped_security = {fid for nfr in ba_spec.get("non_functional_requirements", [])
+                       if nfr.get("category") == "security" for fid in nfr.get("feature_ids") or []}
     touches_security = (bool(security_nfrs & set(task["nfr_ids"]))
                         or any(item["category"] == "security" for item in sa_data.get("global_constraints", [])
-                               if item["id"] in task["constraint_ids"]))
-    features = set(task["feature_ids"])
+                               if item["id"] in task["constraint_ids"])
+                        or bool(scoped_security & features))
     return {
         "features": _pick(ba_spec.get("features"), task["feature_ids"]),
         "functional_requirements": _pick(ba_spec.get("functional_requirements"), task["fr_ids"]),
@@ -197,8 +222,10 @@ def build_context_slice(task: dict, ba_spec: dict, sa_data: dict) -> dict:
         "data_models": _pick(sa_data.get("data_models"), task["data_model_ids"]),
         "global_constraints": constraints,
         "security_architecture": architecture if touches_security and architecture else None,
-        "relevant_assumptions": [*(item["text"] if isinstance(item, dict) else str(item)
-                                   for item in ba_spec.get("assumptions", [])), *task["open_assumptions"]],
+        "external_integrations": _scoped(ba_spec.get("external_integrations"), features),
+        "relevant_assumptions": [*(_text(item) for item in _scoped(ba_spec.get("assumptions"), features)),
+                                 *task["open_assumptions"]],
+        "relevant_open_questions": [_text(item) for item in _scoped(ba_spec.get("open_questions"), features)],
     }
 
 

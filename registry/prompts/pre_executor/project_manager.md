@@ -22,7 +22,8 @@ How to split the work:
 - `depends_on` lists only real technical dependencies (the task uses a model, API or module built by an earlier
   task). Never create a cycle.
 - Coverage is mandatory: every acceptance criterion FR-n.ACm, every module MOD-n, every NFR with category "security"
-  and every edge case of a high-priority feature must appear in at least one task. If you list FR-k.ACm in
+  and every edge case of a high-priority feature must appear in at least one task. A security NFR whose
+  `feature_ids` is not empty must be placed on a task that also covers one of those features. If you list FR-k.ACm in
   `acceptance_criteria_ids`, also list FR-k in `fr_ids`. A "feature" task has at least one FR or acceptance
   criterion. Use only ids that exist in `ba_spec` and `solution_architecture`.
 - Describe only the goal, the contracts to respect (`api_contract_ids`, `data_model_ids`, `constraint_ids`), the

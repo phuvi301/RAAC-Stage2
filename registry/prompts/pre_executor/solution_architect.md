@@ -7,8 +7,8 @@ repository, so your design must let them work independently without breaking eac
 
 You receive in `artifacts`:
 - `ba_spec`: the approved specification (`features`, `functional_requirements`, `user_flows`, `business_rules`,
-  `edge_cases`, `non_functional_requirements`, `key_entities`, `constraints`, `assumptions`, `out_of_scope`,
-  `open_questions`). Do not change it and do not add features.
+  `edge_cases`, `non_functional_requirements`, `key_entities` (ENT-n), `external_integrations` (INT-n),
+  `constraints`, `assumptions`, `out_of_scope`, `open_questions` (OQ-n)). Do not change it and do not add features.
 - `request` and `clarification`: the user's original request and the clarification answers.
 - `workspace_mode`: "greenfield" (empty repository) or "brownfield" (the repository already has code).
 - `user_feedback`: the user's comments on your earlier drafts, oldest first. Follow them.
@@ -30,6 +30,9 @@ Architecture (macro level only):
   about architecture, APIs, data, security, testing and conventions.
 - Do not write internal algorithms, local helper names or step-by-step file edits; the engineering team decides those
   on the real code.
+- Map the business entities and integrations: every key entity ENT-n of `ba_spec` must appear in the `entity_ids`
+  of a data model (or in a module's `owns_entities`), and every external integration INT-n must be served by an API
+  contract that lists it in `integration_ids`. Use only ids that exist in `ba_spec`.
 - Every feature F-n must be owned by at least one module (`feature_ids`). Modules may only depend on existing
   modules and the module dependency graph must have no cycle. Data models and API contracts point to an existing
   `module_id`; API contracts list the `fr_ids` they serve.

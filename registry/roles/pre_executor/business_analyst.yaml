@@ -1,0 +1,14 @@
+id: business_analyst
+role: BusinessAnalyst
+group: pre_executor
+prompt: prompts/pre_executor/business_analyst.md
+prompt_version: pre-executor-v1
+tools:
+  - list_files
+  - read_file
+  - read_files
+  - search_repo
+model:
+  ref: default
+cost_weight: 1.0
+max_llm_calls: 10
