@@ -61,10 +61,27 @@ giữa agent. L4 hiện chỉ có stub và lựa chọn mock trong TUI.
 ├── src/raac/
 │   ├── mas_cli.py                    # raac-mas: run-local, tui, run-chain, show-log
 │   ├── cli.py                        # raac: sandbox và benchmark L1–L3
-│   ├── tui/                          # Textual UI, extra tùy chọn [tui]
+│   ├── tui/                          # Textual UI cho MAS, extra tùy chọn [tui]
 │   │   ├── app.py                    # chọn L1–L4/topology, panel, approval, history
 │   │   ├── bridge.py                 # worker asyncio, queue thông báo, hủy run
 │   │   └── state.py                  # replay JSONL, gộp delta, state có giới hạn
+│   ├── pre_executor/                 # tầng Macro trước MAS (python -m raac.pre_executor)
+│   │   ├── cli.py                    # clarify, business_analyst, solution_architect, project_manager, review/revise/approve/status/tui
+│   │   ├── tui.py                    # giao diện Textual cho clarify và duyệt bản nháp
+│   │   ├── runtime.py                # dựng AgentRunner, LLMClient, tool và trace dùng chung
+│   │   ├── contracts.py              # schema đầu vào/đầu ra các flow
+│   │   ├── artifacts.py              # đọc/ghi artifact trong .raac/pre_executor/
+│   │   ├── gate.py                   # duyệt, hash chống sửa và vô hiệu hóa flow sau
+│   │   ├── render.py                 # dựng answers.md và bản .md từng flow
+│   │   ├── config.py                 # đọc configs/pre_executor.yaml
+│   │   ├── events.py                 # sự kiện quan sát flow cho CLI/TUI
+│   │   └── flows/                    # base, _checks, clarify, business_analyst, solution_architect, project_manager
+│   ├── ra/                           # Requirement Analyzer (python -m raac.ra)
+│   │   ├── cli.py                    # analyze, show, sync-rubric
+│   │   ├── analyze.py                # chấm task theo RAAC 4-Axis Rubric v1.0 (C/T/S/A)
+│   │   ├── context.py                # trích ngữ cảnh liên quan từ ba_spec và outline SA
+│   │   ├── contracts.py              # schema requirement_profile và kiểm tra luật
+│   │   └── render.py                 # dựng requirement_profile.md
 │   ├── llm/                          # client 9router / Chat Completions dùng chung
 │   │   ├── config.py                 # endpoint, model/profile và secret từ môi trường
 │   │   ├── client.py                 # HTTPX, retry, usage guard và trace
@@ -75,27 +92,29 @@ giữa agent. L4 hiện chỉ có stub và lựa chọn mock trong TUI.
 │   ├── registry/
 │   │   ├── loader.py                 # nạp Registry, prompt và version/hash
 │   │   ├── models.py                 # schema role/tool/model
-│   │   └── output_formats.py          # kiểm tra output và unified diff
+│   │   └── output_formats.py         # kiểm tra output và unified diff
 │   ├── harness/
 │   │   ├── agent.py                  # lắp một agent từ Registry và runner
-│   │   ├── layer1_lifecycle/          # Reason–Act–Observe, approval và checkpoint
+│   │   ├── layer1_lifecycle/         # Reason–Act–Observe, approval và checkpoint
 │   │   │   ├── agent.py              # AgentRunner, guard, tool receipt, finalize
 │   │   │   ├── event_loop.py
 │   │   │   ├── state_machine.py
 │   │   │   ├── approval.py
 │   │   │   └── checkpoint.py
-│   │   ├── layer2_core/              # context, prompt, memory, schema/message filter
+│   │   ├── layer2_core/              # context, metrics, command output, prompt hydrator
 │   │   │   └── memory/               # short-term; long-term/retriever còn stub
-│   │   ├── layer3_execution/          # tool orchestration, quyền và giới hạn thực thi
+│   │   ├── layer3_execution/         # tool orchestration, quyền và giới hạn thực thi
 │   │   │   ├── local_executor.py     # subprocess local, timeout, stdout/stderr
 │   │   │   ├── local_test_runner.py  # báo cáo test quan sát được
 │   │   │   ├── docker_execution.py   # adapter thực thi trong Docker
-│   │   │   ├── tool_orchestrator.py
-│   │   │   ├── tools/                # workspace, file, patch, search, test, môi trường
-│   │   │   ├── sandbox/              # Docker, batch/resume, cache, network, policy
-│   │   │   ├── guardrails/
+│   │   │   ├── environment.py        # nhận diện môi trường runtime/test
+│   │   │   ├── env_provisioner.py    # chuẩn bị môi trường cho workspace
+│   │   │   ├── tool_orchestrator.py  # điều phối tool và tool_errors.py
+│   │   │   ├── tools/                # workspace, docker_workspace, patching, paths
+│   │   │   ├── sandbox/              # Docker, batch/resume, cache, network, policy, wasm stub
+│   │   │   ├── guardrails/           # input_filter, output_filter, validators
 │   │   │   └── cost_control.py       # token budget và deadline
-│   │   └── layer4_connectors/        # interface connector; A2A còn stub
+│   │   └── layer4_connectors/        # interface connector (base, mcp_client); A2A còn stub
 │   ├── collaboration/
 │   │   ├── engine.py                 # Engine dùng chung; L1/L2 local đi qua đây
 │   │   ├── graph_builder.py          # dựng LangGraph từ hợp đồng level
@@ -108,33 +127,38 @@ giữa agent. L4 hiện chỉ có stub và lựa chọn mock trong TUI.
 │   │       ├── l3_collaboration/     # coordinator, Hub, graph, handoff, limits
 │   │       └── l4_team_formation.py  # stub; chưa có orchestration L4 thật
 │   ├── common/                       # hợp đồng output, lỗi, provenance, trace/memory
-│   │   ├── tracing.py               # JSONL và subscriber sau redaction
+│   │   ├── tracing.py                # JSONL và subscriber sau redaction
 │   │   ├── trace_viewer.py           # viewer terminal
 │   │   ├── trace_web.py              # viewer HTTP chỉ đọc
 │   │   └── trace_assets/             # JS/CSS/HTML của web viewer
 │   └── benchmark/
 │       ├── dataset.py                # loader task và chọn tập dữ liệu
+│       ├── pilot_subset.py           # chọn tập con pilot
 │       ├── runner.py                 # batch task/level, record và resume
 │       ├── engine_runner.py          # adapter L1/L2 trên workspace benchmark
 │       ├── chain_runner.py           # adapter L3 trên workspace benchmark
 │       ├── harness_config.py
 │       ├── run_record.py             # schema kết quả và usage
 │       ├── observe.py
-│       ├── evaluator/               # completion; coverage/quality/conflict còn stub
-│       └── analysis/                # pilot report; cost_estimator/utility còn stub
+│       ├── evaluator/                # completion; coverage/quality/conflict còn stub
+│       └── analysis/                 # pilot report; cost_estimator/utility còn stub
 ├── registry/                         # dữ liệu role/tool/prompt, phiên bản ở VERSION
 │   ├── VERSION
 │   ├── tools.yaml
-│   ├── roles/core/                   # Analyst, Planner, Coder, Tester, Reviewer,
-│   │                                 # Router, Hub, Environment
-│   ├── roles/extended/               # catalog mở rộng; không chứng minh L4 đã chạy
-│   └── prompts/
+│   ├── roles/
+│   │   ├── core/                     # Analyst, Planner, Coder, Tester, Reviewer, Router, Hub, Environment
+│   │   ├── extended/                 # thư mục dự phòng cho catalog mở rộng (hiện trống)
+│   │   ├── pre_executor/             # clarifier, business_analyst, solution_architect, project_manager
+│   │   └── ra/                       # requirement_analyzer
+│   └── prompts/                      # prompt cho core, pre_executor/, ra/ và requirement_analyzer/ (rubric 4 trục)
 ├── configs/
 │   ├── llm.yaml                      # cấu hình LLM và profile theo role
 │   ├── harness.yaml                  # budget, timeout, context, memory, execution
+│   ├── pre_executor.yaml             # cấu hình retry, số vòng clarify và model cho pre_executor
+│   ├── ra.yaml                       # cấu hình model và retry cho Requirement Analyzer
 │   ├── levels/                       # YAML cho L1, L2, L3, L4
 │   ├── repos/                        # profile môi trường/test theo repository
-│   ├── experiments/                  # preset thực nghiệm
+│   ├── experiments/                  # preset thực nghiệm (gồm token_reduction/)
 │   └── benchmark*.yaml               # tập dữ liệu và cấu hình benchmark
 ├── tests/
 │   ├── unit/                         # Registry, Engine, harness và benchmark
@@ -143,16 +167,22 @@ giữa agent. L4 hiện chỉ có stub và lựa chọn mock trong TUI.
 │   │   ├── unit/                     # lifecycle, local/TUI, SSE và fixture 9router
 │   │   ├── integration/              # HTTP mock + command/test thật ở workspace tạm
 │   │   └── web/                      # Node tests cho trace viewer
+│   ├── pre_executor/                 # kiểm thử các flow, sự kiện và TUI pre_executor
+│   ├── ra/                           # kiểm thử Requirement Analyzer
 │   └── fixtures/
-├── scripts/                          # freeze, phân tích/profile, validation môi trường
+├── scripts/                          # freeze, phân tích/profile, chấm local, chạy lại role, validation môi trường
 ├── docker/                           # Dockerfile.sandbox và Dockerfile.bench
 ├── data/                             # dataset, evaluator, cache repo; phần lớn gitignored
 ├── results/                          # artifact benchmark/báo cáo; phần lớn gitignored
 ├── docs/
 │   ├── tui.md                        # thao tác TUI, streaming, approval và level mock
 │   ├── architecture.md               # thiết kế harness và collaboration
+│   ├── two_tier_architecture_and_proposal_eval.md  # kiến trúc 2 tầng Macro/Micro và đối chiếu proposal
 │   ├── level_definitions.md
-│   ├── l4_spec.md                     # đặc tả, không phải bằng chứng hiện thực
+│   ├── l1_fixed_workflow.md          # luồng cố định L1
+│   ├── l4_spec.md                    # đặc tả, không phải bằng chứng hiện thực
+│   ├── pre_executor_clarifier_ba_plan.md
+│   ├── pre_executor_sa_pm_plan.md
 │   ├── token_reduction.md
 │   └── implementation_checklist.md   # tiến độ, bằng chứng và giới hạn nghiệm thu
 ├── pyproject.toml                    # package, CLI entry point, extra dev/tui
@@ -160,7 +190,7 @@ giữa agent. L4 hiện chỉ có stub và lựa chọn mock trong TUI.
 ├── Makefile                          # test, pilot sandbox, freeze
 ├── .env.example                      # mẫu cấu hình, không lưu secret thật
 ├── AGENTS.md
-└── .agents/rules/progress.md          # quy tắc cập nhật tiến độ
+└── .agents/rules/progress.md         # quy tắc cập nhật tiến độ
 ```
 
 Local TUI/API dùng workspace thật và lưu artifact ngoài workspace tại
