@@ -14,7 +14,7 @@ Cách dùng file này
 - Chữ trong ngoặc cuối dòng là người phụ trách, Vũ, Vinh hoặc Tuấn, đổi lại nếu hoán đổi việc.
 - Ghi ngày cập nhật cuối mỗi khi sửa file, và ghi vấn đề phát sinh vào mục nhật ký cuối file.
 
-Cập nhật gần nhất ngày 2026-11-20
+Cập nhật gần nhất ngày 2026-11-25
 
 ---
 
@@ -486,12 +486,12 @@ Ghi chú tuần 9
 
 ### Đặc tả L4 (`docs/l4_spec.md`)
 
-- [ ] Liệt kê danh sách role mở rộng dưới dạng template trong `registry/roles/extended/`
-- [ ] Định nghĩa điều kiện kích hoạt thêm role
-- [ ] Mô tả ba thao tác thêm, bớt và thay role
-- [ ] Đặt giới hạn số agent và số lần thay đổi
-- [ ] Viết JSON schema cho quyết định về đội
-- [ ] Thêm ít nhất hai kịch bản ví dụ, chẳng hạn task phát hiện vấn đề bảo mật giữa chừng
+- [~] Liệt kê danh sách role mở rộng dưới dạng template trong `registry/roles/extended/` — 2026-11-25: đã liệt kê trong docs/l4_spec.md mục 3 (bản nháp); chưa tạo file template YAML, chờ nhóm review.
+- [~] Định nghĩa điều kiện kích hoạt thêm role — l4_spec.md mục 4 (ngưỡng là giả thuyết khởi điểm), chờ review.
+- [~] Mô tả ba thao tác thêm, bớt và thay role — l4_spec.md mục 5, chờ review.
+- [~] Đặt giới hạn số agent và số lần thay đổi — l4_spec.md mục 6 (giá trị đề xuất), chờ review.
+- [~] Viết JSON schema cho quyết định về đội — l4_spec.md mục 9; chưa có model pydantic/test, chờ review.
+- [~] Thêm ít nhất hai kịch bản ví dụ, chẳng hạn task phát hiện vấn đề bảo mật giữa chừng — l4_spec.md mục 11 (kịch bản A bảo mật giữa chừng, B xung đột ngữ nghĩa), chờ review.
 - [ ] Cả nhóm review và duyệt đặc tả trước khi sang tuần 9
 
 Tiêu chí thành công tuần 8
@@ -949,3 +949,5 @@ Ghi mỗi dòng theo dạng ngày, vấn đề hoặc quyết định, người 
 - 2026-11-23 | Theo yêu cầu Tuấn, merge origin/main (flow business_analyst/solution_architect/project_manager của Vũ) vào nhánh tuan: giải conflict bằng cách lấy pre_executor theo main, bỏ flow `spec` (`flows/spec.py`, `test_spec.py`) và role/prompt business_analyst bản tuan; giữ `models:` theo id role (FLOW_ROLES đổi sang 4 flow mới, `configs/pre_executor.yaml` khóa `clarifier`); gộp log checklist hai bên và gỡ dấu conflict cũ. Chỉnh `raac.ra` theo đầu ra mới: đọc `ba_spec.json` (gom FR/AC/feature/BR/EC/UF + NFR/INT/giả định/câu hỏi mở theo feature hoặc toàn cục; báo lỗi id AC/FR/feature/EC/NFR không có), task theo schema TaskSpec của project_manager (bỏ context_slice), kiến trúc là outline `solution_architecture.md` (tiêu đề MOD/DM/API có id); prompt ra-v2; sinh lại data `data/ra/sample` bằng schema + hydrate + render của pre_executor. | Agent hỗ trợ Tuấn | `tests/pre_executor` + `tests/ra` 211 passed. `tests/unit/registry` 17 failed giống main về số lượng; khác biệt: `test_real_registry_loads` fail vì commit c1a675e của tuan xoá role core `architect` (main còn giữ); Tuấn quyết giữ xoá, test này sẽ còn fail tới khi sửa test hoặc nhóm thống nhất. Chưa chạy model thật. Chưa commit merge (Tuấn tự commit).
 - 2026-11-23 | Theo yêu cầu Tuấn cải thiện `raac.ra` sau khi soi trace chấm T4 (run chain-e24f042a...): (1) mỗi task một `work_id` (`run_role` flow `analyze:<task>`), harness không còn nhét lượt chấm task trước vào `previous_attempt`; (2) bỏ `task_id` khỏi schema đầu ra, code gán khi lưu (trước đó model chép nhầm task_id của harness, tốn một lần chạy lại); (3) spec_context chỉ gửi NFR task trỏ tới/gắn feature của task và thực thể task chạm qua data model (fallback module) từ `solution_architecture.json`; (4) cảnh báo "không có AC" bỏ qua task bootstrap/hardening hoặc có verification_scope; (5) role chỉ còn `read_file`/`read_files`; prompt ra-v3 (đọc mục bảo mật khi task đụng xác thực/token/dữ liệu cá nhân, chỉ đọc API task nêu, các trường harness là sổ sách). | Agent hỗ trợ Tuấn | `tests/ra` 17 + `tests/pre_executor` = 212 passed. Chạy thật T4 (cc/claude-opus-5-5): 53.881/2.621 token, 2 lượt gọi (trước 103.597/4.953, 3 lượt); request user 30,3k ký tự (trước 48,5k); đọc thêm mục 7 Kiến trúc bảo mật, không đọc thừa API-3; điểm C3 T2 S5 A3 (A từ 2 lên 3, lý do hợp đồng JWT/cookie cắt ngang, confidence 0.7). Chưa làm: rubric vào system prompt (cần đổi harness). Không commit/push.
 - 2026-11-23 | Theo yêu cầu Tuấn đưa rubric của `raac.ra` từ `artifacts` sang system prompt: prompt `registry/prompts/ra/requirement_analyzer.md` (ra-v4) = hướng dẫn + marker + mục 2-7 rubric chép từ file rubric bằng lệnh mới `python -m raac.ra sync-rubric`; `analyze` từ chối chạy khi prompt lệch file rubric, test kiểm đồng bộ. Không sửa loader/harness dùng chung. Sửa thêm: work_id theo từng lần chấm (`analyze:<task>:<uuid>`) vì chấm lại cùng task vẫn nhận lần chấm cũ qua previous_attempt và model bỏ qua đọc kiến trúc. | Agent hỗ trợ Tuấn | `tests/ra` 18 + `tests/pre_executor` qua. Chạy thật T4: system 21,8k ký tự, user 15,9k (trước 7,5k/30,3k); 53.123/2.521 token, 2 lượt (trước 53.881/2.621): tổng token không giảm vì rubric chỉ đổi chỗ; 9router không báo cached_tokens nên chưa xác nhận được prompt cache có tác dụng. Một lần chạy giữa chừng model bịa factor `credentials`, luật bắt và chạy lại. Không commit/push.
+
+- 2026-11-25 | Viết bản nháp đặc tả L4 tại docs/l4_spec.md theo yêu cầu người dùng: Team Lead (LLM đề xuất) + Formation Policy (code kiểm duyệt), role mở rộng, điều kiện kích hoạt, thao tác add/remove/replace, giới hạn, JSON schema TeamDecision, board nằm trong CollaborationState, song song pha 4A (chỉ đọc) và 4B (worktree + merge + integrator), hai kịch bản, test nghiệm thu, điểm cần nhóm quyết định (Team Lead là role mới giống trường hợp Hub; phạm vi ĐACN). | Agent hỗ trợ | Chỉ là tài liệu, chưa có test hay code; các ngưỡng/trần là giá trị đề xuất. Chưa có nhóm review nên giữ mục Cả nhóm review và duyệt đặc tả là [ ] và chưa hiện thực L4; không commit/push.
